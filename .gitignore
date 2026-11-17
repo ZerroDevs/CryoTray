@@ -15,3 +15,5 @@ obj/
 *_running.*
 *_old.*
 build-check/*
+publish/
+Installer/Output/

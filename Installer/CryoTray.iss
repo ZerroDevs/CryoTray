@@ -1,0 +1,77 @@
+; CryoTray installer script (Inno Setup 6)
+; Build from the repository root with build-installer.ps1, or directly:
+;   ISCC.exe /DAppVersion=0.0.100 Installer\CryoTray.iss
+
+#ifndef AppVersion
+#define AppVersion "0.0.100"
+#endif
+
+[Setup]
+AppId={{8F3B9A12-4D6E-4C2B-9A1F-7E5D3C1B8A90}
+AppName=CryoTray
+AppVersion={#AppVersion}
+AppVerName=CryoTray {#AppVersion}
+AppPublisher=ZeroNuxi - ZerroDevs
+AppPublisherURL=https://github.com/ZerroDevs/CryoTray
+AppSupportURL=https://github.com/ZerroDevs/CryoTray/issues
+AppUpdatesURL=https://github.com/ZerroDevs/CryoTray/releases
+DefaultDirName={autopf}\CryoTray
+DefaultGroupName=CryoTray
+LicenseFile=..\LICENSE
+UninstallDisplayIcon={app}\CryoTray.exe
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+PrivilegesRequired=admin
+OutputDir=Output
+OutputBaseFilename=CryoTray-Setup-{#AppVersion}
+Compression=lzma2/ultra64
+SolidCompression=yes
+WizardStyle=modern
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Files]
+; LICENSE, NOTICE and VERSION are copied explicitly below, so exclude them from the recursive copy to avoid duplicate destinations.
+Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,LICENSE,NOTICE,VERSION"
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\VERSION"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\Resources\PawnIO_setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
+[Icons]
+Name: "{group}\CryoTray"; Filename: "{app}\CryoTray.exe"
+Name: "{autodesktop}\CryoTray"; Filename: "{app}\CryoTray.exe"; Tasks: desktopicon
+
+[Run]
+Filename: "{tmp}\PawnIO_setup.exe"; Parameters: "-install -silent"; StatusMsg: "Installing PawnIO hardware sensor driver..."; Flags: runhidden waituntilterminated; Check: not PawnIOInstalled
+Filename: "{app}\CryoTray.exe"; Description: "{cm:LaunchProgram,CryoTray}"; Flags: shellexec nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "powercfg.exe"; Parameters: "/setactive 381b4222-f694-41f0-9685-ff5bb260df2e"; Flags: runhidden; RunOnceId: "RestoreBalancedPowerPlan"
+Filename: "schtasks.exe"; Parameters: "/Delete /TN ""CryoTray"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
+
+[Code]
+function PawnIOInstalled: Boolean;
+begin
+  Result := RegKeyExists(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Services\PawnIO');
+end;
+
+procedure StopCryoTray;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM CryoTray.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function InitializeSetup: Boolean;
+begin
+  StopCryoTray;
+  Result := True;
+end;
+
+function InitializeUninstall: Boolean;
+begin
+  StopCryoTray;
+  Result := True;
+end;

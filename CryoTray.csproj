@@ -25,6 +25,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Packaged by Inno Setup straight from Resources\; never part of build or publish output. -->
+    <None Update="Resources\PawnIO_setup.exe" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <None Update="Resources\CryoTray.txt" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
     <EmbeddedResource Include="Resources\CryoTray.pow" />
     <None Include="VERSION" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
