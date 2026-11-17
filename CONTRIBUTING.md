@@ -119,6 +119,13 @@ feat(telemetry): add per-core CPU power readout support
 fix(tray): prevent tooltip cutoff when merged badge is active
 ```
 
+### 7. Versioning Scheme (`VERSION`)
+CryoTray uses three-part semantic versioning rooted at `0.0.100`:
+- **Current Baseline**: `0.0.100` (defined in the root `VERSION` file).
+- **Subsequent Updates**: Increment sequentially (`0.0.101`, `0.0.102`, `0.0.103`, etc.).
+- **Automatic Stamping**: `CryoTray.csproj` dynamically reads `VERSION` to stamp `AssemblyVersion`, `FileVersion`, and `InformationalVersion` on build.
+- **Automated Releases**: The release workflow (`.github/workflows/release.yml`) monitors changes to `VERSION` on `main` and creates matching tags (e.g., `v0.0.100`, `v0.0.101`) and release artifacts with SHA-256 digests.
+
 ---
 
 ## Pull Request Checklist
@@ -129,6 +136,7 @@ Before opening a pull request, verify:
 - [ ] All automated tests pass (`dotnet bin\Release\net8.0-windows\CryoTray.dll /test`).
 - [ ] Any new UI strings are localized in both `Strings.en.xaml` and `Strings.ar.xaml`.
 - [ ] No GDI handle leaks are introduced (verify via test or Windows Task Manager GDI Objects column).
+- [ ] If releasing an update, the patch version in `VERSION` is bumped sequentially (e.g., `0.0.100` -> `0.0.101`).
 - [ ] Commit history is clean and follows Conventional Commits.
 - [ ] `README.md` or documentation is updated if user-facing behavior changed.
 
