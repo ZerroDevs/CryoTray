@@ -1,29 +1,58 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using CryoTray.Models;
 using CryoTray.Services;
 using CryoTray.Tray;
+using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Views
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public ObservableCollection<CoreReadout> CoreItems { get; } = new();
+
         private readonly Storyboard _fanStoryboard = new();
         private DoubleAnimation? _fanAnimation;
         private int _timeframeSamples = 60; // Default 1 min
         private OverlayWindow? _overlayWindow;
+        private int _coreColumns = 4;
+
+        public int CoreColumns
+        {
+            get => _coreColumns;
+            private set
+            {
+                if (_coreColumns == value)
+                {
+                    return;
+                }
+
+                _coreColumns = value;
+                OnPropertyChanged();
+            }
+        }
 
         public MainWindow()
         {
             InitializeComponent();
+            DataContext = this;
+            CpuCoresPopup.Opened += CpuCoresPopup_Opened;
             SetupFanAnimation();
 
             Loaded += MainWindow_Loaded;
@@ -219,9 +248,9 @@ namespace CryoTray.Views
             DrawCpuChart();
             DrawGpuChart(snapshot);
 
-            if (CpuCoresPopup != null && CpuCoresPopup.IsOpen)
+            if (CpuCoresPopup.IsOpen)
             {
-                UpdateCpuCoresPopup(snapshot);
+                UpdateCpuCoreItems(snapshot);
             }
         }
 
@@ -677,11 +706,7 @@ namespace CryoTray.Views
 
         private void CpuTempHoverZone_MouseEnter(object sender, MouseEventArgs e)
         {
-            var snapshot = HardwareMonitorService.Instance.CurrentSnapshot;
-            if (snapshot != null)
-            {
-                UpdateCpuCoresPopup(snapshot);
-            }
+            UpdateCpuCoreItems(HardwareMonitorService.Instance.CurrentSnapshot);
             CpuCoresPopup.IsOpen = true;
         }
 
@@ -690,65 +715,126 @@ namespace CryoTray.Views
             CpuCoresPopup.IsOpen = false;
         }
 
-        private void UpdateCpuCoresPopup(HardwareSnapshot snapshot)
+        private void UpdateCpuCoreItems(HardwareSnapshot snapshot)
         {
-            if (snapshot == null || snapshot.CpuCoresTelemetry == null || snapshot.CpuCoresTelemetry.Count == 0) return;
+            var cores = snapshot.CpuCoresTelemetry;
+            if (cores.Count == 0)
+            {
+                return;
+            }
 
             var s = SettingsService.Instance.Current;
             bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
             string unit = isFahrenheit ? "°F" : "°C";
 
-            var cores = snapshot.CpuCoresTelemetry;
-            int total = cores.Count;
-            int cols = 4;
-            int rows = (int)Math.Ceiling(total / (double)cols);
+            CoreColumns = cores.Count <= 16 ? 4 : 6;
 
-            CoreTempsGrid.Columns = cols;
-            CoreTempsGrid.Rows = rows;
-            CoreTempsGrid.Children.Clear();
-
-            int maxTemp = -999;
-            foreach (var c in cores)
+            CoreItems.Clear();
+            foreach (var core in cores)
             {
-                double t = isFahrenheit ? (c.Temperature * 9 / 5 + 32) : c.Temperature;
-                int intT = (int)Math.Round(t);
-                if (intT > maxTemp) maxTemp = intT;
+                int displayTemp = isFahrenheit
+                    ? (int)Math.Round((core.DisplayTemp * 9 / 5.0) + 32)
+                    : core.DisplayTemp;
+
+                CoreItems.Add(new CoreReadout
+                {
+                    Text = $"{core.Name} {displayTemp}{unit}",
+                    IsHottest = core.IsHottest
+                });
             }
 
-            for (int i = 0; i < total; i++)
+            PositionCorePopup();
+        }
+
+        private void CpuCoresPopup_Opened(object? sender, EventArgs e)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(PositionCorePopup));
+        }
+
+        private void PositionCorePopup()
+        {
+            if (!CpuCoresPopup.IsOpen)
             {
-                var core = cores[i];
-                double t = isFahrenheit ? (core.Temperature * 9 / 5 + 32) : core.Temperature;
-                int intT = (int)Math.Round(t);
-                bool isHottest = (intT == maxTemp);
-
-                int col = i % cols;
-                int row = i / cols;
-
-                var border = new Border
-                {
-                    Background = Brushes.White,
-                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E2E2E2")),
-                    BorderThickness = new Thickness(0, 0, (col < cols - 1 ? 1 : 0), (row < rows - 1 ? 1 : 0))
-                };
-
-                var tb = new TextBlock
-                {
-                    Text = $"{core.Name} {intT}{unit}",
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1A1A")),
-                    FontSize = 11.5,
-                    FontFamily = new FontFamily("Segoe UI"),
-                    FontWeight = FontWeights.Normal,
-                    TextAlignment = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Padding = new Thickness(8, 5, 8, 5),
-                    TextDecorations = isHottest ? TextDecorations.Underline : null
-                };
-
-                border.Child = tb;
-                CoreTempsGrid.Children.Add(border);
+                return;
             }
+
+            if (CpuCoresPopup.Child is not FrameworkElement popupRoot)
+            {
+                return;
+            }
+
+            popupRoot.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double popupWidth = popupRoot.DesiredSize.Width;
+            double popupHeight = popupRoot.DesiredSize.Height;
+            if (popupWidth <= 0 || popupHeight <= 0)
+            {
+                return;
+            }
+
+            double desiredOffsetX = CpuTempHoverZone.ActualWidth - popupWidth;
+            var placement = PlacementMode.Top;
+
+            if (TryGetMonitorWorkArea(out Rect workArea))
+            {
+                var dpi = VisualTreeHelper.GetDpi(this);
+                Point targetScreen = CpuTempHoverZone.PointToScreen(new Point(0, 0));
+                double targetLeft = targetScreen.X / dpi.DpiScaleX;
+                double targetTop = targetScreen.Y / dpi.DpiScaleY;
+
+                double popupLeft = targetLeft + desiredOffsetX;
+                double minLeft = workArea.Left + 4;
+                double maxLeft = Math.Max(minLeft, workArea.Right - popupWidth - 4);
+                popupLeft = Math.Clamp(popupLeft, minLeft, maxLeft);
+
+                bool fitsAbove = targetTop - popupHeight - 6 >= workArea.Top + 4;
+                if (!fitsAbove)
+                {
+                    placement = PlacementMode.Bottom;
+                }
+
+                CpuCoresPopup.Placement = placement;
+                CpuCoresPopup.HorizontalOffset = popupLeft - targetLeft;
+                CpuCoresPopup.VerticalOffset = 6;
+                return;
+            }
+
+            CpuCoresPopup.Placement = PlacementMode.Top;
+            CpuCoresPopup.HorizontalOffset = desiredOffsetX;
+            CpuCoresPopup.VerticalOffset = 6;
+        }
+
+        private bool TryGetMonitorWorkArea(out Rect workArea)
+        {
+            workArea = Rect.Empty;
+
+            try
+            {
+                IntPtr handle = new WindowInteropHelper(this).Handle;
+                if (handle == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                var screen = WinForms.Screen.FromHandle(handle);
+                var dpi = VisualTreeHelper.GetDpi(this);
+                var bounds = screen.WorkingArea;
+
+                workArea = new Rect(
+                    bounds.Left / dpi.DpiScaleX,
+                    bounds.Top / dpi.DpiScaleY,
+                    bounds.Width / dpi.DpiScaleX,
+                    bounds.Height / dpi.DpiScaleY);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 }

@@ -326,7 +326,6 @@
                                        Placement="Top"
                                        PlacementTarget="{Binding ElementName=CpuTempHoverZone}"
                                        VerticalOffset="6"
-                                       HorizontalOffset="-230"
                                        PopupAnimation="Fade"
                                        IsHitTestVisible="False">
                                     <Grid Margin="6" IsHitTestVisible="False">
@@ -336,13 +335,42 @@
                                         <StackPanel HorizontalAlignment="Right">
                                             <!-- White Speech Bubble Box -->
                                             <Border Background="#FFFFFF"
-                                                    BorderBrush="#CCCCCC"
+                                                    BorderBrush="#E2E2E2"
                                                     BorderThickness="1"
                                                     CornerRadius="6"
                                                     SnapsToDevicePixels="True">
-                                                <UniformGrid x:Name="CoreTempsGrid" Columns="4" Rows="2">
-                                                    <!-- Dynamic per-core cells -->
-                                                </UniformGrid>
+                                                <ItemsControl ItemsSource="{Binding CoreItems}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <UniformGrid Columns="{Binding CoreColumns}"/>
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="#FFFFFF"
+                                                                    BorderBrush="#E2E2E2"
+                                                                    BorderThickness="0,0,1,1">
+                                                                <TextBlock Text="{Binding Text}"
+                                                                           Foreground="#1A1A1A"
+                                                                           FontSize="11.5"
+                                                                           FontFamily="Segoe UI"
+                                                                           FontWeight="Normal"
+                                                                           TextAlignment="Center"
+                                                                           Padding="8,5">
+                                                                    <TextBlock.Style>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsHottest}" Value="True">
+                                                                                    <Setter Property="TextDecorations" Value="Underline"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
                                             </Border>
 
                                             <!-- Downward Triangle Caret pointing directly down over digits -->

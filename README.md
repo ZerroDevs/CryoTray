@@ -49,4 +49,5 @@ Start-Process .\bin\Release\net8.0-windows\CryoTray.exe
 
 ## License
 
-MIT License. Developed by ZerroDevs.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Developed by ZerroDevs.

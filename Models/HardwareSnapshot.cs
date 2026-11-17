@@ -19,6 +19,7 @@ namespace CryoTray.Models
         public int Index { get; set; }
         public string Name { get; set; } = "CPU00";
         public double Temperature { get; set; }
+        public int DisplayTemp { get; set; }
         public bool IsHottest { get; set; }
     }
 
@@ -27,6 +28,7 @@ namespace CryoTray.Models
         public string CpuName { get; set; } = "AMD Ryzen 7 5800X";
         public int CpuCores { get; set; } = 8;
         public double CpuTemp { get; set; } = 37.0;
+        public double PeakCpuTemp { get; set; } = 37.0;
         public double MaxCoreTemp { get; set; } = 37.0;
         public double CpuGhz { get; set; } = 3.66;
         public double CpuBaseGhz { get; set; } = 3.80;
