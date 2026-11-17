@@ -28,6 +28,7 @@ CryoTray does not control fans or voltages. Cooling Mode changes Windows process
 - [Project layout](#project-layout)
 - [Limitations](#limitations)
 - [Troubleshooting](#troubleshooting)
+- [Security policy](#security-policy)
 - [Contributing](#contributing)
 - [License and attribution](#license-and-attribution)
 
@@ -508,9 +509,13 @@ Tests/                       runtime verification and CPU sensor diagnostics
 
 Crash information is appended to `%APPDATA%\CryoTray\crash.log`. Include the log and an exported system report when reporting a reproducible problem.
 
+## Security policy
+
+CryoTray takes security seriously. If you find a security vulnerability, please report it privately through GitHub Private Vulnerability Reporting or by emailing the maintainer directly. See our [Security Policy](SECURITY.md) for full details, SLA, and supported versions.
+
 ## Contributing
 
-Bug reports and focused pull requests are welcome in the [CryoTray repository](https://github.com/ZerroDevs/CryoTray). Useful reports include:
+Contributions, bug reports, and hardware compatibility findings are welcome. Please read our [Contributing Guide](CONTRIBUTING.md) for architectural guidelines, the 1-second telemetry budget, GDI resource hygiene, RTL localization, and testing requirements before submitting a pull request. Useful reports include:
 
 - Windows version and build.
 - CPU, GPU, and storage models.
