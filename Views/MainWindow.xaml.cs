@@ -30,8 +30,6 @@ namespace CryoTray.Views
 
         public ObservableCollection<CoreReadout> CoreItems { get; } = new();
 
-        private readonly Storyboard _fanStoryboard = new();
-        private DoubleAnimation? _fanAnimation;
         private int _timeframeSamples = 60; // Default 1 min
         private int _coreColumns = 4;
         private bool _isClosing;
@@ -95,44 +93,10 @@ namespace CryoTray.Views
             LocalizationService.Instance.ApplyWindow(this);
             DataContext = this;
             CpuCoresPopup.Opened += CpuCoresPopup_Opened;
-            SetupFanAnimation();
 
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
             Closed += MainWindow_Closed;
-        }
-
-        private static LinearGradientBrush CreateFanBladeBrush(bool cooling)
-        {
-            var brush = new LinearGradientBrush
-            {
-                StartPoint = new Point(0.15, 0.05),
-                EndPoint = new Point(0.9, 0.95)
-            };
-
-            brush.GradientStops.Add(new GradientStop(Colors.White, 0));
-            brush.GradientStops.Add(new GradientStop(
-                (Color)ColorConverter.ConvertFromString(cooling ? "#C9EEFF" : "#E8E8E8"), 0.55));
-            brush.GradientStops.Add(new GradientStop(
-                (Color)ColorConverter.ConvertFromString(cooling ? "#76C6EF" : "#BDBDBD"), 1));
-            brush.Freeze();
-            return brush;
-        }
-
-        private void SetupFanAnimation()
-        {
-            _fanAnimation = new DoubleAnimation
-            {
-                From = 0,
-                To = 360,
-                Duration = TimeSpan.FromSeconds(3.5),
-                RepeatBehavior = RepeatBehavior.Forever
-            };
-
-            Storyboard.SetTarget(_fanAnimation, FanCanvas);
-            Storyboard.SetTargetProperty(_fanAnimation, new PropertyPath("(UIElement.RenderTransform).(RotateTransform.Angle)"));
-            _fanStoryboard.Children.Add(_fanAnimation);
-            _fanStoryboard.Begin();
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -163,7 +127,6 @@ namespace CryoTray.Views
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingModeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
-            _fanStoryboard.Stop();
             DataContext = null;
             Content = null;
         }
@@ -295,25 +258,12 @@ namespace CryoTray.Views
                 GradStop2.Color = target2;
             }
 
-            // Fan Speed & Glow matching Camomile
+            // Cooling Mode artwork
+            ImgCoolingOn.Visibility = isCooling ? Visibility.Visible : Visibility.Collapsed;
+            ImgCoolingOff.Visibility = isCooling ? Visibility.Collapsed : Visibility.Visible;
+
             if (isCooling)
             {
-                _fanStoryboard.Stop();
-                _fanAnimation!.Duration = TimeSpan.FromSeconds(0.9); // Fast spin
-                _fanStoryboard.Begin();
-
-                FanGlowCircle.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8"));
-                FanGlowCircle.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation
-                {
-                    From = 0.18,
-                    To = 0.38,
-                    Duration = TimeSpan.FromSeconds(1.3),
-                    AutoReverse = true,
-                    RepeatBehavior = RepeatBehavior.Forever
-                });
-                FanBladePath.Fill = CreateFanBladeBrush(true);
-                FanBladePath.Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9BDDFF"));
-
                 // Toggle Switch state: ON (Blue track, white thumb)
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
                 TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8"));
@@ -328,16 +278,6 @@ namespace CryoTray.Views
             }
             else
             {
-                _fanStoryboard.Stop();
-                _fanAnimation!.Duration = TimeSpan.FromSeconds(3.5); // Idle slow spin
-                _fanStoryboard.Begin();
-
-                FanGlowCircle.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#555555"));
-                FanGlowCircle.BeginAnimation(UIElement.OpacityProperty, null);
-                FanGlowCircle.Opacity = 0.12;
-                FanBladePath.Fill = CreateFanBladeBrush(false);
-                FanBladePath.Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#C8C8C8"));
-
                 // Toggle Switch state: OFF (Brown track, coral thumb)
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
                 TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4A2A1E"));

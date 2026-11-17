@@ -1,10 +1,16 @@
-# CryoTray
+<p align="center">
+  <img src="Images/Banner.jpg" alt="CryoTray - Hardware Monitor & Cooling Utility by ZeroNuxi - ZerroDevs" width="100%">
+</p>
 
-> A native Windows system tray hardware monitor and low-heat CPU power utility, created by **ZeroNuxi** under **ZerroDevs**.
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 / 11">
+  <img src="https://img.shields.io/badge/.NET-8.0%20WPF%20%2B%20WinForms-purple" alt=".NET 8.0 WPF + WinForms">
+  <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="Apache-2.0">
+</p>
 
-![Windows 10 / 11](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue)
-![.NET 8.0](https://img.shields.io/badge/.NET-8.0%20WPF%20%2B%20WinForms-purple)
-![License](https://img.shields.io/badge/License-Apache--2.0-blue)
+<p align="center">
+  <strong>A native Windows system tray hardware monitor and low-heat CPU power utility, created by ZeroNuxi under ZerroDevs.</strong>
+</p>
 
 CryoTray keeps CPU, GPU, and storage temperatures visible without leaving a large monitoring window open. It combines a compact tray badge, an on-demand dashboard, a floating telemetry overlay, and a dedicated Windows power plan that lowers processor heat. Everything runs locally, with no account and no telemetry.
 
@@ -62,7 +68,7 @@ The CPU section includes:
 - An underline on every core tied for the hottest reading.
 - Current CPU clock speed and, when the processor exposes it, package power.
 - A live CPU chart with 1, 5, 10, 30, and 60 minute timeframes.
-- A subtle cooling fan animation that changes speed and color with Cooling Mode.
+- Cooling Mode artwork that switches between ice blue and copper with the active power plan.
 
 The GPU section includes:
 
@@ -106,6 +112,13 @@ Settings > About checks the latest GitHub release and can download and install a
 ## Cooling Mode
 
 Cooling Mode activates a Windows power scheme named `CryoTray Cooling`. The scheme is embedded in the application as `Resources\CryoTray.pow` and imported automatically on first use when it is not already installed.
+
+<p align="center">
+  <img src="Images/Cooling_ON.png" alt="Cooling Mode on" width="260">
+  <img src="Images/Cooling_OFF.png" alt="Cooling Mode off" width="260">
+</p>
+
+<p align="center"><em>Cooling Mode on in ice blue, off in copper.</em></p>
 
 The default Cooling Mode configuration:
 
@@ -474,6 +487,7 @@ Models/                      settings, telemetry snapshots, and system info mode
 Services/                    hardware, power, settings, updates, alerts, localization
 Tray/                        tray icons, badge rendering, and context menu
 Views/                       dashboard, settings, overlay, stress test, system info
+Images/                      banner, logo, application icon, and state artwork
 Resources/                   XAML strings, theme resources, embedded power scheme
 Tests/                       runtime verification and CPU sensor diagnostics
 .github/workflows/           Windows release packaging and GitHub release publication

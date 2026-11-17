@@ -57,9 +57,7 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 
 - `MainWindow.CmbTimeframe_SelectionChanged(...)`: maps 1/5/10/30/60 min to 60/300/600/1800/3600 samples and redraws both charts. The initial XAML selection is guarded until all chart canvases exist.
 - `MainWindow.DrawCpuChart()` and `DrawGpuChart()`: both slice the ring buffer with `_timeframeSamples`.
-- `MainWindow.SetupFanAnimation()`: rotates `FanCanvas` at 0.9 s per turn when cooling is on and 3.5 s when off.
-- `MainWindow.UpdateTheme(bool isCooling, bool animate)`: sets the fan gradient, glow pulse, toggle colors, and chart brush.
-- `MainWindow.CreateFanBladeBrush(bool cooling)`: frozen cyan or gray gradient for the fan blades.
+- `MainWindow.UpdateTheme(bool isCooling, bool animate)`: switches the Cooling ON/OFF artwork, updates the toggle colors and dashboard accent, and redraws the CPU chart.
 
 ## Diagnostics
 

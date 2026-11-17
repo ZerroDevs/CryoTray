@@ -7,6 +7,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="#141414"
+        Icon="pack://application:,,,/Images/CryoTray.ico"
         BorderBrush="{DynamicResource WindowBorderBrush}"
         BorderThickness="0"
         ResizeMode="NoResize"

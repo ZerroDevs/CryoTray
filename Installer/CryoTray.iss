@@ -18,6 +18,7 @@ AppUpdatesURL=https://github.com/ZerroDevs/CryoTray/releases
 DefaultDirName={autopf}\CryoTray
 DefaultGroupName=CryoTray
 LicenseFile=..\LICENSE
+SetupIconFile=..\Images\CryoTray.ico
 UninstallDisplayIcon={app}\CryoTray.exe
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

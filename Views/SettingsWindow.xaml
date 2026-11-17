@@ -7,6 +7,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="#141414"
+        Icon="pack://application:,,,/Images/CryoTray.ico"
         BorderBrush="{DynamicResource WindowBorderBrush}"
         BorderThickness="0"
         ResizeMode="NoResize"
@@ -696,6 +697,11 @@
 
                 <!-- ABOUT TAB -->
                 <StackPanel x:Name="PanelAbout" Visibility="Collapsed">
+                    <Image Source="/Images/CryoTray_Logo.png"
+                           Width="72" Height="72"
+                           HorizontalAlignment="Left"
+                           Margin="0,0,0,10"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock Text="{DynamicResource App_Title}" Foreground="#FFFFFF" FontSize="22" FontWeight="SemiBold"/>
                     <TextBlock Text="{DynamicResource Settings_AboutTagline}" Foreground="#9A9A9A" FontSize="12" Margin="0,5,0,0" TextWrapping="Wrap"/>
                     <TextBlock x:Name="TxtAboutVersion" Text="" Foreground="#D8D8D8" FontSize="12" Margin="0,10,0,0"/>
