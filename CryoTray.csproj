@@ -18,9 +18,9 @@
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
-    <Authors>Osama Mahmoud (ZeroNuxi)</Authors>
+    <Authors>ZeroNuxi</Authors>
     <Company>ZerroDevs</Company>
-    <Copyright>Copyright © 2026 Osama Mahmoud (ZeroNuxi) - ZerroDevs</Copyright>
+    <Copyright>Copyright © 2026 ZeroNuxi - ZerroDevs</Copyright>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
 

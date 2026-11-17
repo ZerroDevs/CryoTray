@@ -1,6 +1,6 @@
 # CryoTray
 
-> Ultra-lightweight native Windows System Tray hardware monitor & CPU cooling utility created by **Osama Mahmoud (ZeroNuxi)** under **ZerroDevs**.
+> Ultra-lightweight native Windows System Tray hardware monitor & CPU cooling utility created by **ZeroNuxi** under **ZerroDevs**.
 
 ![Windows 10 / 11](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue)
 ![.NET 8.0](https://img.shields.io/badge/.NET-8.0%20WPF%20%2B%20WinForms-purple)
@@ -51,6 +51,6 @@ Start-Process .\bin\Release\net8.0-windows\CryoTray.exe
 
 This project is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full license text and [NOTICE](NOTICE) for attribution requirements.
 
-Copyright 2026 Osama Mahmoud (ZeroNuxi) - ZerroDevs.
+Copyright 2026 ZeroNuxi - ZerroDevs.
 
 Derivative, private, internal, or commercial uses must retain the attribution in [NOTICE](NOTICE).
