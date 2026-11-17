@@ -14,10 +14,15 @@
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <AssemblyName>CryoTray</AssemblyName>
     <RootNamespace>CryoTray</RootNamespace>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\VERSION').Trim())</Version>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\CryoTray.pow" />
+    <None Include="VERSION" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

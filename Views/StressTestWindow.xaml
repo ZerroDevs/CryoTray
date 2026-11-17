@@ -1,17 +1,24 @@
 <Window x:Class="CryoTray.Views.StressTestWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="CPU Temperature Test"
+        Title="{DynamicResource Stress_Title}"
         Height="420" Width="480"
         WindowStartupLocation="Manual"
         WindowStyle="None"
         AllowsTransparency="True"
-        Background="#181818"
-        BorderBrush="#2C2C2C"
-        BorderThickness="1"
+        Background="#141414"
+        BorderBrush="{DynamicResource WindowBorderBrush}"
+        BorderThickness="0"
         ResizeMode="NoResize"
+        FontFamily="{StaticResource SegoeUIVariableText}"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
 
+    <Border Background="#141414"
+            BorderBrush="{DynamicResource WindowBorderBrush}"
+            BorderThickness="1"
+            SnapsToDevicePixels="True">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -26,15 +33,15 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Path Data="M4,2 L12,2 L12,4 L14,4 L14,12 L12,12 L12,14 L4,14 L4,12 L2,12 L2,4 L4,4 Z M6,6 L10,6 L10,10 L6,10 Z"
                       Fill="#2B88D8" Width="18" Height="18" Stretch="Uniform" Margin="0,0,10,0"/>
-                <TextBlock Text="CPU Temperature Test" Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock Text="{DynamicResource Stress_Header}" Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold"/>
             </StackPanel>
-            <Button HorizontalAlignment="Right" Click="BtnClose_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="4">
-                <TextBlock Text="✕" Foreground="#888888" FontSize="14"/>
+            <Button HorizontalAlignment="Right" Click="BtnClose_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="5" AutomationProperties.Name="{DynamicResource Stress_CloseAutomation}">
+                <Path Data="M1,1 L10,10 M10,1 L1,10" Stroke="#B0B0B0" StrokeThickness="1.3" Width="11" Height="11" Stretch="Uniform"/>
             </Button>
         </Grid>
 
         <!-- Stats Bar -->
-        <Border Grid.Row="1" Background="#202020" CornerRadius="8" Padding="14,10" Margin="0,0,0,14">
+        <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="1" CornerRadius="0" Padding="14,10" Margin="0,0,0,14">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -42,45 +49,41 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="CPU TEMP" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
-                    <TextBlock x:Name="TxtTestTemp" Text="37 °C" Foreground="#4FC3F7" FontSize="20" FontWeight="Bold"/>
+                    <TextBlock Text="{DynamicResource Stress_CpuTemp}" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
+                    <TextBlock x:Name="TxtTestTemp" Text="37 °C" Foreground="#4FC3F7" FontSize="20" FontWeight="Bold" FlowDirection="LeftToRight"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="CPU SPEED" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
-                    <TextBlock x:Name="TxtTestSpeed" Text="3.66 GHz" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold"/>
+                    <TextBlock Text="{DynamicResource Stress_CpuSpeed}" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
+                    <TextBlock x:Name="TxtTestSpeed" Text="3.66 GHz" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" FlowDirection="LeftToRight"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2">
-                    <TextBlock Text="ELAPSED" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
-                    <TextBlock x:Name="TxtElapsed" Text="00:00" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold"/>
+                    <TextBlock Text="{DynamicResource Stress_Elapsed}" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
+                    <TextBlock x:Name="TxtElapsed" Text="00:00" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" FlowDirection="LeftToRight"/>
                 </StackPanel>
             </Grid>
         </Border>
 
         <!-- Chart Canvas -->
-        <Border Grid.Row="2" Background="#141414" CornerRadius="8" BorderBrush="#252525" BorderThickness="1" Margin="0,0,0,16">
-            <Canvas x:Name="ChartCanvas" ClipToBounds="True"/>
+        <Border Grid.Row="2" Background="#121212" CornerRadius="0" BorderBrush="#383838" BorderThickness="1" Margin="0,0,0,16">
+            <Canvas x:Name="ChartCanvas" FlowDirection="LeftToRight" ClipToBounds="True"/>
         </Border>
 
         <!-- Cooling Switch inside test -->
         <Grid Grid.Row="3" Margin="0,0,0,16">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Cooling Mode:" Foreground="#CCCCCC" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBlock x:Name="TxtCoolingStatus" Text="OFF" Foreground="#E5987E" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
+                <TextBlock Text="{DynamicResource Stress_CoolingMode}" Foreground="#CCCCCC" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock x:Name="TxtCoolingStatus" Text="{DynamicResource Common_Off}" Foreground="#E5987E" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
             </StackPanel>
             <Button HorizontalAlignment="Right"
                     x:Name="BtnToggleCooling"
                     Click="BtnToggleCooling_Click"
-                    Content="Toggle Cooling"
-                    Background="#2A2A2A"
-                    Foreground="#FFFFFF"
-                    BorderThickness="0"
+                    Content="{DynamicResource Stress_ToggleCooling}"
+                    Background="#242424"
+                    Foreground="#D8D8D8"
+                    BorderBrush="#3B3B3B"
+                    BorderThickness="1"
                     Padding="12,6"
                     Cursor="Hand">
-                <Button.Resources>
-                    <Style TargetType="Border">
-                        <Setter Property="CornerRadius" Value="4"/>
-                    </Style>
-                </Button.Resources>
             </Button>
         </Grid>
 
@@ -88,7 +91,7 @@
         <Button Grid.Row="4"
                 x:Name="BtnStartStop"
                 Click="BtnStartStop_Click"
-                Content="Start Test"
+                Content="{DynamicResource Stress_Start}"
                 Height="40"
                 Background="#2B88D8"
                 Foreground="#FFFFFF"
@@ -98,9 +101,10 @@
                 Cursor="Hand">
             <Button.Resources>
                 <Style TargetType="Border">
-                    <Setter Property="CornerRadius" Value="6"/>
+                    <Setter Property="CornerRadius" Value="2"/>
                 </Style>
             </Button.Resources>
         </Button>
     </Grid>
+    </Border>
 </Window>

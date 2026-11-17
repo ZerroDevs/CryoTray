@@ -12,8 +12,10 @@ namespace CryoTray.Views
         public OverlayWindow()
         {
             InitializeComponent();
+            LocalizationService.Instance.ApplyWindow(this);
             Loaded += OverlayWindow_Loaded;
             Closing += OverlayWindow_Closing;
+            LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
         }
 
         private void OverlayWindow_Loaded(object sender, RoutedEventArgs e)
@@ -35,6 +37,7 @@ namespace CryoTray.Views
 
         private void OverlayWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
             SettingsService.Instance.Current.OverlayLeft = Left;
             SettingsService.Instance.Current.OverlayTop = Top;
@@ -54,8 +57,8 @@ namespace CryoTray.Views
 
                 TxtCpuTemp.Text = $"{Math.Round(cpuT)}{unit}";
                 TxtCpuTemp.Foreground = snapshot.CoolingModeActive
-                    ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4FC3F7"))
-                    : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E5987E"));
+                    ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E9FDB"))
+                    : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D9835B"));
 
                 TxtCpuGhz.Text = $" {snapshot.CpuGhz:0.00}G";
                 TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
@@ -65,6 +68,11 @@ namespace CryoTray.Views
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
         {
             UpdateTelemetry(snapshot);
+        }
+
+        private void OnLanguageChanged()
+        {
+            LocalizationService.Instance.ApplyWindow(this);
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -77,9 +85,7 @@ namespace CryoTray.Views
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
-            Hide();
-            SettingsService.Instance.Current.OverlayEnabled = false;
-            SettingsService.Instance.Save();
+            Close();
         }
     }
 }

@@ -27,33 +27,40 @@ namespace CryoTray.Services
             try
             {
                 using var searcher = new ManagementObjectSearcher("SELECT Name, NumberOfCores FROM Win32_Processor");
-                foreach (ManagementObject obj in searcher.Get())
+                using var results = searcher.Get();
+                foreach (ManagementObject obj in results)
                 {
-                    info.ProcessorName = obj["Name"]?.ToString()?.Trim() ?? "AMD Ryzen 7 5800X";
+                    using var row = obj;
+                    string? processorName = obj["Name"]?.ToString()?.Trim();
+                    info.ProcessorName = string.IsNullOrWhiteSpace(processorName)
+                        ? LocalizationService.Get("Common_NotReported")
+                        : processorName;
                     if (int.TryParse(obj["NumberOfCores"]?.ToString(), out int cores))
                     {
-                        info.ProcessorCores = $"{cores}-Core Processor";
+                        info.ProcessorCores = LocalizationService.Format("Main_CpuProcessor", cores);
                     }
                     break;
                 }
             }
             catch
             {
-                info.ProcessorName = "AMD Ryzen 7 5800X";
-                info.ProcessorCores = "8-Core Processor";
+                info.ProcessorName = LocalizationService.Get("Common_NotReported");
+                info.ProcessorCores = string.Empty;
             }
 
             if (string.IsNullOrEmpty(info.ProcessorCores))
             {
-                info.ProcessorCores = $"{Environment.ProcessorCount}-Core Processor";
+                info.ProcessorCores = LocalizationService.Format("Main_CpuProcessor", Environment.ProcessorCount);
             }
 
             // 2. Memory
             try
             {
                 using var searcher = new ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem");
-                foreach (ManagementObject obj in searcher.Get())
+                using var results = searcher.Get();
+                foreach (ManagementObject obj in results)
                 {
+                    using var row = obj;
                     if (ulong.TryParse(obj["TotalPhysicalMemory"]?.ToString(), out ulong bytes))
                     {
                         double gb = bytes / (1024.0 * 1024.0 * 1024.0);
@@ -64,15 +71,17 @@ namespace CryoTray.Services
             }
             catch
             {
-                info.Memory = "16.00 GB";
+                info.Memory = LocalizationService.Get("Common_NotReported");
             }
 
             // 3. Graphics card
             try
             {
                 using var searcher = new ManagementObjectSearcher("SELECT Name FROM Win32_VideoController");
-                foreach (ManagementObject obj in searcher.Get())
+                using var results = searcher.Get();
+                foreach (ManagementObject obj in results)
                 {
+                    using var row = obj;
                     string name = obj["Name"]?.ToString()?.Trim() ?? "";
                     if (!string.IsNullOrEmpty(name))
                     {
@@ -83,39 +92,55 @@ namespace CryoTray.Services
             }
             catch
             {
-                info.GraphicsCard = "NVIDIA GeForce RTX 3060 Ti";
+                info.GraphicsCard = LocalizationService.Get("Common_NotReported");
             }
 
             // 4. Storage devices
+            var telemetryDrives = HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives;
             try
             {
                 var drives = new List<StorageInfoItem>();
+                var driveInfos = DriveInfo.GetDrives();
+                int driveIndex = 0;
                 using var driveSearcher = new ManagementObjectSearcher("SELECT Model, Size, Index, DeviceID FROM Win32_DiskDrive");
-                foreach (ManagementObject drive in driveSearcher.Get())
+                using var driveResults = driveSearcher.Get();
+                foreach (ManagementObject drive in driveResults)
                 {
+                    using var driveRow = drive;
                     string model = drive["Model"]?.ToString()?.Trim() ?? "SSD";
                     ulong sizeBytes = 0;
                     if (ulong.TryParse(drive["Size"]?.ToString(), out ulong sz)) sizeBytes = sz;
                     double sizeGb = Math.Round(sizeBytes / (1024.0 * 1024.0 * 1024.0), 2);
 
                     string type = model.ToUpperInvariant().Contains("NVME") || model.ToUpperInvariant().Contains("SSD") ? "SSD" : "HDD";
-                    int health = 98; // High default
+                    var driveTelemetry = telemetryDrives.Count > driveIndex ? telemetryDrives[driveIndex] : null;
+                    int? health = driveTelemetry?.SmartHealthPercent;
+                    string healthText = health.HasValue
+                        ? LocalizationService.Format(
+                            "System_HealthFormat",
+                            health.Value,
+                            LocalizationService.Health(driveTelemetry?.StatusText))
+                        : LocalizationService.Get("Common_Unknown");
                     string letters = "";
+                    var lettersList = new List<string>();
 
                     try
                     {
                         string devId = drive["DeviceID"]?.ToString()?.Replace("\\", "\\\\") ?? "";
                         string q = $"ASSOCIATORS OF {{Win32_DiskDrive.DeviceID='{devId}'}} WHERE AssocClass = Win32_DiskDriveToDiskPartition";
                         using var partSearcher = new ManagementObjectSearcher(q);
-                        var lettersList = new List<string>();
+                        using var partResults = partSearcher.Get();
 
-                        foreach (ManagementObject part in partSearcher.Get())
+                        foreach (ManagementObject part in partResults)
                         {
+                            using var partRow = part;
                             string partDevId = part["DeviceID"]?.ToString()?.Replace("\\", "\\\\") ?? "";
                             string qLogical = $"ASSOCIATORS OF {{Win32_DiskPartition.DeviceID='{partDevId}'}} WHERE AssocClass = Win32_LogicalDiskToPartition";
                             using var logSearcher = new ManagementObjectSearcher(qLogical);
-                            foreach (ManagementObject log in logSearcher.Get())
+                            using var logResults = logSearcher.Get();
+                            foreach (ManagementObject log in logResults)
                             {
+                                using var logRow = log;
                                 string letter = log["DeviceID"]?.ToString()?.TrimEnd(':') ?? "";
                                 if (!string.IsNullOrEmpty(letter) && !lettersList.Contains(letter))
                                 {
@@ -139,12 +164,42 @@ namespace CryoTray.Services
                         letters = drives.Count == 0 ? "C, Z" : "E";
                     }
 
+                    if (lettersList.Count == 0)
+                    {
+                        lettersList.AddRange(letters.Split(',').Select(letter => letter.Trim())
+                            .Where(letter => letter.Length > 0));
+                    }
+
+                    double freeGb = 0;
+                    bool hasFreeSpace = false;
+                    foreach (string letter in lettersList)
+                    {
+                        try
+                        {
+                            var logicalDrive = driveInfos.FirstOrDefault(info =>
+                                info.Name.StartsWith(letter + ":", StringComparison.OrdinalIgnoreCase));
+                            if (logicalDrive != null && logicalDrive.IsReady)
+                            {
+                                freeGb += logicalDrive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
+                                hasFreeSpace = true;
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore a drive that disappears during the query.
+                        }
+                    }
+
                     drives.Add(new StorageInfoItem
                     {
-                        Header = "Storage device",
-                        Title = $"{type} - {health}% (Good)",
-                        Subtitle = $"{letters} - {sizeGb:0.00} GB"
+                        Header = LocalizationService.Get("System_StorageDevice"),
+                        Title = LocalizationService.Format("System_StorageTitle", type, healthText),
+                        Subtitle = LocalizationService.Format("System_StorageSubtitle", letters, $"{sizeGb:0.00}"),
+                        FreeSpace = hasFreeSpace
+                            ? LocalizationService.Format("System_FreeSpace", $"{freeGb:0.00}")
+                            : ""
                     });
+                    driveIndex++;
                 }
 
                 if (drives.Count > 0)
@@ -157,30 +212,49 @@ namespace CryoTray.Services
                 // Fallback
             }
 
-            if (info.StorageDevices.Count == 0)
+            if (info.StorageDevices.Count == 0 && telemetryDrives.Count > 0)
             {
-                info.StorageDevices = new List<StorageInfoItem>
+                info.StorageDevices = telemetryDrives.Select((drive, index) => new StorageInfoItem
                 {
-                    new() { Header = "Storage device", Title = "SSD - 96% (Good)", Subtitle = "C, Z - 476.94 GB" },
-                    new() { Header = "Storage device", Title = "SSD - 100% (Good)", Subtitle = "E - 476.94 GB" }
-                };
+                    Header = LocalizationService.Get("System_StorageDevice"),
+                    Title = drive.SmartHealthPercent.HasValue
+                        ? LocalizationService.Format(
+                            "System_StorageTitle",
+                            "SSD",
+                            LocalizationService.Format(
+                                "System_HealthFormat",
+                                drive.SmartHealthPercent.Value,
+                                LocalizationService.Health(drive.StatusText)))
+                        : LocalizationService.Format(
+                            "System_StorageTitle",
+                            "SSD",
+                            LocalizationService.Get("Common_Unknown")),
+                    Subtitle = LocalizationService.Format(
+                        "System_StorageSubtitle",
+                        LocalizationService.Format("System_DriveFallback", index + 1),
+                        $"{drive.CapacityGb:0.00}")
+                }).ToList();
             }
 
             // 5. Operating System
             try
             {
                 using var searcher = new ManagementObjectSearcher("SELECT Caption, OSArchitecture FROM Win32_OperatingSystem");
-                foreach (ManagementObject obj in searcher.Get())
+                using var results = searcher.Get();
+                foreach (ManagementObject obj in results)
                 {
-                    string caption = obj["Caption"]?.ToString()?.Replace("Microsoft", "")?.Trim() ?? "Windows 11";
+                    using var row = obj;
+                    string? caption = obj["Caption"]?.ToString()?.Replace("Microsoft", "")?.Trim();
                     string arch = obj["OSArchitecture"]?.ToString()?.ToLowerInvariant().Contains("64") == true ? "x64" : "x86";
-                    info.OperatingSystem = $"{caption} {arch}".Trim();
+                    info.OperatingSystem = string.IsNullOrWhiteSpace(caption)
+                        ? LocalizationService.Get("Common_NotReported")
+                        : $"{caption} {arch}".Trim();
                     break;
                 }
             }
             catch
             {
-                info.OperatingSystem = "Windows 11 x64";
+                info.OperatingSystem = LocalizationService.Get("Common_NotReported");
             }
 
             // 6. Windows Uptime
@@ -193,11 +267,17 @@ namespace CryoTray.Services
             var (min, avg, max) = HardwareMonitorService.Instance.RingBuffer.GetCpuStats();
             if (min > 0 && max > 0)
             {
-                info.TempStats = $"{Math.Round(min)} °C / {Math.Round(avg)} °C / {Math.Round(max)} °C";
+                bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+                string formatKey = isFahrenheit ? "System_TempStatsFormatF" : "System_TempStatsFormat";
+                info.TempStats = LocalizationService.Format(
+                    formatKey,
+                    Math.Round(isFahrenheit ? (min * 9 / 5) + 32 : min),
+                    Math.Round(isFahrenheit ? (avg * 9 / 5) + 32 : avg),
+                    Math.Round(isFahrenheit ? (max * 9 / 5) + 32 : max));
             }
             else
             {
-                info.TempStats = "30 °C / 51 °C / 80 °C";
+                info.TempStats = LocalizationService.Get("Common_NotReported");
             }
 
             // 9. Monitors
@@ -214,7 +294,12 @@ namespace CryoTray.Services
 
         public static string FormatUptime(TimeSpan uptime)
         {
-            return $"{uptime.Days}d {uptime.Hours}h {uptime.Minutes}m {uptime.Seconds}s";
+            return LocalizationService.Format(
+                "System_UptimeFormat",
+                uptime.Days,
+                uptime.Hours,
+                uptime.Minutes,
+                uptime.Seconds);
         }
 
         private string QueryBootTime()
@@ -243,7 +328,7 @@ namespace CryoTray.Services
                             string msStr = xml.Substring(idx + 18, end - idx - 18);
                             if (double.TryParse(msStr, out double ms))
                             {
-                                return $"{ms / 1000.0:0.0} sec";
+                                return LocalizationService.Format("System_SecondsFormat", $"{ms / 1000.0:0.0}");
                             }
                         }
                     }
@@ -254,7 +339,7 @@ namespace CryoTray.Services
                 // Fallback
             }
 
-            return "26.9 sec";
+            return LocalizationService.Get("Common_NotReported");
         }
 
         private string QueryMonitorNames()
@@ -262,9 +347,11 @@ namespace CryoTray.Services
             try
             {
                 using var searcher = new ManagementObjectSearcher(@"root\wmi", "SELECT UserFriendlyName FROM WmiMonitorID");
+                using var results = searcher.Get();
                 var names = new List<string>();
-                foreach (ManagementObject obj in searcher.Get())
+                foreach (ManagementObject obj in results)
                 {
+                    using var row = obj;
                     if (obj["UserFriendlyName"] is ushort[] chars)
                     {
                         var sb = new StringBuilder();
@@ -291,7 +378,7 @@ namespace CryoTray.Services
                 // Ignore
             }
 
-            return "MSI MAG 274PFW 27\"";
+            return LocalizationService.Get("Common_NotReported");
         }
 
         private string QueryActiveNetwork()
@@ -300,8 +387,10 @@ namespace CryoTray.Services
             {
                 using var searcher = new ManagementObjectSearcher(
                     "SELECT NetConnectionID, Name, NetConnectionStatus FROM Win32_NetworkAdapter WHERE NetConnectionStatus = 2");
-                foreach (ManagementObject obj in searcher.Get())
+                using var results = searcher.Get();
+                foreach (ManagementObject obj in results)
                 {
+                    using var row = obj;
                     string id = obj["NetConnectionID"]?.ToString()?.Trim() ?? "Ethernet";
                     string name = obj["Name"]?.ToString()?.Trim() ?? "";
 
@@ -316,7 +405,7 @@ namespace CryoTray.Services
 
                     if (!string.IsNullOrEmpty(name))
                     {
-                        return $"{id} — {name}";
+                        return LocalizationService.Format("System_NetworkFormat", id, name);
                     }
                 }
             }
@@ -325,7 +414,7 @@ namespace CryoTray.Services
                 // Ignore
             }
 
-            return "Ethernet — Realtek Gaming 2.5GbE Family Controller #2";
+            return LocalizationService.Get("Common_NotReported");
         }
 
         private string QueryBsodCount()
@@ -343,38 +432,44 @@ namespace CryoTray.Services
             }
             catch
             {
-                count = 3;
+                return LocalizationService.Get("Common_NotReported");
             }
 
-            return $"{count} - BSOD count";
+            return LocalizationService.Format("System_BsodCount", count);
         }
 
         public string GenerateTextReport(SystemInfoData data)
         {
             var sb = new StringBuilder();
             sb.AppendLine("=================================================");
-            sb.AppendLine("           CryoTray System Information          ");
-            sb.AppendLine($"           Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine(LocalizationService.Get("System_ReportTitle"));
+            sb.AppendLine(LocalizationService.Format(
+                "System_ReportGenerated",
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
             sb.AppendLine("=================================================");
             sb.AppendLine();
-            sb.AppendLine($"PC:              {data.PcName}");
-            sb.AppendLine($"Processor:       {data.ProcessorName} ({data.ProcessorCores})");
-            sb.AppendLine($"Memory:          {data.Memory}");
-            sb.AppendLine($"Graphics card:   {data.GraphicsCard}");
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Pc"), data.PcName));
+            sb.AppendLine(LocalizationService.Format(
+                "System_ReportLine",
+                LocalizationService.Get("System_Processor"),
+                $"{data.ProcessorName} ({data.ProcessorCores})"));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Memory"), data.Memory));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_GraphicsCard"), data.GraphicsCard));
             sb.AppendLine();
-            sb.AppendLine("Storage devices:");
+            sb.AppendLine(LocalizationService.Get("System_ReportStorage"));
             foreach (var d in data.StorageDevices)
             {
-                sb.AppendLine($"  - {d.Title}: {d.Subtitle}");
+                string free = string.IsNullOrWhiteSpace(d.FreeSpace) ? "" : $" ({d.FreeSpace})";
+                sb.AppendLine($"  - {LocalizationService.Format("System_ReportLine", d.Title, d.Subtitle)}{free}");
             }
             sb.AppendLine();
-            sb.AppendLine($"Operating system: {data.OperatingSystem}");
-            sb.AppendLine($"Windows uptime:   {data.WindowsUptime}");
-            sb.AppendLine($"Startup speed:    {data.StartupSpeed}");
-            sb.AppendLine($"PC temp stats:    {data.TempStats}");
-            sb.AppendLine($"Monitors:         {data.Monitors}");
-            sb.AppendLine($"Network:          {data.Network}");
-            sb.AppendLine($"System errors:    {data.SystemErrors}");
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_OperatingSystem"), data.OperatingSystem));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Uptime"), data.WindowsUptime));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_StartupSpeed"), data.StartupSpeed));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_ReportTempStats"), data.TempStats));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Monitors"), data.Monitors));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Network"), data.Network));
+            sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_ReportSystemErrors"), data.SystemErrors));
             sb.AppendLine();
             sb.AppendLine("=================================================");
             return sb.ToString();

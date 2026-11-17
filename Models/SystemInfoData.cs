@@ -7,6 +7,7 @@ namespace CryoTray.Models
         public string Header { get; set; } = "Storage device";
         public string Title { get; set; } = "SSD - 100% (Good)";
         public string Subtitle { get; set; } = "C - 500 GB";
+        public string FreeSpace { get; set; } = "";
     }
 
     public class SystemInfoData

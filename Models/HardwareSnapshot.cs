@@ -8,8 +8,8 @@ namespace CryoTray.Models
         public int Index { get; set; }
         public string Model { get; set; } = "";
         public double Temperature { get; set; }
-        public int SmartHealthPercent { get; set; } = 100;
-        public string StatusText { get; set; } = "Good";
+        public int? SmartHealthPercent { get; set; }
+        public string StatusText { get; set; } = "Unknown";
         public string DriveLetters { get; set; } = "";
         public double CapacityGb { get; set; }
     }
@@ -32,6 +32,7 @@ namespace CryoTray.Models
         public double MaxCoreTemp { get; set; } = 37.0;
         public double CpuGhz { get; set; } = 3.66;
         public double CpuBaseGhz { get; set; } = 3.80;
+        public double CpuMaxGhz { get; set; } = 3.80;
         public double CpuLoad { get; set; } = 12.0;
         public List<CoreTelemetry> CpuCoresTelemetry { get; set; } = new();
 

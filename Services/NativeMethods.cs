@@ -23,6 +23,9 @@ namespace CryoTray.Services
         [DllImport("user32.dll")]
         public static extern uint GetGuiResources(IntPtr hProcess, uint uiFlags);
 
+        [DllImport("psapi.dll", SetLastError = true)]
+        public static extern bool EmptyWorkingSet(IntPtr hProcess);
+
         public const int GWL_EXSTYLE = -20;
         public const int WS_EX_TRANSPARENT = 0x00000020;
         public const int WS_EX_LAYERED = 0x00080000;

@@ -24,6 +24,7 @@ namespace CryoTray.Views
         public StressTestWindow()
         {
             InitializeComponent();
+            LocalizationService.Instance.ApplyWindow(this);
 
             _timer = new DispatcherTimer
             {
@@ -33,6 +34,7 @@ namespace CryoTray.Views
 
             Loaded += StressTestWindow_Loaded;
             Closing += StressTestWindow_Closing;
+            LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
         }
 
         private void StressTestWindow_Loaded(object sender, RoutedEventArgs e)
@@ -45,6 +47,7 @@ namespace CryoTray.Views
         private void StressTestWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             StopTest();
+            LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetry;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingChanged;
         }
@@ -56,17 +59,22 @@ namespace CryoTray.Views
 
         private void UpdateCoolingDisplay(bool active)
         {
-            TxtCoolingStatus.Text = active ? "ON" : "OFF";
+            TxtCoolingStatus.Text = LocalizationService.Get(active ? "Common_On" : "Common_Off");
             TxtCoolingStatus.Foreground = active
-                ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4FC3F7"))
-                : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E5987E"));
+                ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E9FDB"))
+                : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D9835B"));
         }
 
         private void OnTelemetry(HardwareSnapshot snapshot)
         {
             Dispatcher.Invoke(() =>
             {
-                TxtTestTemp.Text = $"{Math.Round(snapshot.CpuTemp)} °C";
+                bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+                double displayTemperature = isFahrenheit
+                    ? (snapshot.CpuTemp * 9 / 5) + 32
+                    : snapshot.CpuTemp;
+                string unit = isFahrenheit ? "°F" : "°C";
+                TxtTestTemp.Text = $"{Math.Round(displayTemperature)} {unit}";
                 TxtTestSpeed.Text = $"{snapshot.CpuGhz:0.00} GHz";
 
                 if (_isRunning)
@@ -147,7 +155,7 @@ namespace CryoTray.Views
             _stopwatch.Restart();
             _timer.Start();
 
-            BtnStartStop.Content = "Stop Test";
+            BtnStartStop.Content = LocalizationService.Get("Stress_Stop");
             BtnStartStop.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D32F2F"));
 
             _testCts = new CancellationTokenSource();
@@ -178,8 +186,15 @@ namespace CryoTray.Views
             _stopwatch.Stop();
             _timer.Stop();
 
-            BtnStartStop.Content = "Start Test";
+            BtnStartStop.Content = LocalizationService.Get("Stress_Start");
             BtnStartStop.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8"));
+        }
+
+        private void OnLanguageChanged()
+        {
+            LocalizationService.Instance.ApplyWindow(this);
+            UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
+            BtnStartStop.Content = LocalizationService.Get(_isRunning ? "Stress_Stop" : "Stress_Start");
         }
 
         private void Timer_Tick(object? sender, EventArgs e)

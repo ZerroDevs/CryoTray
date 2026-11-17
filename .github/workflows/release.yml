@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - VERSION
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cryotray-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+      SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate VERSION
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "VERSION must contain exactly three numeric parts."
+          }
+
+          $tag = "v$version"
+          git fetch --tags --force
+          $skip = "false"
+          git rev-parse -q --verify "refs/tags/$tag" | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            $skip = "true"
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "skip=$skip" >> $env:GITHUB_OUTPUT
+
+          if ($skip -eq "true") {
+            Write-Host "Tag $tag already exists. This run will not publish a release."
+          }
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore CryoTray.csproj
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build CryoTray.csproj -c Release --no-restore
+
+      - name: Publish self-contained Windows build
+        shell: pwsh
+        run: |
+          dotnet publish CryoTray.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:DebugType=None `
+            -o publish
+
+      - name: Sign CryoTray.exe
+        if: env.SIGNING_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "CryoTray-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $pfxPath,
+            [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse `
+            -Filter signtool.exe `
+            -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if (-not $signtool) {
+            throw "signtool.exe was not found. Install the Windows SDK signing tools."
+          }
+
+          & $signtool.FullName sign `
+            /fd SHA256 `
+            /td SHA256 `
+            /tr http://timestamp.digicert.com `
+            /f $pfxPath `
+            /p $env:SIGNING_PFX_PASSWORD `
+            publish\CryoTray.exe
+
+          $signature = Get-AuthenticodeSignature -LiteralPath publish\CryoTray.exe
+          if ($signature.Status -ne "Valid") {
+            throw "CryoTray.exe signature verification failed: $($signature.Status)."
+          }
+
+          Remove-Item -LiteralPath $pfxPath -Force
+
+      - name: Warn when signing is not configured
+        if: env.SIGNING_PFX_BASE64 == ''
+        shell: pwsh
+        run: Write-Warning "Signing secrets are not configured. Publishing unsigned assets with SHA-256 verification."
+
+      - name: Build release package
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $name = "CryoTray-$version-win-x64"
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+
+          Compress-Archive -Path "publish\*" -DestinationPath "release\$name.zip" -Force
+          $hash = (Get-FileHash -LiteralPath "release\$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name.zip" | Set-Content -LiteralPath "release\$name.zip.sha256" -Encoding ascii
+
+          $previousTag = ""
+          try {
+            $previousTag = (git describe --tags --abbrev=0 "HEAD^" 2>$null).Trim()
+          } catch {
+          }
+
+          $range = if ($previousTag) { "$previousTag..HEAD" } else { "HEAD" }
+          $commits = @(git log $range --no-merges --pretty=format:"- %s")
+          $commits = $commits | ForEach-Object { $_ -replace "—", "-" }
+          if ($commits.Count -eq 0) {
+            $commits = @("- No code changes recorded.")
+          }
+
+          $notes = @"
+          # CryoTray $version
+
+          ## Changes
+
+          $($commits -join "`n")
+
+          ## Download
+
+          Download `CryoTray-$version-win-x64.zip`, verify it against the attached `.sha256` file, extract it, and run `CryoTray.exe`.
+          "@
+
+          Set-Content -LiteralPath "release\notes.md" -Value $notes -Encoding utf8
+
+      - name: Publish GitHub release
+        if: steps.version.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $tag = "v$version"
+          $name = "CryoTray-$version-win-x64"
+
+          gh release create $tag `
+            "release\$name.zip" `
+            "release\$name.zip.sha256" `
+            --title "CryoTray $version" `
+            --notes-file "release\notes.md"

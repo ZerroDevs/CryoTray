@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Management;
 using System.Text.RegularExpressions;
@@ -26,6 +27,7 @@ namespace CryoTray.Services
 
         private Computer? _computer;
         private readonly TelemetryRingBuffer _ringBuffer = new(3600);
+        private readonly ProcessorPerformanceReader _processorPerformance = new();
         private CancellationTokenSource? _cts;
         private bool _isInitialized;
 
@@ -34,11 +36,12 @@ namespace CryoTray.Services
 
         public event Action<HardwareSnapshot>? TelemetryUpdated;
 
-        private string _cpuName = "AMD Ryzen 7 5800X";
-        private int _cpuCores = 8;
-        private double _cpuBaseGhz = 3.80;
-        private string _gpuName = "NVIDIA GeForce RTX 3060 Ti";
-        private string _gpuVendor = "Nvidia";
+        private string _cpuName = "CPU";
+        private int _cpuCores = 1;
+        private double _cpuBaseGhz;
+        private double _cpuMaxGhz;
+        private string _gpuName = "GPU";
+        private string _gpuVendor = "";
 
         private sealed class CpuSensorSet
         {
@@ -48,76 +51,132 @@ namespace CryoTray.Services
             public List<(int KindOrder, int Index, double Value)> Loads { get; } = new();
             public List<(int KindOrder, int Index, double Value)> Clocks { get; } = new();
             public double? TctlTdie { get; set; }
-            public double? Package { get; set; }
-            public double? CoreMax { get; set; }
-            public double? Tdie { get; set; }
-            public double? Tctl { get; set; }
             public double? TotalLoad { get; set; }
         }
 
         public HardwareMonitorService()
         {
-            QueryStaticHardwareInfo();
+            ReadCpuRegistryInfo();
+            ReadCpuPhysicalCoreCount();
         }
 
-        private void QueryStaticHardwareInfo()
+        private void ReadCpuPhysicalCoreCount()
         {
             try
             {
-                using var searcher = new ManagementObjectSearcher("SELECT Name, NumberOfCores, MaxClockSpeed FROM Win32_Processor");
-                foreach (ManagementObject obj in searcher.Get())
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT NumberOfCores, MaxClockSpeed FROM Win32_Processor");
+                foreach (ManagementObject processor in searcher.Get())
                 {
-                    string rawName = obj["Name"]?.ToString()?.Trim() ?? _cpuName;
-
-                    // Clean redundant core count or processor suffixes to match Camomile header
-                    rawName = rawName.Replace("8-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                                     .Replace("6-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                                     .Replace("12-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                                     .Replace("16-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                                     .Trim();
-
-                    if (rawName.EndsWith("Processor", StringComparison.OrdinalIgnoreCase))
+                    using (processor)
                     {
-                        rawName = rawName.Substring(0, rawName.Length - "Processor".Length).Trim();
+                        int cores = Convert.ToInt32(processor["NumberOfCores"]);
+                        int maxMhz = Convert.ToInt32(processor["MaxClockSpeed"]);
+                        if (cores > 0)
+                        {
+                            _cpuCores = cores;
+                        }
+
+                        if (maxMhz > 0)
+                        {
+                            _cpuMaxGhz = Math.Round(maxMhz / 1000.0, 2);
+                        }
+
+                        if (cores > 0)
+                        {
+                            return;
+                        }
                     }
-
-                    _cpuName = string.IsNullOrWhiteSpace(rawName) ? "AMD Ryzen 7 5800X" : rawName;
-
-                    if (int.TryParse(obj["NumberOfCores"]?.ToString(), out int cores))
-                        _cpuCores = cores;
-                    if (double.TryParse(obj["MaxClockSpeed"]?.ToString(), out double maxMhz) && maxMhz > 0)
-                        _cpuBaseGhz = Math.Round(maxMhz / 1000.0, 2);
-                    break;
                 }
             }
             catch
             {
-                // Fallback to defaults
+                // Fall back to the registry and logical processor count below.
             }
 
+            _cpuCores = Math.Max(1, Environment.ProcessorCount);
+            if (_cpuMaxGhz <= 0)
+            {
+                _cpuMaxGhz = _cpuBaseGhz;
+            }
+        }
+
+        private void ReadCpuRegistryInfo()
+        {
             try
             {
-                using var searcher = new ManagementObjectSearcher("SELECT Name, AdapterCompatibility FROM Win32_VideoController");
-                foreach (ManagementObject obj in searcher.Get())
+                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                    @"HARDWARE\DESCRIPTION\System\CentralProcessor\0");
+                if (key == null)
                 {
-                    string name = obj["Name"]?.ToString()?.Trim() ?? "";
-                    if (!string.IsNullOrEmpty(name))
-                    {
-                        _gpuName = name;
-                        string lower = name.ToLowerInvariant();
-                        if (lower.Contains("nvidia") || lower.Contains("geforce") || lower.Contains("rtx") || lower.Contains("gtx"))
-                            _gpuVendor = "Nvidia";
-                        else if (lower.Contains("amd") || lower.Contains("radeon"))
-                            _gpuVendor = "AMD";
-                        else if (lower.Contains("intel") || lower.Contains("arc"))
-                            _gpuVendor = "Intel";
-                        break;
-                    }
+                    return;
+                }
+
+                string rawName = key.GetValue("ProcessorNameString")?.ToString()?.Trim() ?? "";
+                if (!string.IsNullOrWhiteSpace(rawName))
+                {
+                    _cpuName = CleanCpuName(rawName);
+                }
+
+                if (key.GetValue("~MHz") is int mhz && mhz > 0)
+                {
+                    _cpuBaseGhz = Math.Round(mhz / 1000.0, 2);
+                }
+                else if (double.TryParse(key.GetValue("~MHz")?.ToString(), NumberStyles.Number,
+                             CultureInfo.InvariantCulture, out double mhzValue) && mhzValue > 0)
+                {
+                    _cpuBaseGhz = Math.Round(mhzValue / 1000.0, 2);
                 }
             }
             catch
             {
-                // Fallback
+                // Keep LHM defaults when the registry value is unavailable.
+            }
+        }
+
+        private static string CleanCpuName(string rawName)
+        {
+            string name = rawName.Trim();
+            name = name.Replace("8-Core Processor", "", StringComparison.OrdinalIgnoreCase)
+                       .Replace("6-Core Processor", "", StringComparison.OrdinalIgnoreCase)
+                       .Replace("12-Core Processor", "", StringComparison.OrdinalIgnoreCase)
+                       .Replace("16-Core Processor", "", StringComparison.OrdinalIgnoreCase)
+                       .Trim();
+
+            if (name.EndsWith("Processor", StringComparison.OrdinalIgnoreCase))
+            {
+                name = name.Substring(0, name.Length - "Processor".Length).Trim();
+            }
+
+            return string.IsNullOrWhiteSpace(name) ? "CPU" : name;
+        }
+
+        private void ReadHardwareNamesFromLhm()
+        {
+            if (_computer == null)
+            {
+                return;
+            }
+
+            foreach (var hardware in _computer.Hardware)
+            {
+                if (hardware.HardwareType == HardwareType.Cpu && !string.IsNullOrWhiteSpace(hardware.Name))
+                {
+                    _cpuName = CleanCpuName(hardware.Name);
+                }
+                else if (hardware.HardwareType == HardwareType.GpuNvidia ||
+                         hardware.HardwareType == HardwareType.GpuAmd ||
+                         hardware.HardwareType == HardwareType.GpuIntel)
+                {
+                    if (!string.IsNullOrWhiteSpace(hardware.Name))
+                    {
+                        _gpuName = hardware.Name;
+                    }
+
+                    _gpuVendor = hardware.HardwareType == HardwareType.GpuNvidia ? "Nvidia"
+                        : hardware.HardwareType == HardwareType.GpuAmd ? "AMD"
+                        : "Intel";
+                }
             }
         }
 
@@ -137,6 +196,7 @@ namespace CryoTray.Services
                     IsControllerEnabled = true
                 };
                 _computer.Open();
+                ReadHardwareNamesFromLhm();
             }
             catch (Exception ex)
             {
@@ -197,6 +257,7 @@ namespace CryoTray.Services
                 CpuName = _cpuName,
                 CpuCores = _cpuCores,
                 CpuBaseGhz = _cpuBaseGhz,
+                CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : _cpuBaseGhz,
                 GpuName = _gpuName,
                 GpuVendor = _gpuVendor,
                 CoolingModeActive = PowerPlanService.Instance.IsCoolingModeActive,
@@ -270,29 +331,23 @@ namespace CryoTray.Services
                     }
                     else if (hardware.HardwareType == HardwareType.Storage)
                     {
-                        double driveTemp = 42;
-                        foreach (var sensor in hardware.Sensors)
-                        {
-                            if (sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue)
-                            {
-                                driveTemp = sensor.Value.Value;
-                                break;
-                            }
-                        }
-
-                        drives.Add(new DriveTelemetry
-                        {
-                            Index = driveIndex++,
-                            Model = hardware.Name,
-                            Temperature = driveTemp,
-                            SmartHealthPercent = 98,
-                            StatusText = "Good",
-                            DriveLetters = driveIndex == 1 ? "C, Z" : "E",
-                            CapacityGb = 476.94
-                        });
+                        drives.Add(CreateDriveTelemetry(hardware, driveIndex++));
                     }
                 }
             }
+
+            int detectedCores = cpuSensors.PerCoreTemps.Select(c => (c.KindOrder, c.Index))
+                .Concat(cpuSensors.Loads.Select(c => (c.KindOrder, c.Index)))
+                .Concat(cpuSensors.Clocks.Select(c => (c.KindOrder, c.Index)))
+                .Distinct()
+                .Count();
+            if (_cpuCores <= 0)
+            {
+                _cpuCores = Math.Max(1, detectedCores);
+            }
+
+            snapshot.CpuName = _cpuName;
+            snapshot.CpuCores = _cpuCores;
 
             double currentLoad = cpuSensors.TotalLoad
                 ?? (cpuSensors.Loads.Count > 0 ? cpuSensors.Loads.Max(l => l.Value) : 10.0);
@@ -308,11 +363,7 @@ namespace CryoTray.Services
             }
             peak = Math.Round(peak, 1);
 
-            int physicalCores = _cpuCores > 0 ? _cpuCores : Environment.ProcessorCount;
-            if (physicalCores < 1)
-            {
-                physicalCores = 1;
-            }
+            int physicalCores = Math.Max(1, _cpuCores);
 
             var cores = BuildCoreTemperatures(cpuSensors, peak, physicalCores);
             int maxDisplayed = cores.Max(c => c.DisplayTemp);
@@ -327,40 +378,121 @@ namespace CryoTray.Services
             snapshot.CpuTemp = maxDisplayed;
             snapshot.CpuCoresTelemetry = cores;
 
-            double currentClock = cpuSensors.Clocks.Count > 0
-                ? cpuSensors.Clocks.Max(c => c.Value)
+            var clockValues = cpuSensors.Clocks
+                .Select(c => c.Value)
+                .Where(value => value > 100)
+                .ToList();
+            double currentClock = clockValues.Count > 0
+                ? clockValues.Average()
                 : _cpuBaseGhz * 1000.0;
+
+            if (_processorPerformance.TryRead(out double performancePercent) &&
+                performancePercent > 0 &&
+                _cpuBaseGhz > 0)
+            {
+                double effectiveClock = _cpuBaseGhz * 1000.0 *
+                    (Math.Clamp(performancePercent, 0, 200) / 100.0);
+                if (effectiveClock > 0)
+                {
+                    currentClock = effectiveClock;
+                }
+            }
+
+            if (_cpuBaseGhz <= 0 && currentClock > 0)
+            {
+                _cpuBaseGhz = Math.Round(currentClock / 1000.0, 2);
+            }
+            snapshot.CpuBaseGhz = _cpuBaseGhz;
+            snapshot.CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : _cpuBaseGhz;
             snapshot.CpuGhz = Math.Round(currentClock / 1000.0, 2);
 
             snapshot.GpuTemp = (gpuTemp.HasValue && gpuTemp.Value > 0) ? Math.Round(gpuTemp.Value, 1) : 47.0;
             snapshot.GpuLoad = gpuLoad.HasValue ? Math.Round(gpuLoad.Value, 1) : 12.0;
 
-            if (drives.Count == 0)
-            {
-                drives.Add(new DriveTelemetry
-                {
-                    Index = 0,
-                    Model = "Samsung SSD 980 PRO 500GB",
-                    Temperature = 45.0,
-                    SmartHealthPercent = 96,
-                    StatusText = "Good",
-                    DriveLetters = "C, Z",
-                    CapacityGb = 476.94
-                });
-                drives.Add(new DriveTelemetry
-                {
-                    Index = 1,
-                    Model = "Crucial CT500P3SSD8",
-                    Temperature = 45.0,
-                    SmartHealthPercent = 100,
-                    StatusText = "Good",
-                    DriveLetters = "E",
-                    CapacityGb = 476.94
-                });
-            }
-
             snapshot.StorageDrives = drives;
             return snapshot;
+        }
+
+        private static DriveTelemetry CreateDriveTelemetry(IHardware hardware, int index)
+        {
+            double? compositeTemp = null;
+            double? firstTemp = null;
+            int? lifePercent = null;
+            int? percentageUsed = null;
+            double? totalSpace = null;
+
+            foreach (var sensor in hardware.Sensors)
+            {
+                if (!sensor.Value.HasValue)
+                {
+                    continue;
+                }
+
+                double value = sensor.Value.Value;
+                string name = sensor.Name.Trim();
+
+                if (sensor.SensorType == SensorType.Temperature)
+                {
+                    firstTemp ??= value;
+                    if (name.Contains("composite", StringComparison.OrdinalIgnoreCase))
+                    {
+                        compositeTemp ??= value;
+                    }
+                }
+                else if (sensor.SensorType == SensorType.Level &&
+                         name.Equals("Life", StringComparison.OrdinalIgnoreCase))
+                {
+                    lifePercent = Math.Clamp((int)Math.Round(value), 0, 100);
+                }
+                else if (sensor.SensorType == SensorType.Level &&
+                         name.Equals("Percentage Used", StringComparison.OrdinalIgnoreCase))
+                {
+                    percentageUsed = Math.Clamp((int)Math.Round(value), 0, 100);
+                }
+                else if (sensor.SensorType == SensorType.Data &&
+                         name.Equals("Total Space", StringComparison.OrdinalIgnoreCase))
+                {
+                    totalSpace = value;
+                }
+            }
+
+            int? healthPercent = lifePercent
+                ?? (percentageUsed.HasValue ? 100 - percentageUsed.Value : null);
+
+            return new DriveTelemetry
+            {
+                Index = index,
+                Model = hardware.Name,
+                Temperature = compositeTemp ?? firstTemp ?? double.NaN,
+                SmartHealthPercent = healthPercent,
+                StatusText = DescribeDriveHealth(healthPercent),
+                CapacityGb = totalSpace.HasValue ? Math.Round(totalSpace.Value, 1) : 0
+            };
+        }
+
+        private static string DescribeDriveHealth(int? healthPercent)
+        {
+            if (!healthPercent.HasValue)
+            {
+                return "Unknown";
+            }
+
+            if (healthPercent.Value >= 90)
+            {
+                return "Good";
+            }
+
+            if (healthPercent.Value >= 70)
+            {
+                return "Fair";
+            }
+
+            if (healthPercent.Value >= 50)
+            {
+                return "Worn";
+            }
+
+            return "Replace";
         }
 
         private static void CollectCpuSensors(IReadOnlyList<ISensor> sensors, CpuSensorSet set)
@@ -416,22 +548,6 @@ namespace CryoTray.Services
                     if (lower.Contains("tctl/tdie"))
                     {
                         set.TctlTdie ??= value;
-                    }
-                    else if (lower.Contains("cpu package") || lower == "package" || lower.EndsWith(" package", StringComparison.Ordinal))
-                    {
-                        set.Package ??= value;
-                    }
-                    else if (lower.Contains("core max"))
-                    {
-                        set.CoreMax ??= value;
-                    }
-                    else if (lower.Contains("tdie"))
-                    {
-                        set.Tdie ??= value;
-                    }
-                    else if (lower.Contains("tctl"))
-                    {
-                        set.Tctl ??= value;
                     }
                 }
                 else if (sensor.SensorType == SensorType.Load)
@@ -519,21 +635,16 @@ namespace CryoTray.Services
 
         private static double ResolvePeak(CpuSensorSet set, double? motherboardCpuTemp, double fallbackPeak)
         {
-            double? packageTemp = set.TctlTdie
-                ?? set.Package
-                ?? set.CoreMax
-                ?? set.Tdie
-                ?? set.Tctl;
-
-            if (set.PerCoreTemps.Count > 0)
+            // AMD's Tctl/Tdie carries a control offset; the CCD diode matches the core
+            // temperature Camomile displays.
+            if (set.CcdTdieTemps.Count > 0)
             {
-                double perCoreMax = set.PerCoreTemps.Max(t => t.Temp);
-                return Math.Max(perCoreMax, packageTemp ?? 0);
+                return set.CcdTdieTemps.Max();
             }
 
-            if (packageTemp.HasValue)
+            if (set.TctlTdie.HasValue)
             {
-                return packageTemp.Value;
+                return set.TctlTdie.Value;
             }
 
             if (set.AllTemps.Count > 0)
@@ -549,13 +660,10 @@ namespace CryoTray.Services
             return fallbackPeak;
         }
 
-        private static double ResolveFloor(CpuSensorSet set, double peak)
+        private static double ResolveFloor(double peak)
         {
-            double floor = set.CcdTdieTemps.Count > 0
-                ? set.CcdTdieTemps.Min()
-                : peak - 3.5;
-
-            return Math.Clamp(floor, 0, peak);
+            // Keep the popup inside a 3.5 C span instead of letting CCD lows stretch it.
+            return Math.Clamp(peak - 3.5, 0, peak);
         }
 
         private List<CoreTelemetry> BuildCoreTemperatures(CpuSensorSet set, double peak, int physicalCores)
@@ -567,15 +675,23 @@ namespace CryoTray.Services
                 .ThenBy(t => t.Index)
                 .ToList();
 
-            foreach (var sensor in perCore)
+            // AMD exposes a package-level Tctl/Tdie reading, and its per-core sensors are
+            // not true thermal diodes. Keep direct core mapping for Intel-style sensors only.
+            bool useDirectPerCore = perCore.Count > 0 &&
+                !set.TctlTdie.HasValue &&
+                perCore.Count <= physicalCores;
+            if (useDirectPerCore)
             {
-                cores.Add(CreateCoreTelemetry(cores.Count, sensor.Temp));
+                foreach (var sensor in perCore)
+                {
+                    cores.Add(CreateCoreTelemetry(cores.Count, sensor.Temp));
+                }
             }
 
             int targetCount = Math.Max(physicalCores, cores.Count);
             if (cores.Count < targetCount)
             {
-                double floor = ResolveFloor(set, peak);
+                double floor = ResolveFloor(peak);
                 double[] weightedTemps = BuildWeightedTemperatures(set, peak, floor, targetCount);
 
                 for (int i = cores.Count; i < weightedTemps.Length; i++)
@@ -640,7 +756,7 @@ namespace CryoTray.Services
             for (int i = 0; i < physicalCores; i++)
             {
                 double weight = spread < 0.02
-                    ? Math.Clamp(activity[i], 0, 1)
+                    ? (maxActivity > 0 ? activity[i] / maxActivity : 1.0)
                     : (activity[i] - minActivity) / spread;
 
                 weight = Math.Clamp(weight, 0, 1);
@@ -713,6 +829,7 @@ namespace CryoTray.Services
         public void Dispose()
         {
             Stop();
+            _processorPerformance.Dispose();
         }
     }
 }

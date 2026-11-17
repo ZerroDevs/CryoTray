@@ -13,9 +13,20 @@ namespace CryoTray.Tray
         private readonly NotifyIcon _gpuIcon;
         private readonly NotifyIcon _cpuIcon;
         private readonly ContextMenuStrip _contextMenu;
+        private readonly ToolStripMenuItem _itemOpen;
+        private readonly ToolStripMenuItem _itemCooling;
+        private readonly ToolStripMenuItem _itemStress;
+        private readonly ToolStripMenuItem _itemSettings;
+        private readonly ToolStripMenuItem _itemExit;
 
         private Icon? _currentGpuIcon;
         private Icon? _currentCpuIcon;
+        private Action? _notificationAction;
+        private NotifyIcon? _notificationIcon;
+        private DateTime _notificationHoldUntilUtc;
+        private double _lastGpuTemp;
+        private double _lastCpuTemp;
+        private bool _lastCoolingModeActive;
 
         public event Action? OnOpenDashboardRequested;
         public event Action? OnToggleCoolingRequested;
@@ -23,33 +34,87 @@ namespace CryoTray.Tray
         public event Action? OnOpenSettingsRequested;
         public event Action? OnExitRequested;
 
-        // Exact Camomile pastel palette
-        private static readonly Color GpuGreen = ColorTranslator.FromHtml("#A2D065"); // Light lime green
-        private static readonly Color CpuAmber = ColorTranslator.FromHtml("#F8AFA6"); // Light peach / salmon
-        private static readonly Color CpuCyan = ColorTranslator.FromHtml("#76C6EF");  // Light sky cyan
+        // Camomile tray badge palette.
+        private static readonly Color GpuGreen = ColorTranslator.FromHtml("#B3D872");
+        private static readonly Color CpuAmber = ColorTranslator.FromHtml("#FFBDAF");
+        private static readonly Color CpuCyan = ColorTranslator.FromHtml("#8AD2F1");
 
         public TrayIconManager()
         {
             _contextMenu = CreateDarkContextMenu();
+            _itemOpen = (ToolStripMenuItem)_contextMenu.Items[0];
+            _itemCooling = (ToolStripMenuItem)_contextMenu.Items[2];
+            _itemStress = (ToolStripMenuItem)_contextMenu.Items[3];
+            _itemSettings = (ToolStripMenuItem)_contextMenu.Items[4];
+            _itemExit = (ToolStripMenuItem)_contextMenu.Items[6];
 
             _gpuIcon = new NotifyIcon
             {
-                Text = "CryoTray GPU Monitor",
+                Text = "CryoTray",
                 Visible = true,
                 ContextMenuStrip = _contextMenu
             };
             _gpuIcon.MouseClick += OnTrayIconClick;
+            _gpuIcon.BalloonTipClicked += OnBalloonTipClicked;
 
             _cpuIcon = new NotifyIcon
             {
-                Text = "CryoTray CPU Monitor",
+                Text = "CryoTray",
                 Visible = true,
                 ContextMenuStrip = _contextMenu
             };
             _cpuIcon.MouseClick += OnTrayIconClick;
+            _cpuIcon.BalloonTipClicked += OnBalloonTipClicked;
 
-            // Initial blank icons
+            ApplyLanguage();
             UpdateBadges(52, 37, false);
+        }
+
+        public void ApplyLanguage()
+        {
+            _contextMenu.RightToLeft = LocalizationService.Instance.IsArabic
+                ? RightToLeft.Yes
+                : RightToLeft.No;
+
+            _itemOpen.Text = LocalizationService.Get("Tray_OpenDashboard");
+            _itemCooling.Text = LocalizationService.Get("Tray_ToggleCooling");
+            _itemStress.Text = LocalizationService.Get("Tray_CpuTest");
+            _itemSettings.Text = LocalizationService.Get("Tray_Settings");
+            _itemExit.Text = LocalizationService.Get("Tray_Exit");
+
+            if (_lastGpuTemp > 0 || _lastCpuTemp > 0)
+            {
+                UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive);
+            }
+        }
+
+        public void ShowNotification(string title, string message, Action? onClick = null,
+            ToolTipIcon icon = ToolTipIcon.Info)
+        {
+            NotifyIcon notifyIcon = _cpuIcon.Visible
+                ? _cpuIcon
+                : _gpuIcon.Visible
+                    ? _gpuIcon
+                    : _cpuIcon;
+
+            // Keep a badge visible long enough for the balloon to appear even when
+            // both tray badges are hidden in Settings.
+            notifyIcon.Visible = true;
+            _notificationIcon = notifyIcon;
+            _notificationHoldUntilUtc = DateTime.UtcNow.AddSeconds(12);
+
+            _notificationAction = onClick;
+            notifyIcon.BalloonTipTitle = title;
+            notifyIcon.BalloonTipText = message;
+            notifyIcon.BalloonTipIcon = icon;
+            notifyIcon.ShowBalloonTip(10000);
+        }
+
+        private void OnBalloonTipClicked(object? sender, EventArgs e)
+        {
+            Action? action = _notificationAction;
+            _notificationAction = null;
+            action?.Invoke();
         }
 
         private void OnTrayIconClick(object? sender, MouseEventArgs e)
@@ -100,12 +165,23 @@ namespace CryoTray.Tray
         public void UpdateBadges(double gpuTemp, double cpuTemp, bool coolingModeActive)
         {
             var settings = SettingsService.Instance.Current;
+            bool holdCpu = _notificationIcon == _cpuIcon && DateTime.UtcNow < _notificationHoldUntilUtc;
+            bool holdGpu = _notificationIcon == _gpuIcon && DateTime.UtcNow < _notificationHoldUntilUtc;
 
-            _gpuIcon.Visible = settings.ShowGpuBadge;
-            _cpuIcon.Visible = settings.ShowCpuBadge;
+            _gpuIcon.Visible = settings.ShowGpuBadge || holdGpu;
+            _cpuIcon.Visible = settings.ShowCpuBadge || holdCpu;
 
-            int gpuInt = (int)Math.Round(gpuTemp);
-            int cpuInt = (int)Math.Round(cpuTemp);
+            if (!holdCpu && !holdGpu)
+            {
+                _notificationIcon = null;
+            }
+
+            bool isFahrenheit = settings.TemperatureUnit == "Fahrenheit";
+            double displayGpuTemp = isFahrenheit ? (gpuTemp * 9 / 5) + 32 : gpuTemp;
+            double displayCpuTemp = isFahrenheit ? (cpuTemp * 9 / 5) + 32 : cpuTemp;
+            string unit = isFahrenheit ? "°F" : "°C";
+            int gpuInt = (int)Math.Round(displayGpuTemp);
+            int cpuInt = (int)Math.Round(displayCpuTemp);
 
             Color cpuColor = coolingModeActive ? CpuCyan : CpuAmber;
 
@@ -116,7 +192,11 @@ namespace CryoTray.Tray
             _currentGpuIcon = newGpuIcon;
             oldGpu?.Dispose();
 
-            _gpuIcon.Text = $"GPU: {gpuInt}°C";
+            _lastGpuTemp = gpuTemp;
+            _lastCpuTemp = cpuTemp;
+            _lastCoolingModeActive = coolingModeActive;
+
+            _gpuIcon.Text = LocalizationService.Format("Tray_GpuTooltip", gpuInt, unit);
 
             // Update CPU icon with GDI handle destruction
             Icon newCpuIcon = CreateBadgeIcon(cpuInt, cpuColor);
@@ -125,12 +205,16 @@ namespace CryoTray.Tray
             _currentCpuIcon = newCpuIcon;
             oldCpu?.Dispose();
 
-            _cpuIcon.Text = $"CPU: {cpuInt}°C (Cooling: {(coolingModeActive ? "ON" : "OFF")})";
+            string coolingText = LocalizationService.Get(coolingModeActive ? "Common_On" : "Common_Off");
+            _cpuIcon.Text = LocalizationService.Format("Tray_CpuTooltip", cpuInt, unit, coolingText);
         }
 
         private Icon CreateBadgeIcon(int temp, Color bgColor)
         {
-            using var bmp = new Bitmap(32, 32);
+            // The shell draws NotifyIcon at its own small-icon size. Rendering at that
+            // size keeps the number crisp instead of downscaling a 32 px bitmap.
+            int size = Math.Max(16, SystemInformation.SmallIconSize.Width);
+            using var bmp = new Bitmap(size, size);
             using (var g = Graphics.FromImage(bmp))
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -138,22 +222,23 @@ namespace CryoTray.Tray
                 g.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 g.Clear(Color.Transparent);
 
-                // Sharp square badge with subtle 2px soft radius matching Camomile
-                using var path = CreateRoundedRectanglePath(new Rectangle(1, 1, 30, 30), 2);
+                // Camomile's left pair are flat, sharp-cornered full-bleed tiles.
+                // A border or rounded corner makes the fixed 16 px tray slot look smaller.
+                var bounds = new Rectangle(0, 0, size, size);
                 using var brush = new SolidBrush(bgColor);
-                g.FillPath(brush, path);
+                g.FillRectangle(brush, bounds);
 
-                // Bold dark charcoal text matching Camomile (#111111)
                 string text = temp.ToString();
-                using var font = new Font("Segoe UI", 16, FontStyle.Bold, GraphicsUnit.Pixel);
-                using var textBrush = new SolidBrush(Color.FromArgb(17, 17, 17));
-                using var sf = new StringFormat
-                {
-                    Alignment = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                };
+                float fontSize = size * (text.Length >= 3 ? 0.55f : 0.70f);
+                using var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel);
+                using var textBrush = new SolidBrush(Color.FromArgb(20, 20, 20));
+                using var sf = StringFormat.GenericTypographic;
+                sf.Alignment = StringAlignment.Center;
+                sf.LineAlignment = StringAlignment.Center;
 
-                g.DrawString(text, font, textBrush, new RectangleF(0, 0, 32, 31), sf);
+                // The typographic metrics sit slightly high in the square; nudge the
+                // digits down so the margin reads even at native tray size.
+                g.DrawString(text, font, textBrush, new RectangleF(0, size * 0.065f, size, size), sf);
             }
 
             IntPtr hIcon = bmp.GetHicon();
@@ -168,28 +253,6 @@ namespace CryoTray.Tray
             }
         }
 
-        private static GraphicsPath CreateRoundedRectanglePath(Rectangle rect, int radius)
-        {
-            var path = new GraphicsPath();
-            int diameter = radius * 2;
-            Rectangle arc = new(rect.X, rect.Y, diameter, diameter);
-
-            // top left
-            path.AddArc(arc, 180, 90);
-            // top right
-            arc.X = rect.Right - diameter;
-            path.AddArc(arc, 270, 90);
-            // bottom right
-            arc.Y = rect.Bottom - diameter;
-            path.AddArc(arc, 0, 90);
-            // bottom left
-            arc.X = rect.Left;
-            path.AddArc(arc, 90, 90);
-
-            path.CloseFigure();
-            return path;
-        }
-
         public void Dispose()
         {
             _gpuIcon.Visible = false;
@@ -199,6 +262,7 @@ namespace CryoTray.Tray
 
             _currentGpuIcon?.Dispose();
             _currentCpuIcon?.Dispose();
+            _notificationIcon = null;
             _contextMenu.Dispose();
         }
 

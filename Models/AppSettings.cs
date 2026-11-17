@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace CryoTray.Models
@@ -12,6 +13,7 @@ namespace CryoTray.Models
         public bool EnableCoolingOnLaunch { get; set; } = false;
         public bool PinToTaskbar { get; set; } = true;
         public bool AlwaysOnTop { get; set; } = false;
+        public bool HideOnFocusLoss { get; set; } = true;
         public bool UseHotkey { get; set; } = false;
         public string HotkeyModifiers { get; set; } = "Ctrl+Shift";
         public string HotkeyKey { get; set; } = "C";
@@ -20,12 +22,14 @@ namespace CryoTray.Models
         public bool ShowGpuBadge { get; set; } = true;
         public bool ShowCpuBadge { get; set; } = true;
         public bool AnchorToTray { get; set; } = true;
+        public bool ShowOverlayRow { get; set; } = false;
+        public bool ShowAutopilotRow { get; set; } = false;
         public double? WindowLeft { get; set; }
         public double? WindowTop { get; set; }
 
         // CPU & Power Plan
         public string CoolingPowerPlanGuid { get; set; } = "";
-        public string NormalPowerPlanGuid { get; set; } = "";
+        public string NormalPowerPlanGuid { get; set; } = "381b4222-f694-41f0-9685-ff5bb260df2e"; // Balanced
         public int MaxCpuThrottlePercent { get; set; } = 99; // Default 99%
         public int PerfBoostMode { get; set; } = 0; // 0 = Disabled (Default), 1 = Enabled
 
@@ -41,10 +45,16 @@ namespace CryoTray.Models
         public double? OverlayLeft { get; set; }
         public double? OverlayTop { get; set; }
 
-        // Thresholds
+        // Thresholds and alerts
         public int HighTempThresholdCpu { get; set; } = 85;
         public int HighTempThresholdGpu { get; set; } = 80;
         public int HighTempThresholdDisk { get; set; } = 60;
+        public bool MuteTemperatureAlerts { get; set; } = false;
+
+        // Updates
+        public bool AutomaticUpdateChecks { get; set; } = true;
+        public DateTime? LastUpdateCheckUtc { get; set; }
+        public string LastNotifiedUpdateVersion { get; set; } = "";
 
         public List<string> ExcludedDrives { get; set; } = new();
     }

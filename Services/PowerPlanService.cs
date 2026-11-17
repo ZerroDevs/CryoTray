@@ -233,14 +233,40 @@ namespace CryoTray.Services
         {
             Guid activeGuid = GetActiveSchemeGuid();
             Guid coolingGuid = EnsureCryoTrayCoolingScheme();
+            SetCoolingState(activeGuid == coolingGuid);
+        }
 
-            bool wasCooling = IsCoolingModeActive;
-            IsCoolingModeActive = (activeGuid == coolingGuid);
+        public void SyncCoolingStateFromSystem()
+        {
+            Guid coolingGuid = _cryoTrayCoolingGuid ?? EnsureCryoTrayCoolingScheme();
+            SetCoolingState(GetActiveSchemeGuid() == coolingGuid);
+        }
 
-            if (wasCooling != IsCoolingModeActive)
+        public Guid GetNormalPowerPlanGuid()
+        {
+            Guid coolingGuid = EnsureCryoTrayCoolingScheme();
+            var schemes = GetInstalledSchemes();
+            string configured = SettingsService.Instance.Current.NormalPowerPlanGuid;
+
+            if (Guid.TryParse(configured, out Guid configuredGuid) &&
+                configuredGuid != coolingGuid &&
+                schemes.Any(scheme => scheme.Guid == configuredGuid))
             {
-                CoolingModeChanged?.Invoke(IsCoolingModeActive);
+                return configuredGuid;
             }
+
+            return BalancedGuid;
+        }
+
+        private void SetCoolingState(bool isCooling)
+        {
+            if (IsCoolingModeActive == isCooling)
+            {
+                return;
+            }
+
+            IsCoolingModeActive = isCooling;
+            CoolingModeChanged?.Invoke(IsCoolingModeActive);
         }
 
         public void SetCoolingMode(bool enable)
@@ -256,12 +282,11 @@ namespace CryoTray.Services
             }
             else
             {
-                Guid target = BalancedGuid;
+                Guid target = GetNormalPowerPlanGuid();
                 NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref target);
             }
 
-            IsCoolingModeActive = enable;
-            CoolingModeChanged?.Invoke(IsCoolingModeActive);
+            SetCoolingState(enable);
         }
 
         public void ToggleCoolingMode()

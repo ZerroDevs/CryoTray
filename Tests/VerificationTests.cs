@@ -23,8 +23,10 @@ namespace CryoTray.Tests
             allPassed &= TestCryoTrayPowerSchemeIntegration();
             allPassed &= TestSystemInfoQueries();
             allPassed &= TestGdiLeakPrevention();
+            allPassed &= TestLocalization();
             allPassed &= TestWindowsXamlInstantiation();
             allPassed &= TestPerCoreTemperaturePolling();
+            allPassed &= TestTemperatureAlerts();
 
             Console.WriteLine("==================================================");
             if (allPassed)
@@ -172,6 +174,114 @@ namespace CryoTray.Tests
             {
                 Console.WriteLine($"FAILED: {ex.Message}");
                 return false;
+            }
+        }
+
+        private static bool TestLocalization()
+        {
+            Console.Write("[TEST] English and Arabic localization... ");
+            try
+            {
+                LocalizationService.Instance.Apply("العربية");
+                if (LocalizationService.Get("Settings_Title") != "الإعدادات")
+                {
+                    throw new Exception("Arabic dictionary did not load.");
+                }
+
+                // RunAll is already on the WPF UI thread, so windows created here
+                // receive the LanguageChanged notification on their owning thread.
+                var windows = new System.Windows.Window[]
+                {
+                    new Views.MainWindow(),
+                    new Views.SettingsWindow(),
+                    new Views.SystemInfoWindow(),
+                    new Views.StressTestWindow(),
+                    new Views.OverlayWindow()
+                };
+
+                foreach (var window in windows)
+                {
+                    if (window.FlowDirection != System.Windows.FlowDirection.RightToLeft)
+                    {
+                        throw new Exception($"{window.GetType().Name} did not switch to RTL.");
+                    }
+
+                    // OverlayWindow saves its position on close; leave it untouched in this test.
+                    if (window is not Views.OverlayWindow)
+                    {
+                        window.Close();
+                    }
+                }
+
+                Console.WriteLine("PASSED (Arabic dictionary and RTL windows loaded)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                LocalizationService.Instance.Apply("English");
+            }
+        }
+
+        private static bool TestTemperatureAlerts()
+        {
+            Console.Write("[TEST] Temperature alert threshold, cooldown, and mute... ");
+            var settings = SettingsService.Instance.Current;
+            bool originalMute = settings.MuteTemperatureAlerts;
+            int originalCpuThreshold = settings.HighTempThresholdCpu;
+            try
+            {
+                var service = new TemperatureAlertService();
+                int alerts = 0;
+                service.AlertRaised += alert =>
+                {
+                    if (alert.Component == TemperatureAlertComponent.Cpu)
+                    {
+                        alerts++;
+                    }
+                };
+
+                settings.MuteTemperatureAlerts = false;
+                settings.HighTempThresholdCpu = 85;
+                var hot = new HardwareSnapshot
+                {
+                    MaxCoreTemp = 100,
+                    PeakCpuTemp = 100
+                };
+
+                service.Observe(hot);
+                service.Observe(hot);
+                if (alerts != 1)
+                {
+                    throw new Exception($"Expected one alert while above threshold, got {alerts}.");
+                }
+
+                settings.MuteTemperatureAlerts = true;
+                var mutedService = new TemperatureAlertService();
+                int mutedAlerts = 0;
+                mutedService.AlertRaised += _ => mutedAlerts++;
+                mutedService.Observe(hot);
+                if (mutedAlerts != 0)
+                {
+                    throw new Exception("Muted alerts were raised.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.MuteTemperatureAlerts = originalMute;
+                settings.HighTempThresholdCpu = originalCpuThreshold;
             }
         }
 

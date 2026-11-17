@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -30,8 +33,29 @@ namespace CryoTray.Views
         private readonly Storyboard _fanStoryboard = new();
         private DoubleAnimation? _fanAnimation;
         private int _timeframeSamples = 60; // Default 1 min
-        private OverlayWindow? _overlayWindow;
         private int _coreColumns = 4;
+        private bool _isClosing;
+        private readonly double _expandedHeight;
+
+        private List<TelemetrySample> _cpuChartSamples = new();
+        private List<TelemetrySample> _gpuChartSamples = new();
+        private bool _cpuHoverActive;
+        private bool _gpuHoverActive;
+        private double _cpuHoverX;
+        private double _gpuHoverX;
+
+        private readonly List<SsdRowView> _ssdRows = new();
+        private string? _ssdRowSignature;
+
+        private sealed class SsdRowView
+        {
+            public required Grid Root { get; init; }
+            public required Border TempBorder { get; init; }
+            public required TextBlock TempText { get; init; }
+            public required TextBlock UnitText { get; init; }
+            public required TextBlock TooltipTitle { get; init; }
+            public required TextBlock TooltipHealth { get; init; }
+        }
 
         public int CoreColumns
         {
@@ -51,12 +75,32 @@ namespace CryoTray.Views
         public MainWindow()
         {
             InitializeComponent();
+            _expandedHeight = Height;
+            LocalizationService.Instance.ApplyWindow(this);
             DataContext = this;
             CpuCoresPopup.Opened += CpuCoresPopup_Opened;
             SetupFanAnimation();
 
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
+            Closed += MainWindow_Closed;
+        }
+
+        private static LinearGradientBrush CreateFanBladeBrush(bool cooling)
+        {
+            var brush = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.15, 0.05),
+                EndPoint = new Point(0.9, 0.95)
+            };
+
+            brush.GradientStops.Add(new GradientStop(Colors.White, 0));
+            brush.GradientStops.Add(new GradientStop(
+                (Color)ColorConverter.ConvertFromString(cooling ? "#C9EEFF" : "#E8E8E8"), 0.55));
+            brush.GradientStops.Add(new GradientStop(
+                (Color)ColorConverter.ConvertFromString(cooling ? "#76C6EF" : "#BDBDBD"), 1));
+            brush.Freeze();
+            return brush;
         }
 
         private void SetupFanAnimation()
@@ -79,6 +123,7 @@ namespace CryoTray.Views
         {
             ApplySettings();
             SettingsService.Instance.SettingsChanged += ApplySettings;
+            LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
 
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingModeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
@@ -89,8 +134,22 @@ namespace CryoTray.Views
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
-            e.Cancel = true;
-            Hide();
+            _isClosing = true;
+            HideChartTooltips();
+            CpuCoresPopup.IsOpen = false;
+        }
+
+        private void MainWindow_Closed(object? sender, EventArgs e)
+        {
+            Loaded -= MainWindow_Loaded;
+            CpuCoresPopup.Opened -= CpuCoresPopup_Opened;
+            SettingsService.Instance.SettingsChanged -= ApplySettings;
+            LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            PowerPlanService.Instance.CoolingModeChanged -= OnCoolingModeChanged;
+            HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
+            _fanStoryboard.Stop();
+            DataContext = null;
+            Content = null;
         }
 
         public void ApplySettings()
@@ -99,26 +158,58 @@ namespace CryoTray.Views
             {
                 var s = SettingsService.Instance.Current;
                 TxtAppTitle.Text = s.ShowComputerName
-                    ? $"CryoTray - {Environment.MachineName}"
-                    : "CryoTray";
+                    ? LocalizationService.Format("Main_AppWithPc", Environment.MachineName)
+                    : LocalizationService.Get("App_Title");
+
+                TxtCpuModel.TextAlignment = LocalizationService.Instance.IsArabic
+                    ? TextAlignment.Right
+                    : TextAlignment.Left;
 
                 Topmost = s.AlwaysOnTop;
                 ShowInTaskbar = s.PinToTaskbar;
 
-                // Overlay
-                if (s.OverlayEnabled)
-                {
-                    if (_overlayWindow == null)
-                    {
-                        _overlayWindow = new OverlayWindow();
-                    }
-                    _overlayWindow.Show();
-                }
-                else
-                {
-                    _overlayWindow?.Hide();
-                }
+                OverlayRow.Visibility = s.ShowOverlayRow
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                AutopilotRow.Visibility = s.ShowAutopilotRow
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                AutopilotSeparator.Visibility = s.ShowOverlayRow && s.ShowAutopilotRow
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+                UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
             });
+        }
+
+        private void UpdateWindowHeight(bool showOverlay, bool showAutopilot)
+        {
+            double height = _expandedHeight;
+            if (!showOverlay)
+            {
+                height -= OverlayRow.Height;
+            }
+            if (!showAutopilot)
+            {
+                height -= AutopilotRow.Height;
+            }
+            if (!showOverlay || !showAutopilot)
+            {
+                height -= AutopilotSeparator.Height
+                    + AutopilotSeparator.Margin.Top
+                    + AutopilotSeparator.Margin.Bottom;
+            }
+
+            if (Math.Abs(Height - height) < 0.1)
+            {
+                return;
+            }
+
+            Height = height;
+            if (SettingsService.Instance.Current.AnchorToTray)
+            {
+                Top = SystemParameters.WorkArea.Bottom - Height - 12;
+            }
         }
 
         public void PositionAboveTray()
@@ -140,13 +231,13 @@ namespace CryoTray.Views
 
         private void Window_Deactivated(object? sender, EventArgs e)
         {
-            if (_isChildDialogOpen) return;
+            if (_isChildDialogOpen || _isClosing) return;
 
             var s = SettingsService.Instance.Current;
-            if (!s.AlwaysOnTop)
-            {
-                Hide();
-            }
+            if (!s.HideOnFocusLoss || s.AlwaysOnTop) return;
+
+            HideChartTooltips();
+            Close();
         }
 
         private void OnCoolingModeChanged(bool isCooling)
@@ -156,8 +247,8 @@ namespace CryoTray.Views
 
         private void UpdateTheme(bool isCooling, bool animate)
         {
-            Color target1 = (Color)ColorConverter.ConvertFromString(isCooling ? "#1B5E8A" : "#8C4327");
-            Color target2 = (Color)ColorConverter.ConvertFromString(isCooling ? "#123E5C" : "#592816");
+            Color target1 = (Color)ColorConverter.ConvertFromString(isCooling ? "#255D8E" : "#9E4531");
+            Color target2 = (Color)ColorConverter.ConvertFromString(isCooling ? "#1E9FD0" : "#C26A45");
 
             if (animate)
             {
@@ -180,17 +271,28 @@ namespace CryoTray.Views
                 _fanStoryboard.Begin();
 
                 FanGlowCircle.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8"));
-                FanGlowCircle.Opacity = 0.25;
-                FanBladePath.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#76C6EF"));
+                FanGlowCircle.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation
+                {
+                    From = 0.18,
+                    To = 0.38,
+                    Duration = TimeSpan.FromSeconds(1.3),
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever
+                });
+                FanBladePath.Fill = CreateFanBladeBrush(true);
+                FanBladePath.Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9BDDFF"));
 
-                // Toggle Switch state: ON (Bright Blue)
-                TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2196F3"));
-                TxtToggleState.Text = "ON";
+                // Toggle Switch state: ON (Blue track, white thumb)
+                TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
+                TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8"));
+                TxtToggleState.Text = LocalizationService.Get("Common_On");
+                TxtToggleState.Foreground = Brushes.White;
                 TxtToggleState.HorizontalAlignment = HorizontalAlignment.Left;
-                TxtToggleState.Margin = new Thickness(8, 0, 0, 0);
+                TxtToggleState.Margin = new Thickness(7, 0, 0, 0);
 
+                ToggleThumb.Fill = Brushes.White;
                 ToggleThumb.HorizontalAlignment = HorizontalAlignment.Right;
-                ToggleThumb.Margin = new Thickness(0, 0, 1, 0);
+                ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
             }
             else
             {
@@ -199,17 +301,22 @@ namespace CryoTray.Views
                 _fanStoryboard.Begin();
 
                 FanGlowCircle.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#555555"));
+                FanGlowCircle.BeginAnimation(UIElement.OpacityProperty, null);
                 FanGlowCircle.Opacity = 0.12;
-                FanBladePath.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E0E0E0"));
+                FanBladePath.Fill = CreateFanBladeBrush(false);
+                FanBladePath.Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#C8C8C8"));
 
-                // Toggle Switch state: OFF (Terracotta / Salmon)
-                TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E07D62"));
-                TxtToggleState.Text = "OFF";
+                // Toggle Switch state: OFF (Brown track, coral thumb)
+                TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
+                TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4A2A1E"));
+                TxtToggleState.Text = LocalizationService.Get("Common_Off");
+                TxtToggleState.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D9835B"));
                 TxtToggleState.HorizontalAlignment = HorizontalAlignment.Right;
                 TxtToggleState.Margin = new Thickness(0, 0, 7, 0);
 
+                ToggleThumb.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E68A57"));
                 ToggleThumb.HorizontalAlignment = HorizontalAlignment.Left;
-                ToggleThumb.Margin = new Thickness(1, 0, 0, 0);
+                ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
             }
 
             DrawCpuChart();
@@ -231,22 +338,26 @@ namespace CryoTray.Views
 
             // Hero Card
             TxtCpuModel.Text = snapshot.CpuName;
-            TxtCpuCores.Text = $"{snapshot.CpuCores}-Core Processor";
+            TxtCpuCores.Text = LocalizationService.Format("Main_CpuProcessor", snapshot.CpuCores);
             TxtHeroTemp.Text = $"{Math.Round(cpuT)}";
             TxtHeroUnit.Text = unit;
 
             // CPU Speed
-            TxtCpuClockRatio.Text = $"{snapshot.CpuGhz:0.00} / {snapshot.CpuBaseGhz:0.00}";
+            TxtCpuClockRatio.Text = $"{snapshot.CpuGhz:0.00} / {snapshot.CpuMaxGhz:0.00}";
 
             // GPU Row
-            TxtGpuLabel.Text = $"GPU ({snapshot.GpuVendor})";
+            TxtGpuLabel.Text = LocalizationService.Get("Main_GpuLabel");
+            TxtGpuVendor.Text = snapshot.GpuVendor?.Trim() ?? "";
+            TxtGpuVendor.Visibility = string.IsNullOrWhiteSpace(TxtGpuVendor.Text)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
 
             // SSD Rows
             RenderSsdRows(snapshot.StorageDrives, isFahrenheit, unit);
 
             // Draw Charts
             DrawCpuChart();
-            DrawGpuChart(snapshot);
+            DrawGpuChart();
 
             if (CpuCoresPopup.IsOpen)
             {
@@ -256,131 +367,254 @@ namespace CryoTray.Views
 
         private void RenderSsdRows(List<DriveTelemetry> drives, bool isFahrenheit, string unit)
         {
-            SsdRowsContainer.Children.Clear();
-
-            for (int i = 0; i < drives.Count; i++)
+            string signature = string.Join("\n", drives.Select(drive => $"{drive.Index}|{drive.Model}"));
+            if (!string.Equals(signature, _ssdRowSignature, StringComparison.Ordinal))
             {
-                var drive = drives[i];
-                double temp = isFahrenheit ? (drive.Temperature * 9 / 5 + 32) : drive.Temperature;
-
-                var grid = new Grid { Height = 44 };
-
-                // Left: Drive Icon with Index + Label
-                var leftStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-
-                var iconBorder = new Border
-                {
-                    Width = 26,
-                    Height = 26,
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1D1D1D")),
-                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")),
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(4),
-                    Margin = new Thickness(0, 0, 10, 0)
-                };
-
-                var txtIndex = new TextBlock
-                {
-                    Text = drive.Index.ToString(),
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#888888")),
-                    FontSize = 11,
-                    FontWeight = FontWeights.Bold,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                iconBorder.Child = txtIndex;
-                leftStack.Children.Add(iconBorder);
-
-                var txtLabel = new TextBlock
-                {
-                    Text = "SSD t°",
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CCCCCC")),
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                leftStack.Children.Add(txtLabel);
-
-                grid.Children.Add(leftStack);
-
-                // Right: Boxed Value + Boxed Unit
-                var rightStack = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-
-                var valBorder = new Border
-                {
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1D1D1D")),
-                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A")),
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(4),
-                    Padding = new Thickness(12, 4, 12, 4),
-                    Margin = new Thickness(0, 0, 6, 0)
-                };
-
-                var txtVal = new TextBlock
-                {
-                    Text = $"{Math.Round(temp)}",
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#DDDDDD")),
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold
-                };
-                valBorder.Child = txtVal;
-                rightStack.Children.Add(valBorder);
-
-                var unitBorder = new Border
-                {
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1D1D1D")),
-                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A")),
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(4),
-                    Padding = new Thickness(8, 4, 8, 4)
-                };
-
-                var txtUnit = new TextBlock
-                {
-                    Text = unit,
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#888888")),
-                    FontSize = 11,
-                    FontWeight = FontWeights.Bold
-                };
-                unitBorder.Child = txtUnit;
-                rightStack.Children.Add(unitBorder);
-
-                grid.Children.Add(rightStack);
-                SsdRowsContainer.Children.Add(grid);
-
-                var divider = new Rectangle
-                {
-                    Height = 1,
-                    Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#202020")),
-                    Margin = new Thickness(0, 2, 0, 2)
-                };
-                SsdRowsContainer.Children.Add(divider);
+                BuildSsdRows(drives);
+                _ssdRowSignature = signature;
             }
+
+            for (int i = 0; i < _ssdRows.Count && i < drives.Count; i++)
+            {
+                UpdateSsdRow(_ssdRows[i], drives[i], isFahrenheit, unit);
+            }
+        }
+
+        private void BuildSsdRows(List<DriveTelemetry> drives)
+        {
+            SsdRowsContainer.Children.Clear();
+            _ssdRows.Clear();
+
+            if (drives.Count == 0)
+            {
+                var empty = new Grid { Height = 38 };
+                empty.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.Get("Main_StorageUnavailable"),
+                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#8A8A8A")),
+                    FontSize = 12,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                SsdRowsContainer.Children.Add(empty);
+                return;
+            }
+
+            foreach (var drive in drives)
+            {
+                SsdRowView row = BuildSsdRow(drive);
+                _ssdRows.Add(row);
+                SsdRowsContainer.Children.Add(row.Root);
+            }
+
+            SsdRowsContainer.Children.Add(new Rectangle
+            {
+                Height = 1,
+                Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#333333")),
+                Margin = new Thickness(0, 1, 0, 1)
+            });
+        }
+
+        private SsdRowView BuildSsdRow(DriveTelemetry drive)
+        {
+            var grid = new Grid { Height = 38 };
+            var leftStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+
+            var iconHost = new Grid
+            {
+                Width = 26,
+                Height = 26,
+                Margin = new Thickness(0, 0, 10, 0),
+                FlowDirection = System.Windows.FlowDirection.LeftToRight
+            };
+
+            iconHost.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M3,5 L23,5 L23,20 L3,20 Z M18,5 L18,20"),
+                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
+                StrokeThickness = 1.2,
+                Stretch = Stretch.Uniform,
+                Width = 20,
+                Height = 18,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            iconHost.Children.Add(new TextBlock
+            {
+                Text = drive.Index.ToString(),
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
+                FontSize = 10.5,
+                FontWeight = FontWeights.Normal,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0)
+            });
+
+            var iconLines = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 3, 0)
+            };
+            for (int line = 0; line < 3; line++)
+            {
+                iconLines.Children.Add(new Rectangle
+                {
+                    Width = 1,
+                    Height = 4,
+                    Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#6A6A6A")),
+                    Margin = new Thickness(0, line == 1 ? 1 : 0, 0, line == 1 ? 0 : 1)
+                });
+            }
+            iconHost.Children.Add(iconLines);
+            leftStack.Children.Add(iconHost);
+            leftStack.Children.Add(new TextBlock
+            {
+                Text = LocalizationService.Get("Main_SsdLabel"),
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            grid.Children.Add(leftStack);
+
+            var rightStack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                FlowDirection = System.Windows.FlowDirection.LeftToRight
+            };
+
+            var valBorder = new Border
+            {
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#242424")),
+                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#303030")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(12, 3, 12, 3),
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+
+            var txtVal = new TextBlock
+            {
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D8D8D8")),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold
+            };
+            valBorder.Child = txtVal;
+            rightStack.Children.Add(valBorder);
+
+            var unitBorder = new Border
+            {
+                Background = Brushes.Transparent,
+                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4A4A4A")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(7, 3, 7, 3)
+            };
+
+            var txtUnit = new TextBlock
+            {
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9A9A9A")),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold
+            };
+            unitBorder.Child = txtUnit;
+            rightStack.Children.Add(unitBorder);
+            grid.Children.Add(rightStack);
+
+            var tooltipTitle = new TextBlock
+            {
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F0F0")),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 280
+            };
+            var tooltipHealth = new TextBlock
+            {
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B8B8B8")),
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 280,
+                Margin = new Thickness(0, 2, 0, 0)
+            };
+
+            var tooltipContent = new StackPanel();
+            tooltipContent.Children.Add(tooltipTitle);
+            tooltipContent.Children.Add(tooltipHealth);
+
+            var tooltip = new ToolTip
+            {
+                Style = (Style)FindResource("SsdToolTipStyle"),
+                Content = tooltipContent,
+                Placement = PlacementMode.Top,
+                VerticalOffset = -6
+            };
+            ToolTipService.SetInitialShowDelay(valBorder, 250);
+            ToolTipService.SetShowDuration(valBorder, 8000);
+            valBorder.ToolTip = tooltip;
+
+            return new SsdRowView
+            {
+                Root = grid,
+                TempBorder = valBorder,
+                TempText = txtVal,
+                UnitText = txtUnit,
+                TooltipTitle = tooltipTitle,
+                TooltipHealth = tooltipHealth
+            };
+        }
+
+        private static void UpdateSsdRow(SsdRowView row, DriveTelemetry drive, bool isFahrenheit, string unit)
+        {
+            bool hasTemperature = !double.IsNaN(drive.Temperature);
+            double displayTemp = hasTemperature
+                ? (isFahrenheit ? (drive.Temperature * 9 / 5 + 32) : drive.Temperature)
+                : 0;
+
+            row.TempText.Text = hasTemperature ? $"{Math.Round(displayTemp)}" : "--";
+            row.UnitText.Text = unit;
+
+            string model = string.IsNullOrWhiteSpace(drive.Model) ? "SSD" : drive.Model.Trim();
+            row.TooltipTitle.Text = hasTemperature
+                ? LocalizationService.Format("Main_SsdModelTemp", model, Math.Round(displayTemp), unit)
+                : model;
+            row.TooltipHealth.Text = drive.SmartHealthPercent.HasValue
+                ? LocalizationService.Format(
+                    "Main_SsdHealth",
+                    drive.SmartHealthPercent.Value,
+                    LocalizationService.Health(drive.StatusText))
+                : LocalizationService.Get("Main_SsdHealthUnknown");
+
+            AutomationProperties.SetHelpText(row.TempBorder,
+                $"{row.TooltipTitle.Text}. {row.TooltipHealth.Text}");
         }
 
         private void DrawCpuChart()
         {
             CpuChartCanvas.Children.Clear();
+            CpuChartHoverCanvas.Children.Clear();
             double w = CpuChartCanvas.ActualWidth;
             double h = CpuChartCanvas.ActualHeight;
             if (w <= 0 || h <= 0) return;
 
+            double plotH = Math.Max(10, h - 26);
+
             // Horizontal grid lines
-            for (int i = 1; i <= 2; i++)
+            for (int i = 1; i <= 3; i++)
             {
-                double y = (h / 3.0) * i;
+                double y = (plotH / 4.0) * i;
                 var line = new Line
                 {
                     X1 = 0,
                     X2 = w,
                     Y1 = y,
                     Y2 = y,
-                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#222222")),
+                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#3A3A3A")),
                     StrokeThickness = 1
                 };
                 CpuChartCanvas.Children.Add(line);
@@ -395,15 +629,20 @@ namespace CryoTray.Views
                     X1 = x,
                     X2 = x,
                     Y1 = 0,
-                    Y2 = h,
-                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E")),
+                    Y2 = plotH,
+                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")),
                     StrokeThickness = 1
                 };
                 CpuChartCanvas.Children.Add(vline);
             }
 
             var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples);
-            if (samples.Count < 2) return;
+            _cpuChartSamples = samples;
+            if (samples.Count < 2)
+            {
+                CpuChartTooltip.IsOpen = false;
+                return;
+            }
 
             double minT = 25;
             double maxT = 90;
@@ -422,22 +661,24 @@ namespace CryoTray.Views
                 }
 
                 int segEnd = Math.Min(end + 1, n - 1);
-                DrawCpuSegment(samples, start, segEnd, mode, minT, maxT, stepX, h);
+                DrawCpuSegment(samples, start, segEnd, mode, minT, maxT, stepX, plotH, h);
                 start = end + 1;
+            }
+
+            if (_cpuHoverActive)
+            {
+                UpdateCpuChartTooltip(_cpuHoverX);
+            }
+            else
+            {
+                CpuChartTooltip.IsOpen = false;
             }
         }
 
         private void DrawCpuSegment(List<TelemetrySample> samples, int start, int end, bool isCooling,
-                                    double minT, double maxT, double stepX, double h)
+                                    double minT, double maxT, double stepX, double h, double fillBottom)
         {
-            var areaPoints = new PointCollection();
-            var linePoints = new PointCollection();
-
-            double startX = start * stepX;
-            double endX = end * stepX;
-
-            areaPoints.Add(new Point(startX, h));
-
+            var points = new List<Point>(end - start + 1);
             for (int i = start; i <= end; i++)
             {
                 double t = samples[i].CpuTemp;
@@ -445,56 +686,125 @@ namespace CryoTray.Views
                 norm = Math.Clamp(norm, 0, 1);
                 double y = h - (norm * (h - 16) + 8);
                 double x = i * stepX;
-
-                areaPoints.Add(new Point(x, y));
-                linePoints.Add(new Point(x, y));
+                points.Add(new Point(x, y));
             }
 
-            areaPoints.Add(new Point(endX, h));
-
-            Color areaColor = isCooling
-                ? (Color)ColorConverter.ConvertFromString("#154868")
-                : (Color)ColorConverter.ConvertFromString("#522616");
-
-            var polygon = new Polygon
+            if (points.Count < 2)
             {
-                Points = areaPoints,
-                Fill = new SolidColorBrush(Color.FromArgb(160, areaColor.R, areaColor.G, areaColor.B))
-            };
-            CpuChartCanvas.Children.Add(polygon);
+                return;
+            }
 
-            Color strokeColor = isCooling
-                ? (Color)ColorConverter.ConvertFromString("#4FC3F7")
-                : (Color)ColorConverter.ConvertFromString("#E5987E");
+            Color lineColor = isCooling
+                ? (Color)ColorConverter.ConvertFromString("#3B9BCB")
+                : (Color)ColorConverter.ConvertFromString("#C77950");
+            Color areaTop = isCooling
+                ? (Color)ColorConverter.ConvertFromString("#1A5A7E")
+                : (Color)ColorConverter.ConvertFromString("#6A3320");
 
-            var polyline = new Polyline
+            var areaBrush = new LinearGradientBrush
             {
-                Points = linePoints,
-                Stroke = new SolidColorBrush(strokeColor),
-                StrokeThickness = 1.6
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(0, 1)
             };
-            CpuChartCanvas.Children.Add(polyline);
+            areaBrush.GradientStops.Add(new GradientStop(
+                Color.FromArgb(160, areaTop.R, areaTop.G, areaTop.B), 0));
+            areaBrush.GradientStops.Add(new GradientStop(
+                Color.FromArgb(0, areaTop.R, areaTop.G, areaTop.B), 1));
+
+            var area = new System.Windows.Shapes.Path
+            {
+                Data = CreateSmoothAreaGeometry(points, fillBottom),
+                Fill = areaBrush
+            };
+            CpuChartCanvas.Children.Add(area);
+
+            Geometry lineGeometry = CreateSmoothLineGeometry(points);
+            var glow = new System.Windows.Shapes.Path
+            {
+                Data = lineGeometry,
+                Stroke = new SolidColorBrush(Color.FromArgb(42, lineColor.R, lineColor.G, lineColor.B)),
+                StrokeThickness = 3.4,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round
+            };
+            CpuChartCanvas.Children.Add(glow);
+
+            var line = new System.Windows.Shapes.Path
+            {
+                Data = lineGeometry,
+                Stroke = new SolidColorBrush(lineColor),
+                StrokeThickness = 1.5,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round
+            };
+            CpuChartCanvas.Children.Add(line);
         }
 
-        private void DrawGpuChart(HardwareSnapshot snapshot)
+        private static Geometry CreateSmoothLineGeometry(IReadOnlyList<Point> points)
+        {
+            var geometry = new StreamGeometry();
+            using (var context = geometry.Open())
+            {
+                context.BeginFigure(points[0], false, false);
+                AddSmoothCurve(context, points);
+            }
+            geometry.Freeze();
+            return geometry;
+        }
+
+        private static Geometry CreateSmoothAreaGeometry(IReadOnlyList<Point> points, double baseline)
+        {
+            var geometry = new StreamGeometry();
+            using (var context = geometry.Open())
+            {
+                var first = points[0];
+                var last = points[points.Count - 1];
+                context.BeginFigure(new Point(first.X, baseline), true, true);
+                context.LineTo(first, false, false);
+                AddSmoothCurve(context, points);
+                context.LineTo(new Point(last.X, baseline), false, false);
+            }
+            geometry.Freeze();
+            return geometry;
+        }
+
+        private static void AddSmoothCurve(StreamGeometryContext context, IReadOnlyList<Point> points)
+        {
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                var p0 = i > 0 ? points[i - 1] : points[i];
+                var p1 = points[i];
+                var p2 = points[i + 1];
+                var p3 = i + 2 < points.Count ? points[i + 2] : p2;
+
+                var cp1 = new Point(
+                    p1.X + (p2.X - p0.X) / 6.0,
+                    p1.Y + (p2.Y - p0.Y) / 6.0);
+                var cp2 = new Point(
+                    p2.X - (p3.X - p1.X) / 6.0,
+                    p2.Y - (p3.Y - p1.Y) / 6.0);
+
+                context.BezierTo(cp1, cp2, p2, true, false);
+            }
+        }
+
+        private void DrawGpuChart()
         {
             GpuChartCanvas.Children.Clear();
+            GpuChartHoverCanvas.Children.Clear();
             double w = GpuChartCanvas.ActualWidth;
             double h = GpuChartCanvas.ActualHeight;
             if (w <= 0 || h <= 0) return;
 
-            GpuChartCanvas.ToolTip = $"GPU: {Math.Round(snapshot.GpuTemp)}°C, Load: {Math.Round(snapshot.GpuLoad)}%";
-
-            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(60);
-            if (samples.Count < 2) return;
-
-            var hLine = new Line
+            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples);
+            _gpuChartSamples = samples;
+            if (samples.Count < 2)
             {
-                X1 = 0, X2 = w, Y1 = h / 2, Y2 = h / 2,
-                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#202020")),
-                StrokeThickness = 1
-            };
-            GpuChartCanvas.Children.Add(hLine);
+                GpuChartTooltip.IsOpen = false;
+                return;
+            }
 
             double minT = 30;
             double maxT = 90;
@@ -524,6 +834,30 @@ namespace CryoTray.Views
             };
             GpuChartCanvas.Children.Add(area);
 
+            for (int i = 1; i <= 3; i++)
+            {
+                double x = (w / 4.0) * i;
+                GpuChartCanvas.Children.Add(new Line
+                {
+                    X1 = x,
+                    X2 = x,
+                    Y1 = 0,
+                    Y2 = h,
+                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#343434")),
+                    StrokeThickness = 1
+                });
+            }
+
+            GpuChartCanvas.Children.Add(new Line
+            {
+                X1 = 0,
+                X2 = w,
+                Y1 = h / 2,
+                Y2 = h / 2,
+                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#343434")),
+                StrokeThickness = 1
+            });
+
             var line = new Polyline
             {
                 Points = linePoints,
@@ -531,6 +865,15 @@ namespace CryoTray.Views
                 StrokeThickness = 1.5
             };
             GpuChartCanvas.Children.Add(line);
+
+            if (_gpuHoverActive)
+            {
+                UpdateGpuChartTooltip(_gpuHoverX);
+            }
+            else
+            {
+                GpuChartTooltip.IsOpen = false;
+            }
         }
 
         private void CpuChartCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -549,7 +892,179 @@ namespace CryoTray.Views
                 _ => 60    // 1 min
             };
 
+            // The initial selection fires while XAML is still creating the GPU chart.
+            if (CpuChartCanvas == null || CpuChartHoverCanvas == null ||
+                GpuChartCanvas == null || GpuChartHoverCanvas == null)
+            {
+                return;
+            }
+
             DrawCpuChart();
+            DrawGpuChart();
+        }
+
+        private void CpuChartCanvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            _cpuHoverActive = true;
+            _cpuHoverX = e.GetPosition(CpuChartCanvas).X;
+            UpdateCpuChartTooltip(_cpuHoverX);
+        }
+
+        private void CpuChartCanvas_MouseLeave(object sender, MouseEventArgs e)
+        {
+            _cpuHoverActive = false;
+            CpuChartTooltip.IsOpen = false;
+            CpuChartHoverCanvas.Children.Clear();
+        }
+
+        private void GpuChartCanvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            _gpuHoverActive = true;
+            _gpuHoverX = e.GetPosition(GpuChartCanvas).X;
+            UpdateGpuChartTooltip(_gpuHoverX);
+        }
+
+        private void GpuChartCanvas_MouseLeave(object sender, MouseEventArgs e)
+        {
+            _gpuHoverActive = false;
+            GpuChartTooltip.IsOpen = false;
+            GpuChartHoverCanvas.Children.Clear();
+        }
+
+        private void UpdateCpuChartTooltip(double hoverX)
+        {
+            if (_cpuChartSamples.Count < 2)
+            {
+                return;
+            }
+
+            double width = CpuChartCanvas.ActualWidth;
+            double height = CpuChartCanvas.ActualHeight;
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            double plotH = Math.Max(10, height - 26);
+            int count = _cpuChartSamples.Count;
+            double stepX = width / Math.Max(1, count - 1);
+            int index = Math.Clamp((int)Math.Round(hoverX / stepX), 0, count - 1);
+            var sample = _cpuChartSamples[index];
+            double x = index * stepX;
+            double temperature = sample.CpuTemp;
+            double normalized = Math.Clamp((temperature - 25) / (90 - 25), 0, 1);
+            double y = plotH - (normalized * (plotH - 16) + 8);
+
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            double displayTemp = isFahrenheit ? (temperature * 9 / 5) + 32 : temperature;
+            string unit = isFahrenheit ? "°F" : "°C";
+
+            TxtCpuChartTooltipValue.Text = LocalizationService.Format(
+                "Main_CpuChartValue", Math.Round(displayTemp), unit);
+            TxtCpuChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
+
+            Color accent = sample.CoolingModeActive
+                ? (Color)ColorConverter.ConvertFromString("#4FC3F7")
+                : (Color)ColorConverter.ConvertFromString("#E5987E");
+
+            DrawChartHoverMarker(CpuChartHoverCanvas, x, y, plotH, accent);
+            ShowChartTooltip(CpuChartTooltip, CpuChartCanvas, x, y, width);
+        }
+
+        private void UpdateGpuChartTooltip(double hoverX)
+        {
+            if (_gpuChartSamples.Count < 2)
+            {
+                return;
+            }
+
+            double width = GpuChartCanvas.ActualWidth;
+            double height = GpuChartCanvas.ActualHeight;
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            int count = _gpuChartSamples.Count;
+            double stepX = width / Math.Max(1, count - 1);
+            int index = Math.Clamp((int)Math.Round(hoverX / stepX), 0, count - 1);
+            var sample = _gpuChartSamples[index];
+            double x = index * stepX;
+            double temperature = sample.GpuTemp;
+            double normalized = Math.Clamp((temperature - 30) / (90 - 30), 0, 1);
+            double y = height - (normalized * (height - 8) + 4);
+
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            double displayTemp = isFahrenheit ? (temperature * 9 / 5) + 32 : temperature;
+            string unit = isFahrenheit ? "°F" : "°C";
+
+            TxtGpuChartTooltipValue.Text = $"{Math.Round(displayTemp)}{unit}";
+            TxtGpuChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
+
+            DrawChartHoverMarker(
+                GpuChartHoverCanvas,
+                x,
+                y,
+                height,
+                (Color)ColorConverter.ConvertFromString("#7CB342"));
+            ShowChartTooltip(GpuChartTooltip, GpuChartCanvas, x, y, width);
+        }
+
+        private static void DrawChartHoverMarker(Canvas overlay, double x, double y, double height, Color accent)
+        {
+            overlay.Children.Clear();
+
+            overlay.Children.Add(new Line
+            {
+                X1 = x,
+                X2 = x,
+                Y1 = 0,
+                Y2 = height,
+                Stroke = new SolidColorBrush(Color.FromRgb(165, 165, 165)),
+                StrokeThickness = 1,
+                Opacity = 0.55
+            });
+
+            var dot = new Ellipse
+            {
+                Width = 7,
+                Height = 7,
+                Fill = Brushes.White,
+                Stroke = new SolidColorBrush(accent),
+                StrokeThickness = 2
+            };
+            Canvas.SetLeft(dot, x - 3.5);
+            Canvas.SetTop(dot, y - 3.5);
+            overlay.Children.Add(dot);
+        }
+
+        private static void ShowChartTooltip(Popup popup, Canvas target, double x, double y, double chartWidth)
+        {
+            popup.PlacementTarget = target;
+            popup.Placement = PlacementMode.Relative;
+
+            if (popup.Child is FrameworkElement child)
+            {
+                child.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                double popupWidth = child.DesiredSize.Width;
+                double popupHeight = child.DesiredSize.Height;
+                double left = Math.Clamp(x - (popupWidth / 2), 4, Math.Max(4, chartWidth - popupWidth - 4));
+
+                popup.HorizontalOffset = left;
+                popup.VerticalOffset = y - popupHeight - 8;
+            }
+
+            popup.IsOpen = true;
+        }
+
+        private void HideChartTooltips()
+        {
+            _cpuHoverActive = false;
+            _gpuHoverActive = false;
+            CpuChartTooltip.IsOpen = false;
+            GpuChartTooltip.IsOpen = false;
+            CpuChartHoverCanvas.Children.Clear();
+            GpuChartHoverCanvas.Children.Clear();
         }
 
         private void ToggleSwitch_Click(object sender, MouseButtonEventArgs e)
@@ -558,6 +1073,58 @@ namespace CryoTray.Views
         }
 
         private void BtnStressTest_Click(object sender, RoutedEventArgs e)
+        {
+            OpenStressTestDialog();
+        }
+
+        private void BtnToolsMenu_Click(object sender, RoutedEventArgs e)
+        {
+            var menu = new ContextMenu
+            {
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#181818")),
+                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C"))
+            };
+
+            var itemStress = new MenuItem
+            {
+                Header = LocalizationService.Get("Main_TooltipStressTest"),
+                Foreground = Brushes.White
+            };
+            itemStress.Click += (s, args) => OpenStressTestDialog();
+
+            var itemAbout = new MenuItem
+            {
+                Header = LocalizationService.Get("Main_AboutTitle"),
+                Foreground = Brushes.White
+            };
+            itemAbout.Click += (s, args) =>
+            {
+                MessageBox.Show(
+                    LocalizationService.Get("Main_AboutBody"),
+                    LocalizationService.Get("Main_AboutTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            };
+
+            menu.Items.Add(itemStress);
+            menu.Items.Add(new Separator { Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")) });
+            menu.Items.Add(itemAbout);
+
+            menu.PlacementTarget = BtnToolsMenu;
+            menu.IsOpen = true;
+        }
+
+        private void BtnSettings_Click(object sender, RoutedEventArgs e)
+        {
+            OpenSettingsDialog();
+        }
+
+        private void BtnSystemInfo_Click(object sender, RoutedEventArgs e)
+        {
+            OpenSystemInfoDialog();
+        }
+
+        public void OpenStressTestDialog()
         {
             var win = new StressTestWindow { Owner = this };
             DockSideBySide(win);
@@ -572,57 +1139,14 @@ namespace CryoTray.Views
             }
         }
 
-        private void BtnToolsMenu_Click(object sender, RoutedEventArgs e)
+        public void OpenSettingsDialog()
         {
-            var menu = new ContextMenu
-            {
-                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#181818")),
-                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C"))
-            };
-
-            var itemStress = new MenuItem
-            {
-                Header = "CPU Temperature Test",
-                Foreground = Brushes.White
-            };
-            itemStress.Click += (s, args) =>
-            {
-                var win = new StressTestWindow { Owner = this };
-                DockSideBySide(win);
-                _isChildDialogOpen = true;
-                try
-                {
-                    win.ShowDialog();
-                }
-                finally
-                {
-                    _isChildDialogOpen = false;
-                }
-            };
-
-            var itemAbout = new MenuItem
-            {
-                Header = "About CryoTray",
-                Foreground = Brushes.White
-            };
-            itemAbout.Click += (s, args) =>
-            {
-                MessageBox.Show(
-                    "CryoTray by ZerroDevs\nUltra-lightweight native Windows hardware monitor & cooling utility.\nZero paywalls. Zero GDI leaks.",
-                    "About CryoTray", MessageBoxButton.OK, MessageBoxImage.Information);
-            };
-
-            menu.Items.Add(itemStress);
-            menu.Items.Add(new Separator { Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")) });
-            menu.Items.Add(itemAbout);
-
-            menu.PlacementTarget = BtnToolsMenu;
-            menu.IsOpen = true;
+            OpenSettingsDialog(false);
         }
 
-        private void BtnSettings_Click(object sender, RoutedEventArgs e)
+        public void OpenSettingsDialog(bool openAbout)
         {
-            var win = new SettingsWindow { Owner = this };
+            var win = new SettingsWindow { Owner = this, OpenAboutOnLoad = openAbout };
             DockSideBySide(win);
             _isChildDialogOpen = true;
             try
@@ -635,7 +1159,7 @@ namespace CryoTray.Views
             }
         }
 
-        private void BtnSystemInfo_Click(object sender, RoutedEventArgs e)
+        public void OpenSystemInfoDialog()
         {
             var win = new SystemInfoWindow { Owner = this };
             DockSideBySide(win);
@@ -675,10 +1199,10 @@ namespace CryoTray.Views
 
         private void BtnOverlay_Click(object sender, RoutedEventArgs e)
         {
-            var s = SettingsService.Instance.Current;
-            s.OverlayEnabled = !s.OverlayEnabled;
-            SettingsService.Instance.Save();
-            ApplySettings();
+            if (System.Windows.Application.Current is App app)
+            {
+                app.ToggleOverlay();
+            }
         }
 
         private void BtnAutopilot_Click(object sender, RoutedEventArgs e)
@@ -687,13 +1211,19 @@ namespace CryoTray.Views
             s.AutopilotEnabled = !s.AutopilotEnabled;
             SettingsService.Instance.Save();
             MessageBox.Show(
-                $"Autopilot is now {(s.AutopilotEnabled ? "ENABLED" : "DISABLED")}.\nRules: Idle < {s.AutopilotIdleThresholdPercent}% turns Cooling ON.\nHeavy Load > {s.AutopilotBusyThresholdPercent}% switches to Balanced.",
-                "Autopilot Cooling", MessageBoxButton.OK, MessageBoxImage.Information);
+                LocalizationService.Format(
+                    "Main_AutopilotBody",
+                    LocalizationService.Get(s.AutopilotEnabled ? "Common_On" : "Common_Off"),
+                    s.AutopilotIdleThresholdPercent,
+                    s.AutopilotBusyThresholdPercent),
+                LocalizationService.Get("Main_AutopilotTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
         }
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
-            Hide();
+            Close();
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -830,6 +1360,15 @@ namespace CryoTray.Views
             {
                 return false;
             }
+        }
+
+        private void OnLanguageChanged()
+        {
+            LocalizationService.Instance.ApplyWindow(this);
+            _ssdRowSignature = null;
+            ApplySettings();
+            UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
+            UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
         }
 
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

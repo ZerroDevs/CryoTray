@@ -3,6 +3,13 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-        <FontFamily x:Key="SegoeUIVariable">Segoe UI Variable Display, Segoe UI, Arial</FontFamily>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/Strings.en.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <FontFamily x:Key="SegoeUIVariable">Segoe UI Variable Display, Segoe UI, Tahoma, Arial</FontFamily>
+            <FontFamily x:Key="SegoeUIVariableText">Segoe UI Variable Text, Segoe UI, Tahoma, Arial</FontFamily>
+            <SolidColorBrush x:Key="WindowBorderBrush" Color="#C26A47"/>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>
