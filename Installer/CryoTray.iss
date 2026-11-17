@@ -34,7 +34,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; LICENSE, NOTICE and VERSION are copied explicitly below, so exclude them from the recursive copy to avoid duplicate destinations.
-Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,LICENSE,NOTICE,VERSION"
+; Keep the full publish output for local debugging. The installer excludes framework language satellites
+; CryoTray does not use and debugger-only runtime files. Remove a language folder from this list when it becomes supported.
+Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,LICENSE,NOTICE,VERSION,\cs\*,\de\*,\es\*,\fr\*,\it\*,\ja\*,\ko\*,\pl\*,\pt-BR\*,\ru\*,\tr\*,\zh-Hans\*,\zh-Hant\*,\mscordaccore.dll,\mscordaccore_amd64_amd64_*.dll,\mscordbi.dll,\Microsoft.DiaSymReader.Native.amd64.dll"
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\VERSION"; DestDir: "{app}"; Flags: ignoreversion
