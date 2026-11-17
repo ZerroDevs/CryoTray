@@ -35,6 +35,7 @@ namespace CryoTray.Views
         private int _timeframeSamples = 60; // Default 1 min
         private int _coreColumns = 4;
         private bool _isClosing;
+        private bool _showKeyboardFocusCues;
         private readonly double _expandedHeight;
 
         private List<TelemetrySample> _cpuChartSamples = new();
@@ -68,6 +69,21 @@ namespace CryoTray.Views
                 }
 
                 _coreColumns = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool ShowKeyboardFocusCues
+        {
+            get => _showKeyboardFocusCues;
+            private set
+            {
+                if (_showKeyboardFocusCues == value)
+                {
+                    return;
+                }
+
+                _showKeyboardFocusCues = value;
                 OnPropertyChanged();
             }
         }
@@ -167,6 +183,7 @@ namespace CryoTray.Views
 
                 Topmost = s.AlwaysOnTop;
                 ShowInTaskbar = s.PinToTaskbar;
+                ApplyTelemetryVisibility(s);
 
                 OverlayRow.Visibility = s.ShowOverlayRow
                     ? Visibility.Visible
@@ -199,6 +216,10 @@ namespace CryoTray.Views
                     + AutopilotSeparator.Margin.Top
                     + AutopilotSeparator.Margin.Bottom;
             }
+            if (GpuHealthRow.Visibility != Visibility.Visible)
+            {
+                height -= GpuHealthRow.Height;
+            }
 
             if (Math.Abs(Height - height) < 0.1)
             {
@@ -227,7 +248,18 @@ namespace CryoTray.Views
             Top = workArea.Bottom - Height - 12;
         }
 
-        private bool _isChildDialogOpen = false;
+        private static readonly Brush InactiveTitleIconBrush = CreateInactiveTitleIconBrush();
+        private SettingsWindow? _settingsWindow;
+        private SystemInfoWindow? _systemInfoWindow;
+        private StressTestWindow? _stressTestWindow;
+        private bool _isChildDialogOpen;
+
+        private static Brush CreateInactiveTitleIconBrush()
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(0xC4, 0xC4, 0xC4));
+            brush.Freeze();
+            return brush;
+        }
 
         private void Window_Deactivated(object? sender, EventArgs e)
         {
@@ -344,13 +376,43 @@ namespace CryoTray.Views
 
             // CPU Speed
             TxtCpuClockRatio.Text = $"{snapshot.CpuGhz:0.00} / {snapshot.CpuMaxGhz:0.00}";
+            TxtCpuPackageWatts.Text = snapshot.CpuPackageWatts.HasValue
+                ? $"{snapshot.CpuPackageWatts.Value}W"
+                : "--W";
+            TxtCpuPackagePowerPopup.Text = FormatPackagePower(snapshot.CpuPackageWatts);
 
             // GPU Row
             TxtGpuLabel.Text = LocalizationService.Get("Main_GpuLabel");
+            TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
+            TxtGpuPower.Text = snapshot.GpuPowerWatts.HasValue
+                ? $"{snapshot.GpuPowerWatts.Value}W"
+                : "--W";
             TxtGpuVendor.Text = snapshot.GpuVendor?.Trim() ?? "";
             TxtGpuVendor.Visibility = string.IsNullOrWhiteSpace(TxtGpuVendor.Text)
                 ? Visibility.Collapsed
                 : Visibility.Visible;
+            string fullGpuName = snapshot.GpuName?.Trim() ?? "";
+            TxtGpuName.Text = CompactGpuName(fullGpuName);
+            TxtGpuName.ToolTip = string.IsNullOrWhiteSpace(fullGpuName)
+                ? null
+                : fullGpuName;
+
+            double? hotspotT = snapshot.GpuHotspotTemp.HasValue
+                ? (isFahrenheit ? snapshot.GpuHotspotTemp.Value * 9 / 5 + 32 : snapshot.GpuHotspotTemp.Value)
+                : null;
+            double? vramT = snapshot.GpuVramTemp.HasValue
+                ? (isFahrenheit ? snapshot.GpuVramTemp.Value * 9 / 5 + 32 : snapshot.GpuVramTemp.Value)
+                : null;
+            TxtGpuHotspot.Text = hotspotT.HasValue
+                ? $"{Math.Round(hotspotT.Value)}{unit}"
+                : "--";
+            TxtGpuVram.Text = vramT.HasValue
+                ? $"{Math.Round(vramT.Value)}{unit}"
+                : "--";
+            TxtGpuFan.Text = snapshot.GpuFanRpm.HasValue
+                ? $"{snapshot.GpuFanRpm.Value} {LocalizationService.Get("Main_RpmUnit")}"
+                : "--";
+            ApplyTelemetryVisibility(s);
 
             // SSD Rows
             RenderSsdRows(snapshot.StorageDrives, isFahrenheit, unit);
@@ -1074,7 +1136,7 @@ namespace CryoTray.Views
 
         private void BtnStressTest_Click(object sender, RoutedEventArgs e)
         {
-            OpenStressTestDialog();
+            ToggleStressTestDialog();
         }
 
         private void BtnToolsMenu_Click(object sender, RoutedEventArgs e)
@@ -1116,27 +1178,41 @@ namespace CryoTray.Views
 
         private void BtnSettings_Click(object sender, RoutedEventArgs e)
         {
-            OpenSettingsDialog();
+            ToggleSettingsDialog();
         }
 
         private void BtnSystemInfo_Click(object sender, RoutedEventArgs e)
         {
-            OpenSystemInfoDialog();
+            ToggleSystemInfoDialog();
         }
 
         public void OpenStressTestDialog()
         {
+            if (_stressTestWindow != null)
+            {
+                _stressTestWindow.Activate();
+                return;
+            }
+
             var win = new StressTestWindow { Owner = this };
             DockSideBySide(win);
-            _isChildDialogOpen = true;
-            try
+            _stressTestWindow = win;
+            win.Closed += (_, _) => UntrackChildWindow(win);
+            UpdateChildDialogState();
+            UpdateTitleIconStates();
+            win.Show();
+            win.Activate();
+        }
+
+        private void ToggleStressTestDialog()
+        {
+            if (_stressTestWindow != null)
             {
-                win.ShowDialog();
+                _stressTestWindow.Close();
+                return;
             }
-            finally
-            {
-                _isChildDialogOpen = false;
-            }
+
+            OpenStressTestDialog();
         }
 
         public void OpenSettingsDialog()
@@ -1146,31 +1222,118 @@ namespace CryoTray.Views
 
         public void OpenSettingsDialog(bool openAbout)
         {
-            var win = new SettingsWindow { Owner = this, OpenAboutOnLoad = openAbout };
+            ShowSettingsWindow(openAbout, false);
+        }
+
+        public void OpenAutopilotSettingsDialog()
+        {
+            ShowSettingsWindow(false, true);
+        }
+
+        private void ToggleSettingsDialog()
+        {
+            if (_settingsWindow != null)
+            {
+                _settingsWindow.Close();
+                return;
+            }
+
+            ShowSettingsWindow(false, false);
+        }
+
+        private void ShowSettingsWindow(bool openAbout, bool openAutopilot)
+        {
+            if (_settingsWindow != null)
+            {
+                if (openAbout) _settingsWindow.SelectAboutTab();
+                if (openAutopilot) _settingsWindow.SelectAutopilotTab();
+                _settingsWindow.Activate();
+                return;
+            }
+
+            var win = new SettingsWindow
+            {
+                Owner = this,
+                OpenAboutOnLoad = openAbout,
+                OpenAutopilotOnLoad = openAutopilot
+            };
             DockSideBySide(win);
-            _isChildDialogOpen = true;
-            try
-            {
-                win.ShowDialog();
-            }
-            finally
-            {
-                _isChildDialogOpen = false;
-            }
+            _settingsWindow = win;
+            win.Closed += (_, _) => UntrackChildWindow(win);
+            UpdateChildDialogState();
+            UpdateTitleIconStates();
+            win.Show();
+            win.Activate();
         }
 
         public void OpenSystemInfoDialog()
         {
+            if (_systemInfoWindow != null)
+            {
+                _systemInfoWindow.Activate();
+                return;
+            }
+
             var win = new SystemInfoWindow { Owner = this };
             DockSideBySide(win);
-            _isChildDialogOpen = true;
-            try
+            _systemInfoWindow = win;
+            win.Closed += (_, _) => UntrackChildWindow(win);
+            UpdateChildDialogState();
+            UpdateTitleIconStates();
+            win.Show();
+            win.Activate();
+        }
+
+        private void ToggleSystemInfoDialog()
+        {
+            if (_systemInfoWindow != null)
             {
-                win.ShowDialog();
+                _systemInfoWindow.Close();
+                return;
             }
-            finally
+
+            OpenSystemInfoDialog();
+        }
+
+        private void UntrackChildWindow(Window window)
+        {
+            if (ReferenceEquals(window, _settingsWindow)) _settingsWindow = null;
+            if (ReferenceEquals(window, _systemInfoWindow)) _systemInfoWindow = null;
+            if (ReferenceEquals(window, _stressTestWindow)) _stressTestWindow = null;
+
+            UpdateChildDialogState();
+            UpdateTitleIconStates();
+        }
+
+        private void UpdateChildDialogState()
+        {
+            _isChildDialogOpen = _settingsWindow != null ||
+                _systemInfoWindow != null ||
+                _stressTestWindow != null;
+        }
+
+        private void UpdateTitleIconStates()
+        {
+            bool settingsOpen = _settingsWindow != null;
+            bool systemInfoOpen = _systemInfoWindow != null;
+            bool stressTestOpen = _stressTestWindow != null;
+
+            SetTitleIconActive(StressIconRing, Shape.StrokeProperty, stressTestOpen);
+            SetTitleIconActive(StressIconBlades, Shape.FillProperty, stressTestOpen);
+            SetTitleIconActive(StressIconHub, Shape.FillProperty, stressTestOpen);
+            SetTitleIconActive(SettingsIconPath, Shape.FillProperty, settingsOpen);
+            SetTitleIconActive(SystemInfoIconPath, Shape.FillProperty, systemInfoOpen);
+        }
+
+        private static void SetTitleIconActive(Shape icon, DependencyProperty property, bool active)
+        {
+            if (active)
             {
-                _isChildDialogOpen = false;
+                icon.SetResourceReference(property, "WindowBorderBrush");
+            }
+            else
+            {
+                icon.SetValue(property, InactiveTitleIconBrush);
             }
         }
 
@@ -1207,23 +1370,22 @@ namespace CryoTray.Views
 
         private void BtnAutopilot_Click(object sender, RoutedEventArgs e)
         {
-            var s = SettingsService.Instance.Current;
-            s.AutopilotEnabled = !s.AutopilotEnabled;
-            SettingsService.Instance.Save();
-            MessageBox.Show(
-                LocalizationService.Format(
-                    "Main_AutopilotBody",
-                    LocalizationService.Get(s.AutopilotEnabled ? "Common_On" : "Common_Off"),
-                    s.AutopilotIdleThresholdPercent,
-                    s.AutopilotBusyThresholdPercent),
-                LocalizationService.Get("Main_AutopilotTitle"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            OpenAutopilotSettingsDialog();
         }
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            ShowKeyboardFocusCues = true;
+        }
+
+        private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            ShowKeyboardFocusCues = false;
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1247,6 +1409,8 @@ namespace CryoTray.Views
 
         private void UpdateCpuCoreItems(HardwareSnapshot snapshot)
         {
+            TxtCpuPackagePowerPopup.Text = FormatPackagePower(snapshot.CpuPackageWatts);
+
             var cores = snapshot.CpuCoresTelemetry;
             if (cores.Count == 0)
             {
@@ -1274,6 +1438,66 @@ namespace CryoTray.Views
             }
 
             PositionCorePopup();
+        }
+
+        private static string FormatPackagePower(int? watts)
+        {
+            string value = watts.HasValue
+                ? watts.Value.ToString(CultureInfo.InvariantCulture)
+                : "--";
+            return LocalizationService.Format("Main_PackagePower", value);
+        }
+
+        private static string CompactGpuName(string fullName)
+        {
+            if (fullName.StartsWith("NVIDIA ", StringComparison.OrdinalIgnoreCase))
+            {
+                return fullName["NVIDIA ".Length..].Trim();
+            }
+
+            if (fullName.StartsWith("AMD ", StringComparison.OrdinalIgnoreCase))
+            {
+                return fullName["AMD ".Length..].Trim();
+            }
+
+            if (fullName.StartsWith("Intel ", StringComparison.OrdinalIgnoreCase))
+            {
+                return fullName["Intel ".Length..].Trim();
+            }
+
+            return fullName;
+        }
+
+        private void ApplyTelemetryVisibility(AppSettings settings)
+        {
+            TxtCpuPackageWatts.Visibility = settings.ShowCpuPower
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CpuPackagePowerFooter.Visibility = settings.ShowCpuPower
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            TxtGpuTemp.Visibility = settings.ShowGpuTemp
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            TxtGpuPower.Visibility = settings.ShowGpuPower
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            TxtGpuName.Visibility = settings.ShowGpuName &&
+                !string.IsNullOrWhiteSpace(TxtGpuName.Text)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            GpuHotspotGroup.Visibility = settings.ShowGpuHotspot
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            GpuVramGroup.Visibility = settings.ShowGpuVram
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            GpuFanGroup.Visibility = settings.ShowGpuFan
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            GpuHealthRow.Visibility = settings.ShowGpuHotspot || settings.ShowGpuVram || settings.ShowGpuFan
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         private void CpuCoresPopup_Opened(object? sender, EventArgs e)

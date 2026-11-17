@@ -24,6 +24,17 @@ namespace CryoTray.Models
         public bool AnchorToTray { get; set; } = true;
         public bool ShowOverlayRow { get; set; } = false;
         public bool ShowAutopilotRow { get; set; } = false;
+        public bool MergeTrayIcons { get; set; } = false;
+
+        // Dashboard readouts
+        public bool ShowCpuPower { get; set; } = true;
+        public bool ShowGpuPower { get; set; } = true;
+        public bool ShowGpuTemp { get; set; } = true;
+        public bool ShowGpuName { get; set; } = false;
+        public bool ShowGpuHotspot { get; set; } = true;
+        public bool ShowGpuVram { get; set; } = true;
+        public bool ShowGpuFan { get; set; } = true;
+
         public double? WindowLeft { get; set; }
         public double? WindowTop { get; set; }
 
@@ -35,13 +46,19 @@ namespace CryoTray.Models
 
         // Autopilot
         public bool AutopilotEnabled { get; set; } = false;
-        public int AutopilotIdleThresholdPercent { get; set; } = 25;
-        public int AutopilotIdleSeconds { get; set; } = 30;
-        public int AutopilotBusyThresholdPercent { get; set; } = 65;
+        public List<string> AutopilotWhitelist { get; set; } = new();
 
         // Overlay
         public bool OverlayEnabled { get; set; } = false;
         public bool OverlayClickThrough { get; set; } = false;
+        public bool OverlayShowCpuTemp { get; set; } = true;
+        public bool OverlayShowCpuLoad { get; set; } = true;
+        public bool OverlayShowCpuPower { get; set; } = true;
+        public bool OverlayShowCpuClock { get; set; } = true;
+        public bool OverlayShowGpuTemp { get; set; } = true;
+        public bool OverlayShowGpuLoad { get; set; } = true;
+        public bool OverlayShowGpuPower { get; set; } = true;
+        public int OverlayOpacityPercent { get; set; } = 90;
         public double? OverlayLeft { get; set; }
         public double? OverlayTop { get; set; }
 

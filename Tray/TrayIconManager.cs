@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Globalization;
 using System.Windows.Forms;
 using CryoTray.Models;
 using CryoTray.Services;
@@ -10,6 +11,9 @@ namespace CryoTray.Tray
 {
     public class TrayIconManager : IDisposable
     {
+        private const int IconSize = 32;
+        private const int IconHalfHeight = IconSize / 2;
+
         private readonly NotifyIcon _gpuIcon;
         private readonly NotifyIcon _cpuIcon;
         private readonly ContextMenuStrip _contextMenu;
@@ -19,14 +23,30 @@ namespace CryoTray.Tray
         private readonly ToolStripMenuItem _itemSettings;
         private readonly ToolStripMenuItem _itemExit;
 
+        private readonly Bitmap _iconBitmap;
+        private readonly Graphics _iconGraphics;
+        private readonly SolidBrush _backgroundBrush;
+        private readonly SolidBrush _textBrush;
+        private readonly SolidBrush _dividerBrush;
+        private readonly Font _singleDigitFont;
+        private readonly Font _doubleDigitFont;
+        private readonly Font _tripleDigitFont;
+        private readonly Font _mergedFont;
+        private readonly StringFormat _centerFormat;
+        private readonly GraphicsPath _roundedPath;
+
         private Icon? _currentGpuIcon;
         private Icon? _currentCpuIcon;
+        private IntPtr _currentGpuHIcon;
+        private IntPtr _currentCpuHIcon;
         private Action? _notificationAction;
         private NotifyIcon? _notificationIcon;
         private DateTime _notificationHoldUntilUtc;
         private double _lastGpuTemp;
         private double _lastCpuTemp;
         private bool _lastCoolingModeActive;
+        private bool _disposed;
+        private readonly object _renderLock = new();
 
         public event Action? OnOpenDashboardRequested;
         public event Action? OnToggleCoolingRequested;
@@ -38,6 +58,10 @@ namespace CryoTray.Tray
         private static readonly Color GpuGreen = ColorTranslator.FromHtml("#B3D872");
         private static readonly Color CpuAmber = ColorTranslator.FromHtml("#FFBDAF");
         private static readonly Color CpuCyan = ColorTranslator.FromHtml("#8AD2F1");
+        private static readonly Color MergedCpuOff = ColorTranslator.FromHtml("#E5987E");
+        private static readonly Color MergedCpuOn = ColorTranslator.FromHtml("#4FC3F7");
+        private static readonly Color MergedGpuGreen = ColorTranslator.FromHtml("#7CB342");
+        private static readonly Color DividerColor = ColorTranslator.FromHtml("#141414");
 
         public TrayIconManager()
         {
@@ -47,6 +71,29 @@ namespace CryoTray.Tray
             _itemStress = (ToolStripMenuItem)_contextMenu.Items[3];
             _itemSettings = (ToolStripMenuItem)_contextMenu.Items[4];
             _itemExit = (ToolStripMenuItem)_contextMenu.Items[6];
+
+            _iconBitmap = new Bitmap(IconSize, IconSize);
+            _iconGraphics = Graphics.FromImage(_iconBitmap);
+            _iconGraphics.SmoothingMode = SmoothingMode.AntiAlias;
+            _iconGraphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            _iconGraphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            _iconGraphics.CompositingQuality = CompositingQuality.HighQuality;
+
+            _backgroundBrush = new SolidBrush(Color.Transparent);
+            _textBrush = new SolidBrush(Color.FromArgb(20, 20, 20));
+            _dividerBrush = new SolidBrush(DividerColor);
+            _singleDigitFont = new Font("Segoe UI", 22f, FontStyle.Bold, GraphicsUnit.Pixel);
+            _doubleDigitFont = new Font("Segoe UI", 18f, FontStyle.Bold, GraphicsUnit.Pixel);
+            _tripleDigitFont = new Font("Segoe UI", 15f, FontStyle.Bold, GraphicsUnit.Pixel);
+            _mergedFont = new Font("Segoe UI", 13f, FontStyle.Bold, GraphicsUnit.Pixel);
+            _centerFormat = new StringFormat
+            {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center,
+                FormatFlags = StringFormatFlags.NoWrap,
+                Trimming = StringTrimming.None
+            };
+            _roundedPath = CreateRoundedPath();
 
             _gpuIcon = new NotifyIcon
             {
@@ -66,8 +113,33 @@ namespace CryoTray.Tray
             _cpuIcon.MouseClick += OnTrayIconClick;
             _cpuIcon.BalloonTipClicked += OnBalloonTipClicked;
 
+            SettingsService.Instance.SettingsChanged += OnSettingsChanged;
+
             ApplyLanguage();
             UpdateBadges(52, 37, false);
+        }
+
+        private static GraphicsPath CreateRoundedPath()
+        {
+            const int radius = 5;
+            var path = new GraphicsPath();
+            path.AddArc(0, 0, radius * 2, radius * 2, 180, 90);
+            path.AddArc(IconSize - (radius * 2), 0, radius * 2, radius * 2, 270, 90);
+            path.AddArc(IconSize - (radius * 2), IconSize - (radius * 2),
+                radius * 2, radius * 2, 0, 90);
+            path.AddArc(0, IconSize - (radius * 2), radius * 2, radius * 2, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private void OnSettingsChanged()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive);
         }
 
         public void ApplyLanguage()
@@ -97,8 +169,6 @@ namespace CryoTray.Tray
                     ? _gpuIcon
                     : _cpuIcon;
 
-            // Keep a badge visible long enough for the balloon to appear even when
-            // both tray badges are hidden in Settings.
             notifyIcon.Visible = true;
             _notificationIcon = notifyIcon;
             _notificationHoldUntilUtc = DateTime.UtcNow.AddSeconds(12);
@@ -164,12 +234,16 @@ namespace CryoTray.Tray
 
         public void UpdateBadges(double gpuTemp, double cpuTemp, bool coolingModeActive)
         {
-            var settings = SettingsService.Instance.Current;
+            lock (_renderLock)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                var settings = SettingsService.Instance.Current;
             bool holdCpu = _notificationIcon == _cpuIcon && DateTime.UtcNow < _notificationHoldUntilUtc;
             bool holdGpu = _notificationIcon == _gpuIcon && DateTime.UtcNow < _notificationHoldUntilUtc;
-
-            _gpuIcon.Visible = settings.ShowGpuBadge || holdGpu;
-            _cpuIcon.Visible = settings.ShowCpuBadge || holdCpu;
 
             if (!holdCpu && !holdGpu)
             {
@@ -182,88 +256,219 @@ namespace CryoTray.Tray
             string unit = isFahrenheit ? "°F" : "°C";
             int gpuInt = (int)Math.Round(displayGpuTemp);
             int cpuInt = (int)Math.Round(displayCpuTemp);
-
             Color cpuColor = coolingModeActive ? CpuCyan : CpuAmber;
-
-            // Update GPU icon with GDI handle destruction
-            Icon newGpuIcon = CreateBadgeIcon(gpuInt, GpuGreen);
-            var oldGpu = _currentGpuIcon;
-            _gpuIcon.Icon = newGpuIcon;
-            _currentGpuIcon = newGpuIcon;
-            oldGpu?.Dispose();
 
             _lastGpuTemp = gpuTemp;
             _lastCpuTemp = cpuTemp;
             _lastCoolingModeActive = coolingModeActive;
 
-            _gpuIcon.Text = LocalizationService.Format("Tray_GpuTooltip", gpuInt, unit);
+            if (settings.MergeTrayIcons)
+            {
+                _gpuIcon.Visible = false;
+                _cpuIcon.Visible = settings.ShowCpuBadge || settings.ShowGpuBadge || holdCpu || holdGpu;
+                ClearGpuIcon();
 
-            // Update CPU icon with GDI handle destruction
-            Icon newCpuIcon = CreateBadgeIcon(cpuInt, cpuColor);
-            var oldCpu = _currentCpuIcon;
-            _cpuIcon.Icon = newCpuIcon;
-            _currentCpuIcon = newCpuIcon;
-            oldCpu?.Dispose();
+                if (_cpuIcon.Visible)
+                {
+                    DrawMergedBadge(cpuInt, gpuInt,
+                        coolingModeActive ? MergedCpuOn : MergedCpuOff);
+                    ReplaceCpuIcon();
+                    _cpuIcon.Text = LocalizationService.Format(
+                        "Tray_MergedTooltip", cpuInt, unit, gpuInt);
+                }
+                else
+                {
+                    ClearCpuIcon();
+                }
 
-            string coolingText = LocalizationService.Get(coolingModeActive ? "Common_On" : "Common_Off");
-            _cpuIcon.Text = LocalizationService.Format("Tray_CpuTooltip", cpuInt, unit, coolingText);
+                return;
+            }
+
+            _gpuIcon.Visible = settings.ShowGpuBadge || holdGpu;
+            _cpuIcon.Visible = settings.ShowCpuBadge || holdCpu;
+
+            if (_gpuIcon.Visible)
+            {
+                DrawSingleBadge(gpuInt, GpuGreen);
+                ReplaceGpuIcon();
+                _gpuIcon.Text = LocalizationService.Format("Tray_GpuTooltip", gpuInt, unit);
+            }
+            else
+            {
+                ClearGpuIcon();
+            }
+
+            if (_cpuIcon.Visible)
+            {
+                DrawSingleBadge(cpuInt, cpuColor);
+                ReplaceCpuIcon();
+                string coolingText = LocalizationService.Get(
+                    coolingModeActive ? "Common_On" : "Common_Off");
+                _cpuIcon.Text = LocalizationService.Format(
+                    "Tray_CpuTooltip", cpuInt, unit, coolingText);
+            }
+            else
+            {
+                ClearCpuIcon();
+            }
+            }
         }
 
-        private Icon CreateBadgeIcon(int temp, Color bgColor)
+        private void DrawSingleBadge(int temp, Color background)
         {
-            // The shell draws NotifyIcon at its own small-icon size. Rendering at that
-            // size keeps the number crisp instead of downscaling a 32 px bitmap.
-            int size = Math.Max(16, SystemInformation.SmallIconSize.Width);
-            using var bmp = new Bitmap(size, size);
-            using (var g = Graphics.FromImage(bmp))
+            PrepareCanvas();
+            _backgroundBrush.Color = background;
+            _iconGraphics.FillRectangle(_backgroundBrush, 0, 0, IconSize, IconSize);
+            DrawTemperature(temp, GetSingleDigitFont(temp),
+                new RectangleF(0, 2, IconSize, IconSize - 2));
+        }
+
+        private void DrawMergedBadge(int cpuTemp, int gpuTemp, Color cpuBackground)
+        {
+            PrepareCanvas();
+            _iconGraphics.SetClip(_roundedPath);
+
+            _backgroundBrush.Color = cpuBackground;
+            _iconGraphics.FillRectangle(_backgroundBrush, 0, 0, IconSize, IconHalfHeight);
+            _backgroundBrush.Color = MergedGpuGreen;
+            _iconGraphics.FillRectangle(_backgroundBrush, 0, IconHalfHeight,
+                IconSize, IconHalfHeight);
+            _iconGraphics.FillRectangle(_dividerBrush, 0, IconHalfHeight - 1,
+                IconSize, 1);
+
+            DrawTemperature(cpuTemp, _mergedFont,
+                new RectangleF(0, 0, IconSize, IconHalfHeight - 1));
+            DrawTemperature(gpuTemp, _mergedFont,
+                new RectangleF(0, IconHalfHeight, IconSize, IconHalfHeight));
+            _iconGraphics.ResetClip();
+        }
+
+        private void PrepareCanvas()
+        {
+            _iconGraphics.ResetClip();
+            _iconGraphics.Clear(Color.Transparent);
+        }
+
+        private Font GetSingleDigitFont(int temp)
+        {
+            if (temp >= 100)
             {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                g.Clear(Color.Transparent);
-
-                // Camomile's left pair are flat, sharp-cornered full-bleed tiles.
-                // A border or rounded corner makes the fixed 16 px tray slot look smaller.
-                var bounds = new Rectangle(0, 0, size, size);
-                using var brush = new SolidBrush(bgColor);
-                g.FillRectangle(brush, bounds);
-
-                string text = temp.ToString();
-                float fontSize = size * (text.Length >= 3 ? 0.55f : 0.70f);
-                using var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel);
-                using var textBrush = new SolidBrush(Color.FromArgb(20, 20, 20));
-                using var sf = StringFormat.GenericTypographic;
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-
-                // The typographic metrics sit slightly high in the square; nudge the
-                // digits down so the margin reads even at native tray size.
-                g.DrawString(text, font, textBrush, new RectangleF(0, size * 0.065f, size, size), sf);
+                return _tripleDigitFont;
             }
 
-            IntPtr hIcon = bmp.GetHicon();
-            try
+            return temp >= 10 ? _doubleDigitFont : _singleDigitFont;
+        }
+
+        private void DrawTemperature(int temp, Font font, RectangleF bounds)
+        {
+            string text = temp.ToString(CultureInfo.InvariantCulture);
+            _iconGraphics.DrawString(text, font, _textBrush, bounds, _centerFormat);
+        }
+
+        private void ReplaceCpuIcon()
+        {
+            IntPtr newHandle = _iconBitmap.GetHicon();
+            Icon newIcon = Icon.FromHandle(newHandle);
+            Icon? oldIcon = _currentCpuIcon;
+            IntPtr oldHandle = _currentCpuHIcon;
+
+            _cpuIcon.Icon = newIcon;
+            _currentCpuIcon = newIcon;
+            _currentCpuHIcon = newHandle;
+
+            if (oldHandle != IntPtr.Zero)
             {
-                using var tempIcon = Icon.FromHandle(hIcon);
-                return (Icon)tempIcon.Clone();
+                NativeMethods.DestroyIcon(oldHandle);
             }
-            finally
+
+            oldIcon?.Dispose();
+        }
+
+        private void ReplaceGpuIcon()
+        {
+            IntPtr newHandle = _iconBitmap.GetHicon();
+            Icon newIcon = Icon.FromHandle(newHandle);
+            Icon? oldIcon = _currentGpuIcon;
+            IntPtr oldHandle = _currentGpuHIcon;
+
+            _gpuIcon.Icon = newIcon;
+            _currentGpuIcon = newIcon;
+            _currentGpuHIcon = newHandle;
+
+            if (oldHandle != IntPtr.Zero)
             {
-                NativeMethods.DestroyIcon(hIcon);
+                NativeMethods.DestroyIcon(oldHandle);
             }
+
+            oldIcon?.Dispose();
+        }
+
+        private void ClearCpuIcon()
+        {
+            var oldIcon = _currentCpuIcon;
+            IntPtr oldHandle = _currentCpuHIcon;
+            _cpuIcon.Icon = null;
+            _currentCpuIcon = null;
+            _currentCpuHIcon = IntPtr.Zero;
+
+            if (oldHandle != IntPtr.Zero)
+            {
+                NativeMethods.DestroyIcon(oldHandle);
+            }
+
+            oldIcon?.Dispose();
+        }
+
+        private void ClearGpuIcon()
+        {
+            var oldIcon = _currentGpuIcon;
+            IntPtr oldHandle = _currentGpuHIcon;
+            _gpuIcon.Icon = null;
+            _currentGpuIcon = null;
+            _currentGpuHIcon = IntPtr.Zero;
+
+            if (oldHandle != IntPtr.Zero)
+            {
+                NativeMethods.DestroyIcon(oldHandle);
+            }
+
+            oldIcon?.Dispose();
         }
 
         public void Dispose()
         {
-            _gpuIcon.Visible = false;
-            _gpuIcon.Dispose();
-            _cpuIcon.Visible = false;
-            _cpuIcon.Dispose();
+            lock (_renderLock)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
 
-            _currentGpuIcon?.Dispose();
-            _currentCpuIcon?.Dispose();
-            _notificationIcon = null;
-            _contextMenu.Dispose();
+                _disposed = true;
+                SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
+
+                _gpuIcon.Visible = false;
+                _cpuIcon.Visible = false;
+                ClearGpuIcon();
+                ClearCpuIcon();
+                _notificationIcon = null;
+
+                _gpuIcon.Dispose();
+                _cpuIcon.Dispose();
+                _contextMenu.Dispose();
+
+                _centerFormat.Dispose();
+                _roundedPath.Dispose();
+                _singleDigitFont.Dispose();
+                _doubleDigitFont.Dispose();
+                _tripleDigitFont.Dispose();
+                _mergedFont.Dispose();
+                _backgroundBrush.Dispose();
+                _textBrush.Dispose();
+                _dividerBrush.Dispose();
+                _iconGraphics.Dispose();
+                _iconBitmap.Dispose();
+            }
         }
 
         private class DarkMenuRenderer : ToolStripProfessionalRenderer

@@ -1,12 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using CryoTray.Models;
 using CryoTray.Services;
 using Microsoft.Win32;
@@ -25,7 +28,22 @@ namespace CryoTray.Views
         private string? _updateStatusLiteral;
         private string _updateButtonKey = "Settings_CheckUpdates";
 
+        private static readonly Brush WhitelistTextBrush =
+            CreateFrozenBrush(Color.FromRgb(224, 224, 224));
+
+
         public bool OpenAboutOnLoad { get; set; }
+        public bool OpenAutopilotOnLoad { get; set; }
+
+        public void SelectAboutTab()
+        {
+            TabAbout.IsChecked = true;
+        }
+
+        public void SelectAutopilotTab()
+        {
+            TabAutopilot.IsChecked = true;
+        }
 
         public SettingsWindow()
         {
@@ -53,6 +71,10 @@ namespace CryoTray.Views
             if (OpenAboutOnLoad)
             {
                 TabAbout.IsChecked = true;
+            }
+            else if (OpenAutopilotOnLoad)
+            {
+                TabAutopilot.IsChecked = true;
             }
 
             ApplyLocalizedText();
@@ -89,18 +111,34 @@ namespace CryoTray.Views
             // View Tab
             ChkShowGpuBadge.IsChecked = s.ShowGpuBadge;
             ChkShowCpuBadge.IsChecked = s.ShowCpuBadge;
+            ChkMergeTrayIcons.IsChecked = s.MergeTrayIcons;
             ChkAnchorToTray.IsChecked = s.AnchorToTray;
             ChkShowOverlayRow.IsChecked = s.ShowOverlayRow;
             ChkShowAutopilotRow.IsChecked = s.ShowAutopilotRow;
+            ChkOverlayCpuTemp.IsChecked = s.OverlayShowCpuTemp;
+            ChkOverlayCpuLoad.IsChecked = s.OverlayShowCpuLoad;
+            ChkOverlayCpuPower.IsChecked = s.OverlayShowCpuPower;
+            ChkOverlayCpuClock.IsChecked = s.OverlayShowCpuClock;
+            ChkOverlayGpuTemp.IsChecked = s.OverlayShowGpuTemp;
+            ChkOverlayGpuLoad.IsChecked = s.OverlayShowGpuLoad;
+            ChkOverlayGpuPower.IsChecked = s.OverlayShowGpuPower;
+            SldOverlayOpacity.Value = Math.Clamp(s.OverlayOpacityPercent, 0, 100);
+            TxtOverlayOpacity.Text = $"{(int)Math.Round(SldOverlayOpacity.Value)}%";
+            ChkShowCpuPower.IsChecked = s.ShowCpuPower;
+            ChkShowGpuPower.IsChecked = s.ShowGpuPower;
+            ChkShowGpuTemp.IsChecked = s.ShowGpuTemp;
+            ChkShowGpuName.IsChecked = s.ShowGpuName;
+            ChkShowGpuHotspot.IsChecked = s.ShowGpuHotspot;
+            ChkShowGpuVram.IsChecked = s.ShowGpuVram;
+            ChkShowGpuFan.IsChecked = s.ShowGpuFan;
 
             // CPU Tab - Cooling Controls
             CmbPerfBoostMode.SelectedIndex = s.PerfBoostMode == 1 ? 1 : 0;
             SldThrottle.Value = s.MaxCpuThrottlePercent;
             TxtThrottleVal.Text = $"{s.MaxCpuThrottlePercent}%";
 
-            ChkAutopilot.IsChecked = s.AutopilotEnabled;
-            SldIdleThreshold.Value = s.AutopilotIdleThresholdPercent;
-            SldBusyThreshold.Value = s.AutopilotBusyThresholdPercent;
+            ChkAutopilotEnabled.IsChecked = s.AutopilotEnabled;
+            RefreshAutopilotWhitelist();
 
             // CPU, disk, and GPU alert thresholds
             SldCpuThreshold.Value = s.HighTempThresholdCpu;
@@ -116,6 +154,7 @@ namespace CryoTray.Views
             TxtAboutVersion.Text = LocalizationService.Format("Settings_AboutVersion", UpdateService.CurrentVersion);
             UpdateThresholdLabels();
             ApplyUpdateState();
+            RefreshAutopilotWhitelist();
         }
 
         private void OnLanguageChanged()
@@ -145,6 +184,265 @@ namespace CryoTray.Views
             return $"{value}°{(isFahrenheit ? "F" : "C")}";
         }
 
+        private static Brush CreateFrozenBrush(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return brush;
+        }
+
+        private void RefreshAutopilotWhitelist()
+        {
+            if (PnlAutopilotWhitelist == null || TxtAutopilotEmpty == null ||
+                TxtAutopilotCount == null)
+            {
+                return;
+            }
+
+            PnlAutopilotWhitelist.Children.Clear();
+            var whitelist = SettingsService.Instance.Current.AutopilotWhitelist ??
+                new List<string>();
+            var entries = whitelist
+                .Where(entry => !string.IsNullOrWhiteSpace(entry))
+                .ToList();
+
+            foreach (string entry in entries)
+            {
+                var row = new Border
+                {
+                    Background = CreateFrozenBrush(Color.FromRgb(37, 37, 37)),
+                    BorderBrush = CreateFrozenBrush(Color.FromRgb(48, 48, 48)),
+                    BorderThickness = new Thickness(0, 0, 0, 1),
+                    Padding = new Thickness(8, 5, 4, 5)
+                };
+
+                var rowGrid = new Grid();
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(1, GridUnitType.Star)
+                });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = GridLength.Auto
+                });
+
+                var nameText = new TextBlock
+                {
+                    Text = entry,
+                    Foreground = WhitelistTextBrush,
+                    FontSize = 12.5,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    ToolTip = entry,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                Grid.SetColumn(nameText, 0);
+
+                var removeButton = new Button
+                {
+                    Content = "×",
+                    Tag = entry,
+                    Style = (Style)FindResource("AutopilotRemoveButton"),
+                    ToolTip = LocalizationService.Get("Settings_AutopilotRemove")
+                };
+                AutomationProperties.SetName(
+                    removeButton,
+                    LocalizationService.Format("Settings_AutopilotRemoveAutomation", entry));
+                removeButton.Click += BtnRemoveAutopilotApp_Click;
+                Grid.SetColumn(removeButton, 1);
+
+                rowGrid.Children.Add(nameText);
+                rowGrid.Children.Add(removeButton);
+                row.Child = rowGrid;
+                PnlAutopilotWhitelist.Children.Add(row);
+            }
+
+            TxtAutopilotEmpty.Visibility = entries.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            TxtAutopilotCount.Text = entries.Count.ToString();
+        }
+
+        private void BtnRemoveAutopilotApp_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: string entry })
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            settings.AutopilotWhitelist ??= new List<string>();
+            settings.AutopilotWhitelist.RemoveAll(existing =>
+                string.Equals(existing, entry, StringComparison.OrdinalIgnoreCase));
+            SettingsService.Instance.Save();
+            RefreshAutopilotWhitelist();
+        }
+
+        private void BtnAddRunningApp_Click(object sender, RoutedEventArgs e)
+        {
+            if (CmbRunningApps.SelectedItem is RunningAppOption runningApp)
+            {
+                AddAutopilotApp(runningApp.ProcessName);
+            }
+        }
+
+        private void BtnBrowseAutopilotApp_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = LocalizationService.Get("Settings_AutopilotBrowseTitle"),
+                Filter = LocalizationService.Get("Common_ExeFilter"),
+                CheckFileExists = true,
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                AddAutopilotApp(Path.GetFileName(dialog.FileName));
+            }
+        }
+
+        private void AddAutopilotApp(string entry)
+        {
+            string displayName = Path.GetFileName(entry.Trim());
+            string processName = Path.GetFileNameWithoutExtension(displayName);
+            if (displayName.Length == 0 || processName.Length == 0)
+            {
+                return;
+            }
+
+            string currentExecutable = Path.GetFileNameWithoutExtension(
+                Environment.ProcessPath ?? "");
+            if (string.Equals(processName, currentExecutable,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            settings.AutopilotWhitelist ??= new List<string>();
+            bool exists = settings.AutopilotWhitelist.Any(existing =>
+                !string.IsNullOrWhiteSpace(existing) &&
+                string.Equals(
+                    Path.GetFileNameWithoutExtension(existing.Trim()),
+                    processName,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (!exists)
+            {
+                settings.AutopilotWhitelist.Add(displayName);
+                SettingsService.Instance.Save();
+                RefreshAutopilotWhitelist();
+            }
+        }
+
+        private void RefreshRunningApps()
+        {
+            if (CmbRunningApps == null || _isClosed)
+            {
+                return;
+            }
+
+            string? selectedProcess = (CmbRunningApps.SelectedItem as RunningAppOption)
+                ?.ProcessName;
+            var apps = new Dictionary<string, RunningAppOption>(
+                StringComparer.OrdinalIgnoreCase);
+
+            Process[] processes;
+            try
+            {
+                processes = Process.GetProcesses();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Running app enumeration error: {ex.Message}");
+                return;
+            }
+
+            try
+            {
+                foreach (var process in processes)
+                {
+                    if (process == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (process.Id == Environment.ProcessId)
+                        {
+                            continue;
+                        }
+
+                        string title = process.MainWindowTitle;
+                        if (string.IsNullOrWhiteSpace(title))
+                        {
+                            continue;
+                        }
+
+                        string processName = process.ProcessName;
+                        if (string.IsNullOrWhiteSpace(processName) ||
+                            apps.ContainsKey(processName))
+                        {
+                            continue;
+                        }
+
+                        if (title.Length > 64)
+                        {
+                            title = title[..61] + "...";
+                        }
+
+                        apps[processName] = new RunningAppOption
+                        {
+                            ProcessName = processName,
+                            DisplayName = $"{processName} — {title}"
+                        };
+                    }
+                    catch (InvalidOperationException)
+                    {
+                    }
+                    catch (System.ComponentModel.Win32Exception)
+                    {
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                foreach (var process in processes)
+                {
+                    process.Dispose();
+                }
+            }
+
+            var list = apps.Values
+                .OrderBy(app => app.ProcessName, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            CmbRunningApps.ItemsSource = list;
+
+            if (selectedProcess != null)
+            {
+                CmbRunningApps.SelectedItem = list.FirstOrDefault(app =>
+                    string.Equals(app.ProcessName, selectedProcess,
+                        StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (CmbRunningApps.SelectedItem == null && list.Count > 0)
+            {
+                CmbRunningApps.SelectedIndex = 0;
+            }
+        }
+
+        private sealed class RunningAppOption
+        {
+            public string ProcessName { get; init; } = "";
+            public string DisplayName { get; init; } = "";
+        }
+
         private void Tab_Checked(object sender, RoutedEventArgs e)
         {
             if (PanelGeneral == null) return;
@@ -154,6 +452,7 @@ namespace CryoTray.Views
             PanelCpu.Visibility = Visibility.Collapsed;
             PanelDisk.Visibility = Visibility.Collapsed;
             PanelGpu.Visibility = Visibility.Collapsed;
+            PanelAutopilot.Visibility = Visibility.Collapsed;
             PanelAbout.Visibility = Visibility.Collapsed;
 
             if (TabGeneral.IsChecked == true) PanelGeneral.Visibility = Visibility.Visible;
@@ -161,6 +460,11 @@ namespace CryoTray.Views
             else if (TabCpu.IsChecked == true) PanelCpu.Visibility = Visibility.Visible;
             else if (TabDisk.IsChecked == true) PanelDisk.Visibility = Visibility.Visible;
             else if (TabGpu.IsChecked == true) PanelGpu.Visibility = Visibility.Visible;
+            else if (TabAutopilot.IsChecked == true)
+            {
+                PanelAutopilot.Visibility = Visibility.Visible;
+                RefreshRunningApps();
+            }
             else if (TabAbout.IsChecked == true) PanelAbout.Visibility = Visibility.Visible;
         }
 
@@ -192,9 +496,25 @@ namespace CryoTray.Views
 
             s.ShowGpuBadge = ChkShowGpuBadge.IsChecked == true;
             s.ShowCpuBadge = ChkShowCpuBadge.IsChecked == true;
+            s.MergeTrayIcons = ChkMergeTrayIcons.IsChecked == true;
             s.AnchorToTray = ChkAnchorToTray.IsChecked == true;
             s.ShowOverlayRow = ChkShowOverlayRow.IsChecked == true;
             s.ShowAutopilotRow = ChkShowAutopilotRow.IsChecked == true;
+            s.OverlayShowCpuTemp = ChkOverlayCpuTemp.IsChecked == true;
+            s.OverlayShowCpuLoad = ChkOverlayCpuLoad.IsChecked == true;
+            s.OverlayShowCpuPower = ChkOverlayCpuPower.IsChecked == true;
+            s.OverlayShowCpuClock = ChkOverlayCpuClock.IsChecked == true;
+            s.OverlayShowGpuTemp = ChkOverlayGpuTemp.IsChecked == true;
+            s.OverlayShowGpuLoad = ChkOverlayGpuLoad.IsChecked == true;
+            s.OverlayShowGpuPower = ChkOverlayGpuPower.IsChecked == true;
+            s.OverlayOpacityPercent = (int)Math.Round(SldOverlayOpacity.Value);
+            s.ShowCpuPower = ChkShowCpuPower.IsChecked == true;
+            s.ShowGpuPower = ChkShowGpuPower.IsChecked == true;
+            s.ShowGpuTemp = ChkShowGpuTemp.IsChecked == true;
+            s.ShowGpuName = ChkShowGpuName.IsChecked == true;
+            s.ShowGpuHotspot = ChkShowGpuHotspot.IsChecked == true;
+            s.ShowGpuVram = ChkShowGpuVram.IsChecked == true;
+            s.ShowGpuFan = ChkShowGpuFan.IsChecked == true;
 
             s.NormalPowerPlanGuid = CmbNormalPowerPlan.SelectedItem is PowerSchemeInfo normalPlan
                 ? normalPlan.Guid.ToString()
@@ -203,9 +523,7 @@ namespace CryoTray.Views
             s.PerfBoostMode = CmbPerfBoostMode.SelectedIndex == 1 ? 1 : 0;
             s.MaxCpuThrottlePercent = (int)SldThrottle.Value;
 
-            s.AutopilotEnabled = ChkAutopilot.IsChecked == true;
-            s.AutopilotIdleThresholdPercent = (int)SldIdleThreshold.Value;
-            s.AutopilotBusyThresholdPercent = (int)SldBusyThreshold.Value;
+            s.AutopilotEnabled = ChkAutopilotEnabled.IsChecked == true;
 
             s.HighTempThresholdCpu = (int)SldCpuThreshold.Value;
             s.HighTempThresholdDisk = (int)SldDiskThreshold.Value;
@@ -291,6 +609,15 @@ namespace CryoTray.Views
             if (TxtThrottleVal != null)
             {
                 TxtThrottleVal.Text = $"{(int)SldThrottle.Value}%";
+            }
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void SldOverlayOpacity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtOverlayOpacity != null)
+            {
+                TxtOverlayOpacity.Text = $"{(int)Math.Round(SldOverlayOpacity.Value)}%";
             }
             if (!_isBinding) SaveUiIntoSettings();
         }

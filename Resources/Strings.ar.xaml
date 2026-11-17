@@ -11,6 +11,7 @@
     <sys:String x:Key="Common_Unknown">غير معروف</sys:String>
     <sys:String x:Key="Common_NotReported">غير متوفر</sys:String>
     <sys:String x:Key="Common_JsonFilter">ملفات JSON (*.json)|*.json|كل الملفات (*.*)|*.*</sys:String>
+    <sys:String x:Key="Common_ExeFilter">ملفات التطبيقات (*.exe)|*.exe|كل الملفات (*.*)|*.*</sys:String>
     <sys:String x:Key="Common_TextFilter">ملفات نصية (*.txt)|*.txt|كل الملفات (*.*)|*.*</sys:String>
 
     <sys:String x:Key="Health_Good">جيدة</sys:String>
@@ -26,6 +27,10 @@
     <sys:String x:Key="Main_AppWithPc">CryoTray - {0}</sys:String>
     <sys:String x:Key="Main_CpuProcessor">معالج بـ {0} نوى</sys:String>
     <sys:String x:Key="Main_GpuLabel">كرت الرسومات</sys:String>
+    <sys:String x:Key="Main_GpuHotspotLabel">النقطة الساخنة</sys:String>
+    <sys:String x:Key="Main_GpuVramLabel">VRAM</sys:String>
+    <sys:String x:Key="Main_GpuFanLabel">المروحة</sys:String>
+    <sys:String x:Key="Main_RpmUnit">RPM</sys:String>
     <sys:String x:Key="Main_CpuChartValue">المعالج {0}{1}</sys:String>
     <sys:String x:Key="Main_TooltipStressTest">اختبار حرارة المعالج</sys:String>
     <sys:String x:Key="Main_TooltipTools">الأدوات</sys:String>
@@ -34,10 +39,12 @@
     <sys:String x:Key="Main_TooltipMinimize">تصغير إلى شريط المهام</sys:String>
     <sys:String x:Key="Main_CloseSettingsAutomation">إغلاق الإعدادات</sys:String>
     <sys:String x:Key="Overlay_CloseAutomation">إغلاق التراكب</sys:String>
+    <sys:String x:Key="Overlay_NoMetrics">لم يتم اختيار أي قياسات</sys:String>
     <sys:String x:Key="Main_CoolingMode">وضع التبريد</sys:String>
     <sys:String x:Key="Main_CoolingHelp">يستخدم خطة الطاقة CryoTray Cooling منخفضة الحرارة</sys:String>
     <sys:String x:Key="Main_LabelCpuSpeed">سرعة المعالج</sys:String>
     <sys:String x:Key="Main_LabelGhz">GHZ</sys:String>
+    <sys:String x:Key="Main_PackagePower">طاقة الحزمة: {0} واط</sys:String>
     <sys:String x:Key="Main_LabelOverlay">التراكب</sys:String>
     <sys:String x:Key="Main_LabelAutopilot">الطيار الآلي</sys:String>
     <sys:String x:Key="Main_ManageOverlayAutomation">إدارة التراكب</sys:String>
@@ -53,13 +60,10 @@
     <sys:String x:Key="Main_Timeframe30">30 دقيقة</sys:String>
     <sys:String x:Key="Main_Timeframe60">60 دقيقة</sys:String>
     <sys:String x:Key="Main_AboutTitle">حول CryoTray</sys:String>
-    <sys:String x:Key="Main_AboutBody">CryoTray من ZerroDevs
-أداة خفيفة لمراقبة عتاد Windows والتبريد.
-بلا اشتراكات. بلا تسريبات GDI.</sys:String>
-    <sys:String x:Key="Main_AutopilotTitle">التبريد التلقائي</sys:String>
-    <sys:String x:Key="Main_AutopilotBody">الطيار الآلي الآن {0}.
-القواعد: خمول أقل من {1}% يشغل التبريد.
-حمل مرتفع أعلى من {2}% ينتقل إلى متوازن.</sys:String>
+    <sys:String x:Key="Main_AboutBody">CryoTray
+تم الإنشاء بواسطة Osama Mahmoud (ZeroNuxi) | ZerroDevs
+مرخص بموجب رخصة Apache License, Version 2.0
+https://github.com/ZerroDevs/CryoTray</sys:String>
 
     <sys:String x:Key="Settings_Title">الإعدادات</sys:String>
     <sys:String x:Key="Settings_CloseAutomation">إغلاق الإعدادات</sys:String>
@@ -68,6 +72,7 @@
     <sys:String x:Key="Settings_TabCpu">المعالج</sys:String>
     <sys:String x:Key="Settings_TabDisk">القرص</sys:String>
     <sys:String x:Key="Settings_TabGpu">الرسومات</sys:String>
+    <sys:String x:Key="Settings_TabAutopilot">الطيار الآلي</sys:String>
     <sys:String x:Key="Settings_TabAbout">حول</sys:String>
     <sys:String x:Key="Settings_Language">اللغة</sys:String>
     <sys:String x:Key="Settings_TemperatureUnits">وحدات الحرارة</sys:String>
@@ -87,11 +92,31 @@
     <sys:String x:Key="Settings_SystemTrayBadges">شارات شريط المهام</sys:String>
     <sys:String x:Key="Settings_ShowGpuBadge">إظهار شارة كرت الرسومات في شريط المهام (أخضر)</sys:String>
     <sys:String x:Key="Settings_ShowCpuBadge">إظهار شارة المعالج في شريط المهام (مرجاني / سماوي)</sys:String>
+    <sys:String x:Key="Settings_MergeTrayIcons">دمج درجات حرارة المعالج وكرت الرسومات في أيقونة شريط مهام مقسومة واحدة</sys:String>
     <sys:String x:Key="Settings_WindowDocking">تثبيت النافذة</sys:String>
     <sys:String x:Key="Settings_AnchorToTray">تثبيت نافذة اللوحة أعلى منطقة إشعارات شريط المهام</sys:String>
     <sys:String x:Key="Settings_DashboardRows">عناصر لوحة التحكم</sys:String>
     <sys:String x:Key="Settings_ShowOverlayRow">إظهار صف التراكب</sys:String>
     <sys:String x:Key="Settings_ShowAutopilotRow">إظهار صف الطيار الآلي</sys:String>
+    <sys:String x:Key="Settings_OverlayReadouts">قراءات التراكب</sys:String>
+    <sys:String x:Key="Settings_OverlayReadoutsDesc">اختر ما يظهر في التراكب العائم.</sys:String>
+    <sys:String x:Key="Settings_OverlayOpacity">عتامة التراكب</sys:String>
+    <sys:String x:Key="Settings_OverlayOpacityDesc">القيم الأقل تجعل التراكب أكثر شفافية. عند 0% تصبح الخلفية شفافة تمامًا.</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuTemp">درجة حرارة المعالج</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuLoad">حمل المعالج</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuPower">استهلاك طاقة المعالج</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuClock">سرعة ساعة المعالج</sys:String>
+    <sys:String x:Key="Settings_OverlayGpuTemp">درجة حرارة كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_OverlayGpuLoad">حمل كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_OverlayGpuPower">استهلاك طاقة كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_DashboardReadouts">قراءات لوحة التحكم</sys:String>
+    <sys:String x:Key="Settings_ShowCpuPower">إظهار استهلاك طاقة المعالج</sys:String>
+    <sys:String x:Key="Settings_ShowGpuPower">إظهار استهلاك طاقة كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_ShowGpuTemp">إظهار درجة حرارة كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_ShowGpuName">إظهار اسم كرت الرسومات (متوقف افتراضياً)</sys:String>
+    <sys:String x:Key="Settings_ShowGpuHotspot">إظهار درجة حرارة النقطة الساخنة لكرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_ShowGpuVram">إظهار درجة حرارة VRAM لكرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_ShowGpuFan">إظهار سرعة مروحة كرت الرسومات</sys:String>
     <sys:String x:Key="Settings_PowerPlanOff">خطة الطاقة عند إيقاف التبريد</sys:String>
     <sys:String x:Key="Settings_PowerPlanDesc">تُستخدم عند إيقاف وضع التبريد. متوازن هو الافتراضي.</sys:String>
     <sys:String x:Key="Settings_CoolingControls">عناصر تحكم تبريد CryoTray</sys:String>
@@ -100,15 +125,24 @@
     <sys:String x:Key="Settings_BoostDisabled">معطل (موصى به - حرارة منخفضة)</sys:String>
     <sys:String x:Key="Settings_BoostEnabled">مفعل (تعزيز قوي)</sys:String>
     <sys:String x:Key="Settings_MaxProcessor">أقصى حالة للمعالج (PROCTHROTTLEMAX)</sys:String>
-    <sys:String x:Key="Settings_AutopilotRules">قواعد الطيار الآلي</sys:String>
-    <sys:String x:Key="Settings_AutopilotEnable">تفعيل التبريد التلقائي</sys:String>
-    <sys:String x:Key="Settings_IdleThreshold">حد حمل الخمول % (تشغيل التبريد)</sys:String>
-    <sys:String x:Key="Settings_BusyThreshold">حد الحمل المرتفع % (إيقاف التبريد للسرعة)</sys:String>
+    <sys:String x:Key="Settings_AutopilotEnable">تفعيل الطيار الآلي الذكي (إيقاف وضع التبريد تلقائياً للألعاب والتطبيقات المحددة)</sys:String>
+    <sys:String x:Key="Settings_AutopilotDesc">عند تشغيل تطبيق محدد، يتوقف وضع التبريد للحصول على أقصى أداء، ثم يعود عند إغلاق التطبيق.</sys:String>
+    <sys:String x:Key="Settings_AutopilotWhitelist">الألعاب والتطبيقات المسموح بها</sys:String>
+    <sys:String x:Key="Settings_AutopilotWhitelistDesc">يتوقف وضع التبريد أثناء تشغيل أي تطبيق من هذه القائمة.</sys:String>
+    <sys:String x:Key="Settings_AutopilotEmpty">لم تتم إضافة ألعاب أو تطبيقات بعد.</sys:String>
+    <sys:String x:Key="Settings_AutopilotAddRunning">إضافة تطبيق قيد التشغيل</sys:String>
+    <sys:String x:Key="Settings_AutopilotAdd">إضافة</sys:String>
+    <sys:String x:Key="Settings_AutopilotBrowse">استعراض ملف .exe...</sys:String>
+    <sys:String x:Key="Settings_AutopilotBrowseTitle">اختر لعبة أو تطبيقاً</sys:String>
+    <sys:String x:Key="Settings_AutopilotHint">يفحص الطيار الآلي كل 2.5 ثانية. استخدم «استعراض» لإضافة ألعاب أو أدوات محمولة بلا نافذة.</sys:String>
+    <sys:String x:Key="Settings_AutopilotRemove">إزالة</sys:String>
+    <sys:String x:Key="Settings_AutopilotRemoveAutomation">إزالة {0}</sys:String>
     <sys:String x:Key="Settings_CpuAlertThreshold">حد تنبيه الحرارة المرتفعة</sys:String>
     <sys:String x:Key="Settings_StoragePrefs">تفضيلات قرص التخزين</sys:String>
     <sys:String x:Key="Settings_GpuPrefs">تفضيلات كرت الرسومات</sys:String>
     <sys:String x:Key="Settings_AboutTagline">أداة مراقبة عتاد وتبريد معالج من شريط المهام.</sys:String>
     <sys:String x:Key="Settings_AboutVersion">الإصدار {0}</sys:String>
+    <sys:String x:Key="Settings_Author">تم الإنشاء بواسطة Osama Mahmoud (ZeroNuxi) | ZerroDevs</sys:String>
     <sys:String x:Key="Settings_Updates">التحديثات</sys:String>
     <sys:String x:Key="Settings_UpdatesDesc">يتم توفير التحديثات من إصدارات CryoTray على GitHub.</sys:String>
     <sys:String x:Key="Settings_UpdateDefault">تحقق من إصدارات GitHub بحثاً عن إصدار أحدث.</sys:String>
@@ -129,8 +163,8 @@
     <sys:String x:Key="Settings_DownloadFailed">تعذر تنزيل التحديث. حاول مرة أخرى.</sys:String>
     <sys:String x:Key="Settings_CheckFailed">تعذر التحقق من إصدارات GitHub. تحقق من اتصالك وحاول مرة أخرى.</sys:String>
     <sys:String x:Key="Settings_RepoError">تعذر فتح رابط المستودع.</sys:String>
-    <sys:String x:Key="Settings_Copyright">حقوق النشر © 2026 ZerroDevs.</sys:String>
-    <sys:String x:Key="Settings_License">مرخص بموجب رخصة MIT.</sys:String>
+    <sys:String x:Key="Settings_Copyright">حقوق النشر © 2026 Osama Mahmoud (ZeroNuxi) - ZerroDevs</sys:String>
+    <sys:String x:Key="Settings_License">مرخص بموجب رخصة Apache License, Version 2.0</sys:String>
     <sys:String x:Key="Settings_RepositoryLabel">المستودع: </sys:String>
     <sys:String x:Key="Settings_RepositoryAutomation">فتح مستودع CryoTray على GitHub</sys:String>
     <sys:String x:Key="Settings_Export">تصدير</sys:String>
@@ -197,6 +231,7 @@
     <sys:String x:Key="Tray_Exit">خروج</sys:String>
     <sys:String x:Key="Tray_GpuTooltip">كرت الرسومات: {0}{1}</sys:String>
     <sys:String x:Key="Tray_CpuTooltip">المعالج: {0}{1} (التبريد: {2})</sys:String>
+    <sys:String x:Key="Tray_MergedTooltip">المعالج {0}{1} • الرسومات {2}{1}</sys:String>
 
     <sys:String x:Key="Alert_Title">تنبيه حرارة CryoTray</sys:String>
     <sys:String x:Key="Alert_TestTitle">تنبيه تجريبي من CryoTray</sys:String>

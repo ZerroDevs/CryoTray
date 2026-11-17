@@ -34,12 +34,17 @@ namespace CryoTray.Models
         public double CpuBaseGhz { get; set; } = 3.80;
         public double CpuMaxGhz { get; set; } = 3.80;
         public double CpuLoad { get; set; } = 12.0;
+        public int? CpuPackageWatts { get; set; }
         public List<CoreTelemetry> CpuCoresTelemetry { get; set; } = new();
 
         public string GpuName { get; set; } = "NVIDIA GeForce RTX 3060 Ti";
         public string GpuVendor { get; set; } = "Nvidia";
         public double GpuTemp { get; set; } = 47.0;
         public double GpuLoad { get; set; } = 15.0;
+        public int? GpuPowerWatts { get; set; }
+        public double? GpuHotspotTemp { get; set; }
+        public double? GpuVramTemp { get; set; }
+        public int? GpuFanRpm { get; set; }
 
         public List<DriveTelemetry> StorageDrives { get; set; } = new();
         public bool CoolingModeActive { get; set; }

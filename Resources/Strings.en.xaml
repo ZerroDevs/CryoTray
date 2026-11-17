@@ -11,6 +11,7 @@
     <sys:String x:Key="Common_Unknown">Unknown</sys:String>
     <sys:String x:Key="Common_NotReported">Not reported</sys:String>
     <sys:String x:Key="Common_JsonFilter">JSON Files (*.json)|*.json|All Files (*.*)|*.*</sys:String>
+    <sys:String x:Key="Common_ExeFilter">Applications (*.exe)|*.exe|All Files (*.*)|*.*</sys:String>
     <sys:String x:Key="Common_TextFilter">Text Files (*.txt)|*.txt|All Files (*.*)|*.*</sys:String>
 
     <sys:String x:Key="Health_Good">Good</sys:String>
@@ -26,6 +27,10 @@
     <sys:String x:Key="Main_AppWithPc">CryoTray - {0}</sys:String>
     <sys:String x:Key="Main_CpuProcessor">{0}-Core Processor</sys:String>
     <sys:String x:Key="Main_GpuLabel">GPU</sys:String>
+    <sys:String x:Key="Main_GpuHotspotLabel">Hotspot</sys:String>
+    <sys:String x:Key="Main_GpuVramLabel">VRAM</sys:String>
+    <sys:String x:Key="Main_GpuFanLabel">Fan</sys:String>
+    <sys:String x:Key="Main_RpmUnit">RPM</sys:String>
     <sys:String x:Key="Main_CpuChartValue">CPU {0}{1}</sys:String>
     <sys:String x:Key="Main_TooltipStressTest">CPU Temperature Test</sys:String>
     <sys:String x:Key="Main_TooltipTools">Tools</sys:String>
@@ -34,10 +39,12 @@
     <sys:String x:Key="Main_TooltipMinimize">Minimize to Tray</sys:String>
     <sys:String x:Key="Main_CloseSettingsAutomation">Close settings</sys:String>
     <sys:String x:Key="Overlay_CloseAutomation">Close overlay</sys:String>
+    <sys:String x:Key="Overlay_NoMetrics">No metrics selected</sys:String>
     <sys:String x:Key="Main_CoolingMode">Cooling Mode</sys:String>
     <sys:String x:Key="Main_CoolingHelp">Uses the CryoTray Cooling low-heat power plan</sys:String>
     <sys:String x:Key="Main_LabelCpuSpeed">CPU SPEED</sys:String>
     <sys:String x:Key="Main_LabelGhz">GHZ</sys:String>
+    <sys:String x:Key="Main_PackagePower">Package Power: {0}W</sys:String>
     <sys:String x:Key="Main_LabelOverlay">OVERLAY</sys:String>
     <sys:String x:Key="Main_LabelAutopilot">AUTOPILOT</sys:String>
     <sys:String x:Key="Main_ManageOverlayAutomation">Manage overlay</sys:String>
@@ -53,13 +60,10 @@
     <sys:String x:Key="Main_Timeframe30">30 min</sys:String>
     <sys:String x:Key="Main_Timeframe60">60 min</sys:String>
     <sys:String x:Key="Main_AboutTitle">About CryoTray</sys:String>
-    <sys:String x:Key="Main_AboutBody">CryoTray by ZerroDevs
-Ultra-lightweight native Windows hardware monitor &amp; cooling utility.
-Zero paywalls. Zero GDI leaks.</sys:String>
-    <sys:String x:Key="Main_AutopilotTitle">Autopilot Cooling</sys:String>
-    <sys:String x:Key="Main_AutopilotBody">Autopilot is now {0}.
-Rules: Idle &lt; {1}% turns Cooling ON.
-Heavy Load &gt; {2}% switches to Balanced.</sys:String>
+    <sys:String x:Key="Main_AboutBody">CryoTray
+Created by Osama Mahmoud (ZeroNuxi) | ZerroDevs
+Licensed under the Apache License, Version 2.0
+https://github.com/ZerroDevs/CryoTray</sys:String>
 
     <sys:String x:Key="Settings_Title">Settings</sys:String>
     <sys:String x:Key="Settings_CloseAutomation">Close settings</sys:String>
@@ -68,6 +72,7 @@ Heavy Load &gt; {2}% switches to Balanced.</sys:String>
     <sys:String x:Key="Settings_TabCpu">CPU</sys:String>
     <sys:String x:Key="Settings_TabDisk">Disk</sys:String>
     <sys:String x:Key="Settings_TabGpu">GPU</sys:String>
+    <sys:String x:Key="Settings_TabAutopilot">Autopilot</sys:String>
     <sys:String x:Key="Settings_TabAbout">About</sys:String>
     <sys:String x:Key="Settings_Language">Language</sys:String>
     <sys:String x:Key="Settings_TemperatureUnits">Temperature units</sys:String>
@@ -87,11 +92,31 @@ Heavy Load &gt; {2}% switches to Balanced.</sys:String>
     <sys:String x:Key="Settings_SystemTrayBadges">System Tray Badges</sys:String>
     <sys:String x:Key="Settings_ShowGpuBadge">Show GPU badge in system tray (Green)</sys:String>
     <sys:String x:Key="Settings_ShowCpuBadge">Show CPU badge in system tray (Coral / Cyan)</sys:String>
+    <sys:String x:Key="Settings_MergeTrayIcons">Combine CPU &amp; GPU temperatures into a single split tray icon</sys:String>
     <sys:String x:Key="Settings_WindowDocking">Window Docking</sys:String>
     <sys:String x:Key="Settings_AnchorToTray">Anchor dashboard window above taskbar notification area</sys:String>
     <sys:String x:Key="Settings_DashboardRows">Dashboard Rows</sys:String>
     <sys:String x:Key="Settings_ShowOverlayRow">Show Overlay row</sys:String>
     <sys:String x:Key="Settings_ShowAutopilotRow">Show Autopilot row</sys:String>
+    <sys:String x:Key="Settings_OverlayReadouts">Overlay readouts</sys:String>
+    <sys:String x:Key="Settings_OverlayReadoutsDesc">Choose what appears in the floating overlay.</sys:String>
+    <sys:String x:Key="Settings_OverlayOpacity">Overlay opacity</sys:String>
+    <sys:String x:Key="Settings_OverlayOpacityDesc">Lower values make the overlay more transparent. At 0%, the background is fully transparent.</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuTemp">CPU temperature</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuLoad">CPU load</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuPower">CPU power usage</sys:String>
+    <sys:String x:Key="Settings_OverlayCpuClock">CPU clock speed</sys:String>
+    <sys:String x:Key="Settings_OverlayGpuTemp">GPU temperature</sys:String>
+    <sys:String x:Key="Settings_OverlayGpuLoad">GPU load</sys:String>
+    <sys:String x:Key="Settings_OverlayGpuPower">GPU power usage</sys:String>
+    <sys:String x:Key="Settings_DashboardReadouts">Dashboard readouts</sys:String>
+    <sys:String x:Key="Settings_ShowCpuPower">Show CPU power usage</sys:String>
+    <sys:String x:Key="Settings_ShowGpuPower">Show GPU power usage</sys:String>
+    <sys:String x:Key="Settings_ShowGpuTemp">Show GPU temperature</sys:String>
+    <sys:String x:Key="Settings_ShowGpuName">Show GPU name (off by default)</sys:String>
+    <sys:String x:Key="Settings_ShowGpuHotspot">Show GPU hotspot temperature</sys:String>
+    <sys:String x:Key="Settings_ShowGpuVram">Show GPU VRAM temperature</sys:String>
+    <sys:String x:Key="Settings_ShowGpuFan">Show GPU fan speed</sys:String>
     <sys:String x:Key="Settings_PowerPlanOff">Power plan when cooling is off</sys:String>
     <sys:String x:Key="Settings_PowerPlanDesc">Used when you turn Cooling Mode off. Balanced is the default.</sys:String>
     <sys:String x:Key="Settings_CoolingControls">CryoTray Cooling Controls</sys:String>
@@ -100,15 +125,24 @@ Heavy Load &gt; {2}% switches to Balanced.</sys:String>
     <sys:String x:Key="Settings_BoostDisabled">Disabled (Recommended - Low Heat)</sys:String>
     <sys:String x:Key="Settings_BoostEnabled">Enabled (Aggressive Boost)</sys:String>
     <sys:String x:Key="Settings_MaxProcessor">Maximum Processor State (PROCTHROTTLEMAX)</sys:String>
-    <sys:String x:Key="Settings_AutopilotRules">Autopilot Rules</sys:String>
-    <sys:String x:Key="Settings_AutopilotEnable">Enable Autopilot intelligent cooling</sys:String>
-    <sys:String x:Key="Settings_IdleThreshold">Idle Load Threshold % (Turn ON Cooling)</sys:String>
-    <sys:String x:Key="Settings_BusyThreshold">High Load Threshold % (Turn OFF Cooling for Speed)</sys:String>
+    <sys:String x:Key="Settings_AutopilotEnable">Enable Smart Autopilot (Auto-pause Cooling Mode for selected games &amp; apps)</sys:String>
+    <sys:String x:Key="Settings_AutopilotDesc">When a selected app is running, Cooling Mode pauses for full performance. It resumes when the app closes.</sys:String>
+    <sys:String x:Key="Settings_AutopilotWhitelist">Whitelisted games &amp; apps</sys:String>
+    <sys:String x:Key="Settings_AutopilotWhitelistDesc">Cooling Mode pauses while any app in this list is running.</sys:String>
+    <sys:String x:Key="Settings_AutopilotEmpty">No games or apps added yet.</sys:String>
+    <sys:String x:Key="Settings_AutopilotAddRunning">Add running app</sys:String>
+    <sys:String x:Key="Settings_AutopilotAdd">Add</sys:String>
+    <sys:String x:Key="Settings_AutopilotBrowse">Browse .exe...</sys:String>
+    <sys:String x:Key="Settings_AutopilotBrowseTitle">Select a game or app</sys:String>
+    <sys:String x:Key="Settings_AutopilotHint">Autopilot checks every 2.5 seconds. Use Browse for portable games or tools without a window.</sys:String>
+    <sys:String x:Key="Settings_AutopilotRemove">Remove</sys:String>
+    <sys:String x:Key="Settings_AutopilotRemoveAutomation">Remove {0}</sys:String>
     <sys:String x:Key="Settings_CpuAlertThreshold">High Temperature Alert Threshold</sys:String>
     <sys:String x:Key="Settings_StoragePrefs">Storage Drive Preferences</sys:String>
     <sys:String x:Key="Settings_GpuPrefs">GPU Preferences</sys:String>
     <sys:String x:Key="Settings_AboutTagline">System tray hardware monitor and CPU cooling utility.</sys:String>
     <sys:String x:Key="Settings_AboutVersion">Version {0}</sys:String>
+    <sys:String x:Key="Settings_Author">Created by Osama Mahmoud (ZeroNuxi) | ZerroDevs</sys:String>
     <sys:String x:Key="Settings_Updates">Updates</sys:String>
     <sys:String x:Key="Settings_UpdatesDesc">Updates are delivered from CryoTray's GitHub Releases.</sys:String>
     <sys:String x:Key="Settings_UpdateDefault">Check GitHub Releases for a newer version.</sys:String>
@@ -129,8 +163,8 @@ Heavy Load &gt; {2}% switches to Balanced.</sys:String>
     <sys:String x:Key="Settings_DownloadFailed">Could not download the update. Try again.</sys:String>
     <sys:String x:Key="Settings_CheckFailed">Could not check GitHub Releases. Check your connection and try again.</sys:String>
     <sys:String x:Key="Settings_RepoError">Could not open the repository link.</sys:String>
-    <sys:String x:Key="Settings_Copyright">Copyright © 2026 ZerroDevs.</sys:String>
-    <sys:String x:Key="Settings_License">Licensed under the MIT License.</sys:String>
+    <sys:String x:Key="Settings_Copyright">Copyright © 2026 Osama Mahmoud (ZeroNuxi) - ZerroDevs</sys:String>
+    <sys:String x:Key="Settings_License">Licensed under the Apache License, Version 2.0</sys:String>
     <sys:String x:Key="Settings_RepositoryLabel">Repository: </sys:String>
     <sys:String x:Key="Settings_RepositoryAutomation">Open CryoTray repository on GitHub</sys:String>
     <sys:String x:Key="Settings_Export">Export</sys:String>
@@ -197,6 +231,7 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Tray_Exit">Exit</sys:String>
     <sys:String x:Key="Tray_GpuTooltip">GPU: {0}{1}</sys:String>
     <sys:String x:Key="Tray_CpuTooltip">CPU: {0}{1} (Cooling: {2})</sys:String>
+    <sys:String x:Key="Tray_MergedTooltip">CPU {0}{1} • GPU {2}{1}</sys:String>
 
     <sys:String x:Key="Alert_Title">CryoTray temperature alert</sys:String>
     <sys:String x:Key="Alert_TestTitle">CryoTray test alert</sys:String>

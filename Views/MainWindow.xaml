@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{DynamicResource App_Title}"
-        Width="444" Height="600"
+        Width="444" Height="626"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -12,6 +12,8 @@
         UseLayoutRounding="True"
         ShowInTaskbar="True"
         Deactivated="Window_Deactivated"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewMouseDown="Window_PreviewMouseDown"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
 
     <Window.Resources>
@@ -155,6 +157,7 @@
         <Style x:Key="TitleActionBtn" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Padding" Value="6"/>
             <Setter Property="MinWidth" Value="30"/>
@@ -171,6 +174,14 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="BtnBdr" Property="Background" Value="#2A2A2A"/>
                             </Trigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsKeyboardFocused, RelativeSource={RelativeSource TemplatedParent}}" Value="True"/>
+                                    <Condition Binding="{Binding ShowKeyboardFocusCues, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="BtnBdr" Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/>
+                                <Setter TargetName="BtnBdr" Property="BorderThickness" Value="1"/>
+                            </MultiDataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -208,10 +219,10 @@
                 <!-- Action Icons -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <!-- CPU Stress Test (Outline chip) -->
-                    <Button Style="{StaticResource TitleActionBtn}" Click="BtnStressTest_Click" ToolTip="{DynamicResource Main_TooltipStressTest}" AutomationProperties.Name="{DynamicResource Main_TooltipStressTest}">
+                    <Button x:Name="BtnStressTest" Style="{StaticResource TitleActionBtn}" Click="BtnStressTest_Click" ToolTip="{DynamicResource Main_TooltipStressTest}" AutomationProperties.Name="{DynamicResource Main_TooltipStressTest}">
                         <Grid Width="19" Height="19">
-                            <Ellipse Stroke="{DynamicResource WindowBorderBrush}" StrokeThickness="1.35"/>
-                            <Path Fill="{DynamicResource WindowBorderBrush}"
+                            <Ellipse x:Name="StressIconRing" Stroke="#C4C4C4" StrokeThickness="1.35"/>
+                            <Path x:Name="StressIconBlades" Fill="#C4C4C4"
                                   Opacity="0.55">
                                 <Path.Data>
                                     <GeometryGroup FillRule="Nonzero">
@@ -225,7 +236,7 @@
                                     </GeometryGroup>
                                 </Path.Data>
                             </Path>
-                            <Ellipse Width="3" Height="3" Fill="{DynamicResource WindowBorderBrush}"/>
+                            <Ellipse x:Name="StressIconHub" Width="3" Height="3" Fill="#C4C4C4"/>
                         </Grid>
                     </Button>
 
@@ -237,15 +248,15 @@
                     </Button>
 
                     <!-- Settings (Gear) -->
-                    <Button Style="{StaticResource TitleActionBtn}" Click="BtnSettings_Click" ToolTip="{DynamicResource Main_TooltipSettings}" AutomationProperties.Name="{DynamicResource Main_TooltipSettings}">
-                        <Path Data="M7,2 L9,2 L9.3,3.8 A5,5 0 0,1 10.8,4.7 L12.5,3.8 L13.9,5.2 L13,6.9 A5,5 0 0,1 13.9,8.4 L15.7,8.7 L15.7,10.7 L13.9,11 A5,5 0 0,1 13,12.5 L13.9,14.2 L12.5,15.6 L10.8,14.7 A5,5 0 0,1 9.3,15.6 L9,17.4 L7,17.4 L6.7,15.6 A5,5 0 0,1 5.2,14.7 L3.5,15.6 L2.1,14.2 L3,12.5 A5,5 0 0,1 2.1,11 L0.3,10.7 L0.3,8.7 L2.1,8.4 A5,5 0 0,1 3,6.9 L2.1,5.2 L3.5,3.8 L5.2,4.7 A5,5 0 0,1 6.7,3.8 Z M8,6 A3.5,3.5 0 1,0 8,13 A3.5,3.5 0 1,0 8,6 Z"
+                    <Button x:Name="BtnSettings" Style="{StaticResource TitleActionBtn}" Click="BtnSettings_Click" ToolTip="{DynamicResource Main_TooltipSettings}" AutomationProperties.Name="{DynamicResource Main_TooltipSettings}">
+                        <Path x:Name="SettingsIconPath" Data="M7,2 L9,2 L9.3,3.8 A5,5 0 0,1 10.8,4.7 L12.5,3.8 L13.9,5.2 L13,6.9 A5,5 0 0,1 13.9,8.4 L15.7,8.7 L15.7,10.7 L13.9,11 A5,5 0 0,1 13,12.5 L13.9,14.2 L12.5,15.6 L10.8,14.7 A5,5 0 0,1 9.3,15.6 L9,17.4 L7,17.4 L6.7,15.6 A5,5 0 0,1 5.2,14.7 L3.5,15.6 L2.1,14.2 L3,12.5 A5,5 0 0,1 2.1,11 L0.3,10.7 L0.3,8.7 L2.1,8.4 A5,5 0 0,1 3,6.9 L2.1,5.2 L3.5,3.8 L5.2,4.7 A5,5 0 0,1 6.7,3.8 Z M8,6 A3.5,3.5 0 1,0 8,13 A3.5,3.5 0 1,0 8,6 Z"
                               Fill="#C4C4C4"
                               Width="20" Height="20" Stretch="Uniform"/>
                     </Button>
 
                     <!-- System Info (Monitor outline with i) -->
-                    <Button Style="{StaticResource TitleActionBtn}" Click="BtnSystemInfo_Click" ToolTip="{DynamicResource Main_TooltipSystemInfo}" AutomationProperties.Name="{DynamicResource Main_TooltipSystemInfo}">
-                        <Path Data="M2,2 L14,2 A1,1 0 0,1 15,3 L15,11 A1,1 0 0,1 14,12 L10,12 L10,14 L12,14 L12,15 L4,15 L4,14 L6,14 L6,12 L2,12 A1,1 0 0,1 1,11 L1,3 A1,1 0 0,1 2,2 Z M7.5,4.5 A0.8,0.8 0 1,0 8.5,4.5 A0.8,0.8 0 1,0 7.5,4.5 Z M7.3,6.5 L8.7,6.5 L8.7,10 L7.3,10 Z"
+                    <Button x:Name="BtnSystemInfo" Style="{StaticResource TitleActionBtn}" Click="BtnSystemInfo_Click" ToolTip="{DynamicResource Main_TooltipSystemInfo}" AutomationProperties.Name="{DynamicResource Main_TooltipSystemInfo}">
+                        <Path x:Name="SystemInfoIconPath" Data="M2,2 L14,2 A1,1 0 0,1 15,3 L15,11 A1,1 0 0,1 14,12 L10,12 L10,14 L12,14 L12,15 L4,15 L4,14 L6,14 L6,12 L2,12 A1,1 0 0,1 1,11 L1,3 A1,1 0 0,1 2,2 Z M7.5,4.5 A0.8,0.8 0 1,0 8.5,4.5 A0.8,0.8 0 1,0 7.5,4.5 Z M7.3,6.5 L8.7,6.5 L8.7,10 L7.3,10 Z"
                               Fill="#C4C4C4"
                               Width="20" Height="20" Stretch="Uniform"/>
                     </Button>
@@ -468,38 +479,50 @@
                                                     BorderThickness="1"
                                                     CornerRadius="6"
                                                     SnapsToDevicePixels="True">
-                                                <ItemsControl ItemsSource="{Binding CoreItems}" FlowDirection="LeftToRight">
-                                                    <ItemsControl.ItemsPanel>
-                                                        <ItemsPanelTemplate>
-                                                            <UniformGrid Columns="{Binding CoreColumns}"/>
-                                                        </ItemsPanelTemplate>
-                                                    </ItemsControl.ItemsPanel>
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Border Background="#FFFFFF"
-                                                                    BorderBrush="#E2E2E2"
-                                                                    BorderThickness="0,0,1,1">
-                                                                <TextBlock Text="{Binding Text}"
-                                                                           Foreground="#1A1A1A"
-                                                                           FontSize="11.5"
-                                                                           FontFamily="{StaticResource SegoeUIVariableText}"
-                                                                           FontWeight="Normal"
-                                                                           TextAlignment="Center"
-                                                                           Padding="8,5">
-                                                                    <TextBlock.Style>
-                                                                        <Style TargetType="TextBlock">
-                                                                            <Style.Triggers>
-                                                                                <DataTrigger Binding="{Binding IsHottest}" Value="True">
-                                                                                    <Setter Property="TextDecorations" Value="Underline"/>
-                                                                                </DataTrigger>
-                                                                            </Style.Triggers>
-                                                                        </Style>
-                                                                    </TextBlock.Style>
-                                                                </TextBlock>
-                                                            </Border>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
+                                                <StackPanel>
+                                                    <ItemsControl ItemsSource="{Binding CoreItems}" FlowDirection="LeftToRight">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <UniformGrid Columns="{Binding CoreColumns}"/>
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Border Background="#FFFFFF"
+                                                                        BorderBrush="#E2E2E2"
+                                                                        BorderThickness="0,0,1,1">
+                                                                    <TextBlock Text="{Binding Text}"
+                                                                               Foreground="#1A1A1A"
+                                                                               FontSize="11.5"
+                                                                               FontFamily="{StaticResource SegoeUIVariableText}"
+                                                                               FontWeight="Normal"
+                                                                               TextAlignment="Center"
+                                                                               Padding="8,5">
+                                                                        <TextBlock.Style>
+                                                                            <Style TargetType="TextBlock">
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsHottest}" Value="True">
+                                                                                        <Setter Property="TextDecorations" Value="Underline"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </TextBlock.Style>
+                                                                    </TextBlock>
+                                                                </Border>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                    <Border x:Name="CpuPackagePowerFooter"
+                                                            BorderBrush="#E2E2E2"
+                                                            BorderThickness="0,1,0,0"
+                                                            Padding="8,5">
+                                                        <TextBlock x:Name="TxtCpuPackagePowerPopup"
+                                                                   Text="Package Power: --W"
+                                                                   Foreground="#333333"
+                                                                   FontSize="11"
+                                                                   FontFamily="{StaticResource SegoeUIVariableText}"/>
+                                                    </Border>
+                                                </StackPanel>
                                             </Border>
 
                                             <!-- Downward Triangle Caret pointing directly down over digits -->
@@ -709,6 +732,14 @@
                             <Border Background="Transparent" BorderBrush="#4A4A4A" BorderThickness="1" CornerRadius="3" Padding="7,4">
                                 <TextBlock Text="{DynamicResource Main_LabelGhz}" Foreground="#9A9A9A" FontSize="11" FontWeight="SemiBold"/>
                             </Border>
+                            <TextBlock x:Name="TxtCpuPackageWatts"
+                                       Text="--W"
+                                       Foreground="#9E9E9E"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       FlowDirection="LeftToRight"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"/>
                         </StackPanel>
                     </Grid>
 
@@ -731,12 +762,38 @@
                             </Grid>
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock x:Name="TxtGpuLabel" Text="{DynamicResource Main_GpuLabel}" Foreground="#D5D5D5" FontSize="12.5" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="TxtGpuVendor"
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,1,0,0">
+                                    <TextBlock x:Name="TxtGpuVendor"
+                                               Text=""
+                                               Foreground="#9A9A9A"
+                                               FontSize="10.5"
+                                               FlowDirection="LeftToRight"
+                                               VerticalAlignment="Center"
+                                               Visibility="Collapsed"/>
+                                    <TextBlock x:Name="TxtGpuTemp"
+                                               Text="--°C"
+                                               Foreground="#9E9E9E"
+                                               FontSize="10.5"
+                                               FontWeight="SemiBold"
+                                               FlowDirection="LeftToRight"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,0,0"/>
+                                    <TextBlock x:Name="TxtGpuPower"
+                                               Text="--W"
+                                               Foreground="#9E9E9E"
+                                               FontSize="10.5"
+                                               FontWeight="SemiBold"
+                                               FlowDirection="LeftToRight"
+                                               VerticalAlignment="Center"
+                                               Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <TextBlock x:Name="TxtGpuName"
                                            Text=""
-                                           Foreground="#9A9A9A"
-                                           FontSize="10.5"
+                                           Foreground="#8A8A8A"
+                                           FontSize="10"
                                            FlowDirection="LeftToRight"
-                                           TextAlignment="Right"
+                                           MaxWidth="112"
+                                           TextTrimming="CharacterEllipsis"
                                            Margin="0,1,0,0"
                                            Visibility="Collapsed"/>
                             </StackPanel>
@@ -756,6 +813,24 @@
                                         ClipToBounds="True"/>
                             </Grid>
                         </Border>
+                    </Grid>
+
+                    <!-- GPU health details, visible only when a View-tab readout is enabled. -->
+                    <Grid x:Name="GpuHealthRow" Height="26" Visibility="Collapsed" Margin="36,0,0,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" FlowDirection="LeftToRight">
+                            <StackPanel x:Name="GpuHotspotGroup" Orientation="Horizontal" Margin="0,0,16,0">
+                                <TextBlock Text="{DynamicResource Main_GpuHotspotLabel}" Foreground="#7F7F7F" FontSize="10"/>
+                                <TextBlock x:Name="TxtGpuHotspot" Text="--" Foreground="#BDBDBD" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel x:Name="GpuVramGroup" Orientation="Horizontal" Margin="0,0,16,0">
+                                <TextBlock Text="{DynamicResource Main_GpuVramLabel}" Foreground="#7F7F7F" FontSize="10"/>
+                                <TextBlock x:Name="TxtGpuVram" Text="--" Foreground="#BDBDBD" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel x:Name="GpuFanGroup" Orientation="Horizontal">
+                                <TextBlock Text="{DynamicResource Main_GpuFanLabel}" Foreground="#7F7F7F" FontSize="10"/>
+                                <TextBlock x:Name="TxtGpuFan" Text="--" Foreground="#BDBDBD" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
                     </Grid>
 
                     <Rectangle Height="1" Fill="#333333" Margin="0,1"/>
@@ -783,12 +858,10 @@
                                 Cursor="Hand"
                                 Padding="4"
                                 AutomationProperties.Name="{DynamicResource Main_ManageOverlayAutomation}">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="M3,6 L11,6 L11,13 L3,13 Z M5,6 L5,4 A2,2 0 0,1 9,4 L9,6"
-                                      Stroke="#2B88D8" StrokeThickness="1.4" StrokeLineJoin="Round"
-                                      Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
-                                <TextBlock Text="{DynamicResource Common_Manage}" Foreground="#D5D5D5" FontWeight="SemiBold" FontSize="12.5"/>
-                            </StackPanel>
+                            <TextBlock Text="{DynamicResource Common_Manage}"
+                                       Foreground="#D5D5D5"
+                                       FontWeight="SemiBold"
+                                       FontSize="12.5"/>
                         </Button>
                     </Grid>
 
@@ -817,12 +890,10 @@
                                 Cursor="Hand"
                                 Padding="4"
                                 AutomationProperties.Name="{DynamicResource Main_ManageAutopilotAutomation}">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="M3,6 L11,6 L11,13 L3,13 Z M5,6 L5,4 A2,2 0 0,1 9,4 L9,6"
-                                      Stroke="#2B88D8" StrokeThickness="1.4" StrokeLineJoin="Round"
-                                      Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
-                                <TextBlock Text="{DynamicResource Common_Manage}" Foreground="#D5D5D5" FontWeight="SemiBold" FontSize="12.5"/>
-                            </StackPanel>
+                            <TextBlock Text="{DynamicResource Common_Manage}"
+                                       Foreground="#D5D5D5"
+                                       FontWeight="SemiBold"
+                                       FontSize="12.5"/>
                         </Button>
                     </Grid>
 

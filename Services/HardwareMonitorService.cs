@@ -52,6 +52,8 @@ namespace CryoTray.Services
             public List<(int KindOrder, int Index, double Value)> Clocks { get; } = new();
             public double? TctlTdie { get; set; }
             public double? TotalLoad { get; set; }
+            public double? PackagePowerWatts { get; set; }
+            public double? CorePowerWatts { get; set; }
         }
 
         public HardwareMonitorService()
@@ -228,9 +230,6 @@ namespace CryoTray.Services
                         CoolingModeActive = snapshot.CoolingModeActive
                     });
 
-                    // Autopilot tick
-                    AutopilotService.Instance.ProcessTelemetry(snapshot);
-
                     // Notify subscribers
                     TelemetryUpdated?.Invoke(snapshot);
                 }
@@ -267,7 +266,13 @@ namespace CryoTray.Services
             var cpuSensors = new CpuSensorSet();
             double? motherboardCpuTemp = null;
             double? gpuTemp = null;
+            double? gpuTempFallback = null;
+            double? gpuHotspotTemp = null;
+            double? gpuVramTemp = null;
+            int? gpuFanRpm = null;
             double? gpuLoad = null;
+            double? gpuPower = null;
+            double? gpuPowerFallback = null;
 
             var drives = new List<DriveTelemetry>();
             int driveIndex = 0;
@@ -313,18 +318,71 @@ namespace CryoTray.Services
                     {
                         foreach (var sensor in hardware.Sensors)
                         {
+                            string sensorName = sensor.Name.ToLowerInvariant();
                             if (sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue)
                             {
-                                if (sensor.Name.ToLowerInvariant().Contains("core") || !gpuTemp.HasValue)
+                                double value = sensor.Value.Value;
+                                if (value <= 0 || value >= 150 ||
+                                    double.IsNaN(value) || double.IsInfinity(value))
                                 {
-                                    gpuTemp = sensor.Value.Value;
+                                    continue;
+                                }
+
+                                if (sensorName.Contains("hot spot") || sensorName.Contains("hotspot"))
+                                {
+                                    gpuHotspotTemp ??= Math.Round(value, 1);
+                                }
+                                else if (sensorName.Contains("memory") || sensorName.Contains("vram"))
+                                {
+                                    gpuVramTemp ??= Math.Round(value, 1);
+                                }
+                                else if (sensorName.Contains("core"))
+                                {
+                                    gpuTemp ??= Math.Round(value, 1);
+                                }
+                                else
+                                {
+                                    gpuTempFallback ??= Math.Round(value, 1);
                                 }
                             }
                             else if (sensor.SensorType == SensorType.Load && sensor.Value.HasValue)
                             {
-                                if (sensor.Name.ToLowerInvariant().Contains("core") || !gpuLoad.HasValue)
+                                if (sensorName.Contains("core") || !gpuLoad.HasValue)
                                 {
                                     gpuLoad = sensor.Value.Value;
+                                }
+                            }
+                            else if (sensor.SensorType == SensorType.Power && sensor.Value.HasValue)
+                            {
+                                double watts = sensor.Value.Value;
+                                if (watts <= 0 || double.IsNaN(watts) || double.IsInfinity(watts))
+                                {
+                                    continue;
+                                }
+
+                                bool preferred = sensorName.Contains("gpu power") ||
+                                    sensorName.Contains("package") ||
+                                    sensorName.Contains("board") ||
+                                    sensorName.Contains("total") ||
+                                    (sensorName.Contains("gpu") && !sensorName.Contains("memory"));
+
+                                if (preferred)
+                                {
+                                    gpuPower ??= watts;
+                                }
+                                else
+                                {
+                                    gpuPowerFallback = gpuPowerFallback.HasValue
+                                        ? Math.Max(gpuPowerFallback.Value, watts)
+                                        : watts;
+                                }
+                            }
+                            else if (sensor.SensorType == SensorType.Fan && sensor.Value.HasValue)
+                            {
+                                double rpm = sensor.Value.Value;
+                                if (rpm >= 0 && !double.IsNaN(rpm) && !double.IsInfinity(rpm))
+                                {
+                                    gpuFanRpm ??= (int)Math.Round(rpm);
                                 }
                             }
                         }
@@ -353,6 +411,11 @@ namespace CryoTray.Services
                 ?? (cpuSensors.Loads.Count > 0 ? cpuSensors.Loads.Max(l => l.Value) : 10.0);
             currentLoad = Math.Round(Math.Clamp(currentLoad, 0, 100), 1);
             snapshot.CpuLoad = currentLoad;
+            double? packagePowerWatts = cpuSensors.PackagePowerWatts
+                ?? cpuSensors.CorePowerWatts;
+            snapshot.CpuPackageWatts = packagePowerWatts.HasValue
+                ? (int)Math.Round(packagePowerWatts.Value)
+                : null;
 
             // Fallback stays identical to the previous behavior when no CPU sensors are readable.
             double fallbackPeak = Math.Round(36.0 + (currentLoad * 0.28) + (snapshot.CoolingModeActive ? -4.0 : 0.0), 1);
@@ -406,8 +469,18 @@ namespace CryoTray.Services
             snapshot.CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : _cpuBaseGhz;
             snapshot.CpuGhz = Math.Round(currentClock / 1000.0, 2);
 
-            snapshot.GpuTemp = (gpuTemp.HasValue && gpuTemp.Value > 0) ? Math.Round(gpuTemp.Value, 1) : 47.0;
+            double? effectiveGpuTemp = gpuTemp ?? gpuTempFallback;
+            snapshot.GpuTemp = (effectiveGpuTemp.HasValue && effectiveGpuTemp.Value > 0)
+                ? Math.Round(effectiveGpuTemp.Value, 1)
+                : 47.0;
             snapshot.GpuLoad = gpuLoad.HasValue ? Math.Round(gpuLoad.Value, 1) : 12.0;
+            double? effectiveGpuPower = gpuPower ?? gpuPowerFallback;
+            snapshot.GpuPowerWatts = effectiveGpuPower.HasValue
+                ? (int)Math.Round(effectiveGpuPower.Value)
+                : null;
+            snapshot.GpuHotspotTemp = gpuHotspotTemp;
+            snapshot.GpuVramTemp = gpuVramTemp;
+            snapshot.GpuFanRpm = gpuFanRpm;
 
             snapshot.StorageDrives = drives;
             return snapshot;
@@ -575,6 +648,17 @@ namespace CryoTray.Services
                     if (coreMatch.Success && int.TryParse(coreMatch.Groups[2].Value, out int coreIndex))
                     {
                         UpsertCoreValue(set.Clocks, GetKindOrder(coreMatch.Groups[1].Value), coreIndex, value);
+                    }
+                }
+                else if (sensor.SensorType == SensorType.Power && value > 0)
+                {
+                    if (lower == "package" || lower.Contains("cpu package"))
+                    {
+                        set.PackagePowerWatts ??= value;
+                    }
+                    else if (lower.Contains("core"))
+                    {
+                        set.CorePowerWatts ??= value;
                     }
                 }
             }

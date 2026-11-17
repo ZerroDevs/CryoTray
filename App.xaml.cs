@@ -105,6 +105,7 @@ namespace CryoTray
 
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             HardwareMonitorService.Instance.Start();
+            AutopilotService.Instance.Start();
 
             if (settings.EnableCoolingOnLaunch)
             {
@@ -533,6 +534,7 @@ namespace CryoTray
             _mainWindow = null;
             main?.Close();
 
+            AutopilotService.Instance.Stop();
             HardwareMonitorService.Instance.Stop();
             _trayManager?.Dispose();
             _trayManager = null;
@@ -567,6 +569,7 @@ namespace CryoTray
             }
 
             _trayManager?.Dispose();
+            AutopilotService.Instance.Dispose();
             HardwareMonitorService.Instance.Dispose();
             base.OnExit(e);
         }

@@ -18,11 +18,17 @@
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
+    <Authors>Osama Mahmoud (ZeroNuxi)</Authors>
+    <Company>ZerroDevs</Company>
+    <Copyright>Copyright © 2026 Osama Mahmoud (ZeroNuxi) - ZerroDevs</Copyright>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\CryoTray.pow" />
     <None Include="VERSION" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="NOTICE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

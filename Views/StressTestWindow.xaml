@@ -31,8 +31,8 @@
         <!-- Header -->
         <Grid Grid.Row="0" Margin="0,0,0,16">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Path Data="M4,2 L12,2 L12,4 L14,4 L14,12 L12,12 L12,14 L4,14 L4,12 L2,12 L2,4 L4,4 Z M6,6 L10,6 L10,10 L6,10 Z"
-                      Fill="#2B88D8" Width="18" Height="18" Stretch="Uniform" Margin="0,0,10,0"/>
+                <Path x:Name="StressHeaderIcon" Data="M4,2 L12,2 L12,4 L14,4 L14,12 L12,12 L12,14 L4,14 L4,12 L2,12 L2,4 L4,4 Z M6,6 L10,6 L10,10 L6,10 Z"
+                      Fill="{DynamicResource WindowBorderBrush}" Width="18" Height="18" Stretch="Uniform" Margin="0,0,10,0"/>
                 <TextBlock Text="{DynamicResource Stress_Header}" Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold"/>
             </StackPanel>
             <Button HorizontalAlignment="Right" Click="BtnClose_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="5" AutomationProperties.Name="{DynamicResource Stress_CloseAutomation}">
