@@ -40,8 +40,7 @@ jobs:
           $tag = "v$version"
           git fetch --tags --force
           $skip = "false"
-          git rev-parse -q --verify "refs/tags/$tag" | Out-Null
-          if ($LASTEXITCODE -eq 0) {
+          if (@(git tag --list "$tag").Count -gt 0) {
             $skip = "true"
           }
 
@@ -216,5 +215,5 @@ jobs:
             "release\$setupName.sha256" `
             "release\$zipName" `
             "release\$zipName.sha256" `
-            --title "CryoTray $version" `
+            --title "CryoTray v$version" `
             --notes-file "release\notes.md"
