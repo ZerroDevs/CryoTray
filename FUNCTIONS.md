@@ -70,6 +70,7 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 - `OnPropertyChanged`: `INotifyPropertyChanged` helper.
 - `MainWindow.UpdateWindowHeight()`: adjusts height dynamically across `673` baseline, `PawnIoBanner`, `RamRow`, `GpuHealthRow`, `OverlayRow`, and `AutopilotRow`.
 - `MainWindow.ExportRingBufferCsv()` / `ToggleLiveCsvLogging()`: exports recent ring-buffer telemetry or starts/stops 1 Hz CSV file recording from `Tools`.
+- `MainWindow.BtnToolsMenu_Click`, `ToolsContextMenu_Opened`, `MenuToolsStress_Click`, `MenuToolsExportCsv_Click`, `MenuToolsRecordCsv_Click`, `MenuToolsAbout_Click`, `RenderWpfContextMenusForTest()`: drive declarative dark `ToolsContextMenu` (`RamDarkContextMenuStyle` + `DarkMenuSeparatorStyle`), sync RTL `FlowDirection` and recording label state, open dark `Settings > About`, and support pixel verification alongside `RamScopeMenu`.
 
 ## Chart hover
 
@@ -93,7 +94,7 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 ## Diagnostics & Verification
 
 - `CpuSensorDump.Run()`: one-shot `/dump` mode. Opens a CPU-only `Computer`, writes every temperature and clock sensor with type, value, min, max, and identifier to `cpu-sensors.txt` in the project root, then exits. Must run elevated for real values.
-- `VerificationTests.RunAll()`: `/test` mode (35 checks covering all prior suites plus custom frame colors & Wave 5 persistence, Black vs White tray badge digits + handle stability, CPU clock/base speed + Small/Large graph + drive sample lookup, and zero-hardcoding hardware vendor/snapshot clone integrity).
+- `VerificationTests.RunAll()`: `/test` mode (36 checks covering all prior suites plus custom frame colors & Wave 5 persistence, Black vs White tray badge digits + handle stability, CPU clock/base speed + Small/Large graph + drive sample lookup, zero-hardcoding hardware vendor/snapshot clone integrity, and `TestWpfContextMenusDarkRendering` / `AssertDarkWpfContextMenuBitmap` for dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering in LTR/RTL).
 
 ## Power, Hotkeys, Autopilot & Settings
 

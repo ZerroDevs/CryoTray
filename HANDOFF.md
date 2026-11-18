@@ -85,10 +85,17 @@
 ## GitHub Banner Candidates
 
 - Applied user-selected **Option 3 (Thermal Drop Proof: `-°C` / `-W` Delta)** to active `Images\Banner.jpg` (`1920x1072`, `560,935` bytes, referenced by `README.md`) and `Images\Banner.jfif` (`2752x1536`, `915,019` bytes).
-- Preserved previous originals (`Banner-Original.jpg`, `Banner-Original.jfif`) plus all 5 generated candidate banners at both `1920x1072` (`Banner-Option-1..5.jpg`) and `2752x1536` (`Banner-Option-1..5-2K.jpg`) inside `Images\Candidates\`.
+- All 5 banner files (`Images\Candidates\Banner-Option-1..5.jpg` and `-2K.jpg`) plus originals (`Banner-Original.*`) remain preserved.
+
+## Wave 7 Fix (Tools ContextMenu Dark Styling)
+
+- Replaced raw code-behind `ContextMenu` / `MenuItem` / `Separator` in `MainWindow.BtnToolsMenu_Click` with declarative `ToolsContextMenu` on `BtnToolsMenu` reusing `RamDarkContextMenuStyle`, `RamDarkMenuItemStyle`, and `DarkMenuSeparatorStyle` (`#1E1E1E` surface, `#525252` border, `#2D2D2D` hover fill, `#6E6E6E` highlight border, `#333333` 1 px separator, collapsed checkbox gutter when `IsCheckable="False"`, RTL `FlowDirection` sync, and `OpenSettingsDialog(true)` on `About CryoTray`).
+- Suppressed default white `TextBox` context menus (`ContextMenu="{x:Null}"`) on read-only shortcut capture boxes (`TxtHotkeyShortcut`, `TxtRamHotkeyShortcut`) in `Views/SettingsWindow.xaml`.
+- Release rebuild: `0 Warning(s), 0 Error(s)`; elevated `/test`: `36 / 36 PASSED` (`TestWpfContextMenusDarkRendering` verified LTR + Arabic RTL renders with zero white gutter pixels).
+- Live UIA capture (`verify-11-tools-menu-dark.png`): `POPUP_SIZE=157x155`, `WHITE_GUTTER_HITS=0`, clean dark `#1E1E1E` menu.
 
 ## Next steps
 
-- Run `git add -A` before committing so all modified/new files (including updated `Images\Banner.jpg`, `Images\Banner.jfif`, `Images\Candidates\*`, 3 new `Services\*.cs` files, and removed `cpu-sensors.txt`) are staged together.
+- Commit the 9 modified Wave 7 working-tree files cleanly on top of baseline commit `855916e`.
 - Launch updated app cleanly with `Start-Process .\bin\Release\net8.0-windows\CryoTray.exe` (or run `Installer\Output\CryoTray-Setup-0.0.100.exe`).
 - Restart Antigravity normally (without Administrator rights) once testing finishes.

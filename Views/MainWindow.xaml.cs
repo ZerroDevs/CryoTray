@@ -15,6 +15,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using CryoTray.Models;
@@ -255,6 +256,10 @@ namespace CryoTray.Views
             {
                 RamScopeMenu.IsOpen = false;
             }
+            if (ToolsContextMenu != null)
+            {
+                ToolsContextMenu.IsOpen = false;
+            }
             CpuCoresPopup.IsOpen = false;
         }
 
@@ -463,6 +468,10 @@ namespace CryoTray.Views
             if (RamScopeMenu != null)
             {
                 RamScopeMenu.IsOpen = false;
+            }
+            if (ToolsContextMenu != null)
+            {
+                ToolsContextMenu.IsOpen = false;
             }
             Close();
         }
@@ -1977,56 +1986,49 @@ namespace CryoTray.Views
 
         private void BtnToolsMenu_Click(object sender, RoutedEventArgs e)
         {
-            var menu = new ContextMenu
+            if (ToolsContextMenu == null)
             {
-                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#181818")),
-                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C"))
-            };
+                return;
+            }
 
-            var itemStress = new MenuItem
+            ToolsContextMenu.PlacementTarget = BtnToolsMenu;
+            ToolsContextMenu.Placement = PlacementMode.Bottom;
+            ToolsContextMenu.HorizontalOffset = 0;
+            ToolsContextMenu.VerticalOffset = 4;
+            ToolsContextMenu.FlowDirection = FlowDirection;
+            ToolsContextMenu.IsOpen = true;
+        }
+
+        private void ToolsContextMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            if (ToolsContextMenu == null)
             {
-                Header = LocalizationService.Get("Main_TooltipStressTest"),
-                Foreground = Brushes.White
-            };
-            itemStress.Click += (s, args) => OpenStressTestDialog();
+                return;
+            }
 
-            var itemExportCsv = new MenuItem
-            {
-                Header = LocalizationService.Get("Main_ToolsExportCsv"),
-                Foreground = Brushes.White
-            };
-            itemExportCsv.Click += (s, args) => ExportRingBufferCsv();
-
+            ToolsContextMenu.FlowDirection = FlowDirection;
             bool isRecordingCsv = TelemetryCsvService.Instance.IsRecording;
-            var itemRecordCsv = new MenuItem
-            {
-                Header = LocalizationService.Get(isRecordingCsv ? "Main_ToolsStopCsvLog" : "Main_ToolsStartCsvLog"),
-                Foreground = Brushes.White
-            };
-            itemRecordCsv.Click += (s, args) => ToggleLiveCsvLogging();
+            MenuToolsRecordCsv.Header = LocalizationService.Get(isRecordingCsv ? "Main_ToolsStopCsvLog" : "Main_ToolsStartCsvLog");
+        }
 
-            var itemAbout = new MenuItem
-            {
-                Header = LocalizationService.Get("Main_AboutTitle"),
-                Foreground = Brushes.White
-            };
-            itemAbout.Click += (s, args) =>
-            {
-                RunWithChildDialogGuard(() => MessageBox.Show(
-                    LocalizationService.Get("Main_AboutBody"),
-                    LocalizationService.Get("Main_AboutTitle"),
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information));
-            };
+        private void MenuToolsStress_Click(object sender, RoutedEventArgs e)
+        {
+            OpenStressTestDialog();
+        }
 
-            menu.Items.Add(itemStress);
-            menu.Items.Add(itemExportCsv);
-            menu.Items.Add(itemRecordCsv);
-            menu.Items.Add(new Separator { Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")) });
-            menu.Items.Add(itemAbout);
+        private void MenuToolsExportCsv_Click(object sender, RoutedEventArgs e)
+        {
+            ExportRingBufferCsv();
+        }
 
-            menu.PlacementTarget = BtnToolsMenu;
-            menu.IsOpen = true;
+        private void MenuToolsRecordCsv_Click(object sender, RoutedEventArgs e)
+        {
+            ToggleLiveCsvLogging();
+        }
+
+        private void MenuToolsAbout_Click(object sender, RoutedEventArgs e)
+        {
+            OpenSettingsDialog(true);
         }
 
         private void RunWithChildDialogGuard(Action action)
@@ -2482,8 +2484,43 @@ namespace CryoTray.Views
         private void RamScopeMenu_Opened(object sender, RoutedEventArgs e)
         {
             var settings = SettingsService.Instance.Current;
+            RamScopeMenu.FlowDirection = FlowDirection;
             MenuRamFreeWorkingSets.IsChecked = settings.RamFreeWorkingSets;
             MenuRamClearStandby.IsChecked = settings.RamClearStandby;
+        }
+
+        internal (System.Drawing.Bitmap ToolsMenu, System.Drawing.Bitmap RamMenu) RenderWpfContextMenusForTest()
+        {
+            ToolsContextMenu_Opened(ToolsContextMenu, new RoutedEventArgs());
+            RamScopeMenu_Opened(RamScopeMenu, new RoutedEventArgs());
+            MenuRamFreeWorkingSets.IsChecked = true;
+            MenuRamClearStandby.IsChecked = false;
+
+            return (
+                RenderContextMenuBitmapForTest(ToolsContextMenu),
+                RenderContextMenuBitmapForTest(RamScopeMenu));
+        }
+
+        private static System.Drawing.Bitmap RenderContextMenuBitmapForTest(ContextMenu menu)
+        {
+            menu.ApplyTemplate();
+            menu.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Size desired = menu.DesiredSize;
+            int width = Math.Max(1, (int)Math.Ceiling(desired.Width));
+            int height = Math.Max(1, (int)Math.Ceiling(desired.Height));
+            menu.Arrange(new Rect(0, 0, width, height));
+            menu.UpdateLayout();
+
+            var rtb = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(menu);
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(rtb));
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            ms.Position = 0;
+            using var temp = new System.Drawing.Bitmap(ms);
+            return new System.Drawing.Bitmap(temp);
         }
 
         private void MenuRamScope_Click(object sender, RoutedEventArgs e)

@@ -63,6 +63,7 @@ namespace CryoTray.Tests
             allPassed &= TestTrayBadgeBlackAndWhiteDigits();
             allPassed &= TestCpuClockBaseSmallGraphAndDriveSamples();
             allPassed &= TestZeroHardcodedHardwareInfoAndCloneIntegrity();
+            allPassed &= TestWpfContextMenusDarkRendering();
 
             Console.WriteLine("==================================================");
             if (allPassed)
@@ -2092,6 +2093,141 @@ namespace CryoTray.Tests
             {
                 Console.WriteLine($"FAILED: {ex.Message}");
                 return false;
+            }
+        }
+
+        private static bool TestWpfContextMenusDarkRendering()
+        {
+            Console.Write("[TEST] WPF Tools & RAM ContextMenu Dark Rendering (No White Gutter)... ");
+            string origLang = SettingsService.Instance.Current.Language;
+            Exception? staEx = null;
+
+            try
+            {
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        foreach (string lang in new[] { "English", "العربية" })
+                        {
+                            LocalizationService.Instance.Apply(lang);
+                            var mw = new Views.MainWindow();
+                            try
+                            {
+                                var toolsMenu = (System.Windows.Controls.ContextMenu)mw.FindName("ToolsContextMenu")
+                                    ?? throw new Exception("ToolsContextMenu not found.");
+                                var ramMenu = (System.Windows.Controls.ContextMenu)mw.FindName("RamScopeMenu")
+                                    ?? throw new Exception("RamScopeMenu not found.");
+
+                                var sepStyle = (Style)mw.FindResource("DarkMenuSeparatorStyle");
+                                int itemCount = 0;
+                                int sepCount = 0;
+                                foreach (object entry in toolsMenu.Items)
+                                {
+                                    if (entry is System.Windows.Controls.MenuItem mi)
+                                    {
+                                        if (mi.IsCheckable)
+                                        {
+                                            throw new Exception("ToolsContextMenu item unexpectedly checkable.");
+                                        }
+                                        itemCount++;
+                                    }
+                                    else if (entry is System.Windows.Controls.Separator sep)
+                                    {
+                                        if (!ReferenceEquals(sep.Style, sepStyle))
+                                        {
+                                            throw new Exception("ToolsContextMenu separator missing DarkMenuSeparatorStyle.");
+                                        }
+                                        sepCount++;
+                                    }
+                                }
+
+                                if (itemCount != 4 || sepCount != 1 || ramMenu.Items.Count != 2)
+                                {
+                                    throw new Exception($"Unexpected menu structure: toolsItems={itemCount}, toolsSep={sepCount}, ramItems={ramMenu.Items.Count}");
+                                }
+
+                                var (toolsBmp, ramBmp) = mw.RenderWpfContextMenusForTest();
+                                using (toolsBmp)
+                                using (ramBmp)
+                                {
+                                    AssertDarkWpfContextMenuBitmap(toolsBmp, $"{lang}-ToolsContextMenu");
+                                    AssertDarkWpfContextMenuBitmap(ramBmp, $"{lang}-RamScopeMenu");
+                                }
+                            }
+                            finally
+                            {
+                                mw.Close();
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                thread.Join();
+
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                LocalizationService.Instance.Apply(origLang);
+            }
+        }
+
+        private static void AssertDarkWpfContextMenuBitmap(Bitmap bmp, string label)
+        {
+            if (bmp.Width < 120 || bmp.Height < 60)
+            {
+                throw new Exception($"{label} unexpected dimensions: {bmp.Width}x{bmp.Height}");
+            }
+
+            Color interior = bmp.GetPixel(6, 6);
+            if (interior.R < 20 || interior.R > 42 || interior.G < 20 || interior.G > 42 || interior.B < 20 || interior.B > 42)
+            {
+                throw new Exception($"{label} expected dark #1E1E1E surface near (6,6), got {interior}");
+            }
+
+            int leftMaxX = Math.Min(10, bmp.Width - 1);
+            int rightMinX = Math.Max(0, bmp.Width - 11);
+            for (int y = 3; y < bmp.Height - 3; y++)
+            {
+                for (int x = 3; x <= leftMaxX; x++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (c.R > 180 && c.G > 180 && c.B > 180)
+                    {
+                        throw new Exception($"{label} detected light/white pixel in left edge at ({x},{y}): {c}");
+                    }
+                }
+
+                for (int x = rightMinX; x <= bmp.Width - 4; x++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (c.R > 180 && c.G > 180 && c.B > 180)
+                    {
+                        throw new Exception($"{label} detected light/white pixel in right edge at ({x},{y}): {c}");
+                    }
+                }
             }
         }
     }

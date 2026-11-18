@@ -28,7 +28,7 @@ Exhaustive catalog of CryoTray features. Check before planning or adding feature
 ## System Tray & Companion Windows
 
 - **Dynamic Tray Badges & Second-Launch Activation (`TrayIconManager`, `App`)**: Separate GPU (green) and CPU (coral/cyan) badges or one combined split badge showing temperature or `--`, owner-drawn dark `#1E1E1E` tray context menu + pause submenu (`#2D2D2D` hover pill, trailing `#29B6F6` checkbox, vector chevron, and Arabic RTL flip) with checkable `Overlay Click-Through`, and named `EventWaitHandle` activation so relaunching `CryoTray.exe` focuses the existing dashboard.
-- **Dashboard (`MainWindow`)**: Tray-anchored or freely positioned dark window (`444 x 673` baseline) with animated six-petal vector cooling fan, keyboard-accessible `BtnCoolingToggle` and `BtnCpuTempCores`, CPU/GPU charts, RAM row, filtered SSD rows, `Tools` CSV export/logging actions, and optional Overlay/Autopilot rows.
+- **Dashboard (`MainWindow`)**: Tray-anchored or freely positioned dark window (`444 x 673` baseline) with animated six-petal vector cooling fan, keyboard-accessible `BtnCoolingToggle` and `BtnCpuTempCores`, CPU/GPU charts, RAM row, filtered SSD rows, dark owner-styled `ToolsContextMenu` CSV export/logging and About tab actions (zero white icon gutter), and optional Overlay/Autopilot rows.
 - **Floating Telemetry Overlay (`OverlayWindow`)**: Always-on-top draggable pill with configurable opacity (0% to 100%), optional click-through `WS_EX_TRANSPARENT` pass-through (`OverlayClickThrough`), and selectable CPU, GPU, and RAM metrics.
 - **CPU Temperature Test (`StressTestWindow`)**: Multi-core CPU stress generator running on `BelowNormal` background worker threads with live temperature/clock readouts, 60-sample chart, inline Cooling Mode switch, and session CSV export (`Export CSV`).
 - **System Information (`SystemInfoWindow`)**: On-demand WMI, EDID monitor, active NIC, Event 100 boot duration, BSOD count, drive matching (serial, disk index, model), Cooling-Mode-scoped CPU temp stats, and plain-text report export.
@@ -38,7 +38,7 @@ Exhaustive catalog of CryoTray features. Check before planning or adding feature
 - **Settings Persistence & Portability (`SettingsService`)**: Stores JSON settings in `%APPDATA%\CryoTray\settings.json` with Export, Import, Reset, and Task Scheduler startup entry (`StartupTaskService`).
 - **Bilingual UI & RTL (`LocalizationService`)**: Full English (`Strings.en.xaml`) and Arabic (`Strings.ar.xaml`) resource dictionaries with dynamic RTL layout switching while keeping numeric metrics LTR.
 - **Signed & Checksummed GitHub Updater (`UpdateService` & `UpdateBackupService`)**: Automatic/manual GitHub Releases checks, SHA-256 verification, Authenticode validation, local rollback backup, and one-click version restore.
-- **CI Installer & CLI Diagnostics**: `.github/workflows/release.yml` runs the 35-check `/test` verification suite before publishing `CryoTray-Setup-<version>.exe` (Inno Setup + bundled `PawnIO_setup.exe` + `/uninstall-cleanup`) alongside the portable zip; `/dump` writes `cpu-sensors.txt` via `CpuSensorDump`.
+- **CI Installer & CLI Diagnostics**: `.github/workflows/release.yml` runs the 36-check `/test` verification suite before publishing `CryoTray-Setup-<version>.exe` (Inno Setup + bundled `PawnIO_setup.exe` + `/uninstall-cleanup`) alongside the portable zip; `/dump` writes `cpu-sensors.txt` via `CpuSensorDump`.
 
 ## Wave 3 Features (Completed & Verified)
 
