@@ -331,7 +331,7 @@ The About tab shows the installed version, update status, automatic update optio
    ```
 
    The hash must match the value in the checksum file.
-4. For the portable zip, install PawnIO 2.x from the official PawnIO project if not already installed, extract the archive to a writable folder, and run `CryoTray.exe` (approving UAC). The installer runs silent PawnIO setup automatically when missing.
+4. For the portable zip, extract the archive to a writable folder. It includes `PawnIO_setup.exe`; run it if PawnIO 2.x is not already installed, then run `CryoTray.exe` (approving UAC). The installer runs silent PawnIO setup automatically when missing.
 
 The release package is self-contained for win-x64, so a separate .NET runtime installation is not required.
 
@@ -378,7 +378,7 @@ Start-Process .\bin\Release\net8.0-windows\CryoTray.exe
 
 ### Local publish
 
-The release workflow produces a self-contained win-x64 folder and an Inno Setup installer (`build-installer.ps1`):
+The release workflow produces a self-contained win-x64 folder, an Inno Setup installer, and a portable zip (`build-installer.ps1`):
 
 ```powershell
 dotnet publish CryoTray.csproj `
@@ -390,7 +390,7 @@ dotnet publish CryoTray.csproj `
   -o publish\win-x64
 ```
 
-Copy the whole `publish\win-x64` folder, or run `.\build-installer.ps1` to generate `Installer\Output\CryoTray-Setup-<version>.exe`. Stop any running CryoTray instance first so the Release output is not locked.
+Copy the whole `publish\win-x64` folder, or run `.\build-installer.ps1` to generate both `Installer\Output\CryoTray-Setup-<version>.exe` and `release\CryoTray-<version>-win-x64.zip`. The portable zip includes `PawnIO_setup.exe` at its root. Stop any running CryoTray instance first so the Release output is not locked.
 
 ### Versioning and releases
 

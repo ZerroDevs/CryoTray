@@ -7,9 +7,9 @@
 ## Latest pass (README audit, installer rebuild)
 
 - Corrected `README.md` to list all eight Settings tabs (including Memory), describe the full configurable cooling hotkey range, add the Appearance row, and show the theme/fan-health/storage/battery services plus `ConfirmExitWindow` in the architecture tree.
-- Hardened `build-installer.ps1`: validates the three-part `VERSION`, checks the bundled `Resources\PawnIO_setup.exe` exists, and publishes with `DebugType=None` / `DebugSymbols=false` so no PDBs enter the portable payload.
+- Hardened `build-installer.ps1`: validates the three-part `VERSION`, checks the bundled `Resources\PawnIO_setup.exe` exists, publishes with `DebugType=None` / `DebugSymbols=false`, and after Inno compiles, copies PawnIO into the published payload and creates `release\CryoTray-<version>-win-x64.zip` with `PawnIO_setup.exe` at the archive root. The release workflow now does the same before creating its zip.
 - Reviewed `Installer/CryoTray.iss`: `AppId`, x64 restriction, admin privileges, PawnIO silent install, scheduled-task cleanup, `/uninstall-cleanup` fallback, icon/license paths, and output naming all remain correct for v0.0.100. No `.iss` changes were required.
-- Verification: `build-installer.ps1` exited `0`; Inno Setup 6.7.3 compiled `Installer\Output\CryoTray-Setup-0.0.100.exe` (`50.08 MB`, ProductVersion `0.0.100`) with `0` PDB files in `publish\win-x64`. App relaunched as PID `31264` and minimized to the tray with `Theme` still `Dark`.
+- Verification: `build-installer.ps1` exited `0`; Inno Setup 6.7.3 compiled `Installer\Output\CryoTray-Setup-0.0.100.exe` (`50.07 MB`, ProductVersion `0.0.100`) and `release\CryoTray-0.0.100-win-x64.zip` (`72.42 MB`, `477` entries) containing `CryoTray.exe` and `PawnIO_setup.exe`. The zip has no PDB files. App relaunched as PID `29940` and minimized to the tray with `Theme` still `Dark`.
 
 ## Previous pass (Dark / Light / System appearance)
 
@@ -65,8 +65,9 @@
 ## Current status
 
 - `bin\Release\net8.0-windows\CryoTray.exe` rebuilt with `0 Warning(s), 0 Error(s)` (`388,096` bytes) and `CryoTray.dll` (`1,360,896` bytes); it includes the Fan Health disclosure, GPU fan, storage health, and tray badge metrics.
-- `CryoTray.exe` PID `31264` is running and responsive with `Theme` set to `Dark`; its dashboard was minimized to the tray.
-- `Installer\Output\CryoTray-Setup-0.0.100.exe` was rebuilt after the README and build-script pass (`50.08 MB`, ProductVersion `0.0.100`).
+- `CryoTray.exe` PID `29940` is running and responsive with `Theme` set to `Dark`; its dashboard was minimized to the tray.
+- `Installer\Output\CryoTray-Setup-0.0.100.exe` was rebuilt after the README and build-script pass (`50.07 MB`, ProductVersion `0.0.100`).
+- `release\CryoTray-0.0.100-win-x64.zip` was rebuilt (`72.42 MB`) and contains `CryoTray.exe` plus `PawnIO_setup.exe`; no PDB files.
 - The full `/test` suite was not run because `TestPowerPlanUninstallCleanup` deletes and recreates the active scheme; the focused `/test-health-tray` and live UI checks passed.
 
 ## Environment

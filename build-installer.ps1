@@ -4,8 +4,9 @@
     Publishes the self-contained x64 CryoTray build and packages it with Inno Setup.
 .DESCRIPTION
     Reads the version from VERSION, runs dotnet publish into publish\win-x64, locates
-    Inno Setup 6 (installing it with winget when absent), and compiles
-    Installer\Output\CryoTray-Setup-<version>.exe.
+    Inno Setup 6 (installing it with winget when absent), compiles
+    Installer\Output\CryoTray-Setup-<version>.exe, and packages the portable
+    release\CryoTray-<version>-win-x64.zip with the bundled PawnIO setup.
 #>
 [CmdletBinding()]
 param()
@@ -19,7 +20,7 @@ $projectFile = Join-Path $repoRoot 'CryoTray.csproj'
 $issPath = Join-Path $repoRoot 'Installer\CryoTray.iss'
 $publishDir = Join-Path $repoRoot 'publish\win-x64'
 
-Write-Host 'CryoTray installer build' -ForegroundColor Cyan
+Write-Host 'CryoTray release build' -ForegroundColor Cyan
 
 if (-not (Test-Path -LiteralPath $versionFile -PathType Leaf)) {
     throw "VERSION file not found: $versionFile"
@@ -123,3 +124,21 @@ if (-not (Test-Path -LiteralPath $outputExe -PathType Leaf)) {
 
 $sizeMb = [math]::Round((Get-Item -LiteralPath $outputExe).Length / 1MB, 2)
 Write-Host "Installer created: $outputExe ($sizeMb MB)" -ForegroundColor Green
+
+$releaseDir = Join-Path $repoRoot 'release'
+$portableZip = Join-Path $releaseDir "CryoTray-$Version-win-x64.zip"
+New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+
+# The installer embeds PawnIO from Resources; add it to the published payload only
+# after Inno has compiled so the portable archive can ship it without duplicating
+# it inside the installed application directory.
+Copy-Item -LiteralPath $pawnIoSetup -Destination (Join-Path $publishDir 'PawnIO_setup.exe') -Force
+
+Write-Host 'Creating portable zip...'
+Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $portableZip -Force
+if (-not (Test-Path -LiteralPath $portableZip -PathType Leaf)) {
+    throw "Portable archive was not created: $portableZip"
+}
+
+$zipSizeMb = [math]::Round((Get-Item -LiteralPath $portableZip).Length / 1MB, 2)
+Write-Host "Portable zip created: $portableZip ($zipSizeMb MB)" -ForegroundColor Green

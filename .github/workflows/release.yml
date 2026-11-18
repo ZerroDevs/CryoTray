@@ -163,6 +163,7 @@ jobs:
           $setupName = "CryoTray-Setup-$version.exe"
           New-Item -ItemType Directory -Path release -Force | Out-Null
 
+          Copy-Item -LiteralPath "Resources\PawnIO_setup.exe" -Destination "publish\win-x64\PawnIO_setup.exe" -Force
           Compress-Archive -Path "publish\win-x64\*" -DestinationPath "release\$zipName" -Force
           Copy-Item -LiteralPath "Installer\Output\$setupName" -Destination "release\$setupName" -Force
 
@@ -194,7 +195,7 @@ jobs:
           ## Download
 
           - **Installer (Recommended):** Download `CryoTray-Setup-$version.exe` (includes bundled PawnIO driver setup) and verify against `$setupName.sha256`.
-          - **Portable Zip:** Download `$zipName`, verify against `$zipName.sha256`, extract, and run `CryoTray.exe`.
+          - **Portable Zip:** Download `$zipName`, verify against `$zipName.sha256`, extract, run `PawnIO_setup.exe` if the driver is missing, then run `CryoTray.exe`.
           "@
 
           Set-Content -LiteralPath "release\notes.md" -Value $notes -Encoding utf8
