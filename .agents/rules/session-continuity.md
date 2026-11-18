@@ -12,6 +12,6 @@ At the end of EVERY user prompt or request:
 3. **Update `FUNCTIONS.md`**:
    - Maintain an exhaustive catalog of shared functions, custom hooks, math utilities, context methods, and UI components.
    - MANDATORY REUSE RULE: Never create a duplicate function, hook, or component if one already exists. Check `FUNCTIONS.md` first before implementing new code and reuse the existing implementation.
-4. **Update `src-cloud-server/FEATURES.md`**:
-   - Maintain an exhaustive catalog of all features supported in `src-cloud-server`.
+4. **Update `FEATURES.md`**:
+   - Maintain an exhaustive catalog of all features supported.
    - ZERO DUPLICATION RULE: Always inspect `FEATURES.md` before planning or building to avoid duplicating or re-proposing existing features.
