@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -16,6 +19,18 @@ namespace CryoTray.Views
         private SystemInfoData _data = new();
         private readonly DispatcherTimer _uptimeTimer;
         private TextBlock? _uptimeTextBlock;
+        private StackPanel? _fanHealthRowsPanel;
+        private ToggleButton? _fanHealthToggleButton;
+        private TextBlock? _fanHealthChevron;
+        private CheckBox? _fanHealthIdleFilter;
+        private Button? _fanHealthTestButton;
+        private bool _fanHealthExpanded;
+        private bool _fanHealthHideIdle = true;
+        private bool _syncingFanHealthToggle;
+        private DispatcherTimer? _copyFeedbackTimer;
+        private readonly Dictionary<string, Border> _fanHealthRows = new(StringComparer.OrdinalIgnoreCase);
+        private string? _highlightFanKey;
+        private bool _highlightScrolled;
 
         public SystemInfoWindow()
         {
@@ -33,18 +48,30 @@ namespace CryoTray.Views
                     _uptimeTextBlock.Text = SystemInfoQueryService.FormatUptime(
                         TimeSpan.FromMilliseconds(Environment.TickCount64));
                 }
+
+                RefreshFanHealthRows();
             };
 
             Loaded += SystemInfoWindow_Loaded;
             Closed += SystemInfoWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+            ThemeService.ThemeChanged += OnThemeChanged;
         }
 
         private void SystemInfoWindow_Closed(object? sender, EventArgs e)
         {
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            ThemeService.ThemeChanged -= OnThemeChanged;
             _uptimeTimer.Stop();
             _uptimeTextBlock = null;
+            _fanHealthRowsPanel = null;
+            _fanHealthToggleButton = null;
+            _fanHealthChevron = null;
+            _fanHealthIdleFilter = null;
+            _fanHealthTestButton = null;
+            _fanHealthRows.Clear();
+            _copyFeedbackTimer?.Stop();
+            _copyFeedbackTimer = null;
             InfoContainer.Children.Clear();
             _data = new SystemInfoData();
             Content = null;
@@ -63,9 +90,23 @@ namespace CryoTray.Views
             _uptimeTimer.Start();
         }
 
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                RenderRows();
+            }
+            else
+            {
+                Dispatcher.BeginInvoke(new Action(RenderRows));
+            }
+        }
+
         private void OnLanguageChanged()
         {
             LocalizationService.Instance.ApplyWindow(this);
+            _copyFeedbackTimer?.Stop();
+            TxtCopyDiagnostics.Text = LocalizationService.Get("System_Copy");
             _data = SystemInfoQueryService.Instance.QuerySystemInfo();
             RenderRows();
         }
@@ -73,6 +114,12 @@ namespace CryoTray.Views
         private void RenderRows()
         {
             InfoContainer.Children.Clear();
+            _fanHealthRowsPanel = null;
+            _fanHealthToggleButton = null;
+            _fanHealthChevron = null;
+            _fanHealthIdleFilter = null;
+            _fanHealthTestButton = null;
+            _fanHealthRows.Clear();
             int rowIndex = 0;
 
             void AddRow(string label, string value, string? subtitle = null, bool isUptime = false, string? detail = null)
@@ -80,7 +127,7 @@ namespace CryoTray.Views
                 bool isAlternate = (rowIndex % 2 == 1);
                 var border = new Border
                 {
-                    Background = isAlternate ? new SolidColorBrush(Color.FromArgb(255, 39, 39, 39)) : Brushes.Transparent,
+                    Background = isAlternate ? ThemeService.GetBrush("AlternateRowBrush") : Brushes.Transparent,
                     CornerRadius = new CornerRadius(0),
                     Padding = new Thickness(12, 8, 12, 8),
                     Margin = new Thickness(0, 0, 0, 0)
@@ -94,7 +141,7 @@ namespace CryoTray.Views
                 var txtLabel = new TextBlock
                 {
                     Text = label,
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D6D6D6")),
+                    Foreground = ThemeService.GetBrush("TextSecondaryBrush"),
                     FontSize = 13,
                     VerticalAlignment = VerticalAlignment.Top,
                     TextWrapping = TextWrapping.Wrap,
@@ -108,7 +155,7 @@ namespace CryoTray.Views
                 var txtValue = new TextBlock
                 {
                     Text = value,
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F0F0")),
+                    Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
                     FontSize = 13,
                     FontWeight = FontWeights.SemiBold,
                     TextWrapping = TextWrapping.Wrap,
@@ -126,7 +173,7 @@ namespace CryoTray.Views
                     var txtSub = new TextBlock
                     {
                         Text = subtitle,
-                        Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B4B4B4")),
+                        Foreground = ThemeService.GetBrush("TextSecondaryBrush"),
                         FontSize = 12,
                         Margin = new Thickness(0, 2, 0, 0),
                         TextWrapping = TextWrapping.Wrap
@@ -139,7 +186,7 @@ namespace CryoTray.Views
                     var txtDetail = new TextBlock
                     {
                         Text = detail,
-                        Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9E9E9E")),
+                        Foreground = ThemeService.GetBrush("TextMutedBrush"),
                         FontSize = 11.5,
                         Margin = new Thickness(0, 2, 0, 0),
                         TextWrapping = TextWrapping.Wrap
@@ -175,9 +222,412 @@ namespace CryoTray.Views
                 LocalizationService.Get("System_TempStats"),
                 _data.TempStats,
                 detail: LocalizationService.Get("System_TempStatsDetail"));
+            bool showFanSpeeds = SettingsService.Instance.Current.ShowFanSpeeds;
+            if (showFanSpeeds || !string.IsNullOrWhiteSpace(_highlightFanKey))
+            {
+                if (showFanSpeeds)
+                {
+                    AddRow(LocalizationService.Get("System_FanSpeeds"), _data.FanSpeeds);
+                }
+
+                AddFanHealthSection();
+            }
             AddRow(LocalizationService.Get("System_Monitors"), _data.Monitors);
             AddRow(LocalizationService.Get("System_Network"), _data.Network);
             AddRow(LocalizationService.Get("System_SystemErrors"), _data.SystemErrors);
+        }
+
+        private void AddFanHealthSection()
+        {
+            var headerContent = new Grid();
+            headerContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+            headerContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            _fanHealthChevron = new TextBlock
+            {
+                Text = _fanHealthExpanded ? "▾" : "›",
+                Foreground = ThemeService.GetBrush("TextTertiaryBrush"),
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(_fanHealthChevron, 0);
+            headerContent.Children.Add(_fanHealthChevron);
+
+            var headerLabel = new TextBlock
+            {
+                Text = LocalizationService.Get("System_FanHealth"),
+                Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(headerLabel, 1);
+            headerContent.Children.Add(headerLabel);
+
+            _fanHealthToggleButton = new ToggleButton
+            {
+                Style = (Style)FindResource("FanHealthHeaderToggleStyle"),
+                Content = headerContent,
+                IsChecked = _fanHealthExpanded
+            };
+            AutomationProperties.SetName(
+                _fanHealthToggleButton, LocalizationService.Get("System_FanHealth"));
+            AutomationProperties.SetAutomationId(_fanHealthToggleButton, "FanHealthToggle");
+            _fanHealthToggleButton.Checked += FanHealthToggle_Changed;
+            _fanHealthToggleButton.Unchecked += FanHealthToggle_Changed;
+            InfoContainer.Children.Add(_fanHealthToggleButton);
+
+            _fanHealthIdleFilter = new CheckBox
+            {
+                Content = LocalizationService.Get("System_FanHealthHideIdle"),
+                Style = (Style)FindResource("FanHealthIdleFilterStyle"),
+                IsChecked = _fanHealthHideIdle,
+                Visibility = _fanHealthExpanded ? Visibility.Visible : Visibility.Collapsed
+            };
+            AutomationProperties.SetAutomationId(_fanHealthIdleFilter, "FanHealthHideIdle");
+            AutomationProperties.SetName(
+                _fanHealthIdleFilter, LocalizationService.Get("System_FanHealthHideIdle"));
+            _fanHealthIdleFilter.Checked += FanHealthIdleFilter_Changed;
+            _fanHealthIdleFilter.Unchecked += FanHealthIdleFilter_Changed;
+            InfoContainer.Children.Add(_fanHealthIdleFilter);
+
+            _fanHealthRowsPanel = new StackPanel
+            {
+                Visibility = _fanHealthExpanded ? Visibility.Visible : Visibility.Collapsed
+            };
+            AutomationProperties.SetAutomationId(_fanHealthRowsPanel, "FanHealthRows");
+            InfoContainer.Children.Add(_fanHealthRowsPanel);
+
+            _fanHealthTestButton = new Button
+            {
+                Content = LocalizationService.Get("System_TestFanAlert"),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Foreground = ThemeService.GetBrush("AccentTextBrush"),
+                Cursor = Cursors.Hand,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(12, 4, 12, 10),
+                FontSize = 12.5,
+                Visibility = _fanHealthExpanded ? Visibility.Visible : Visibility.Collapsed
+            };
+            AutomationProperties.SetAutomationId(_fanHealthTestButton, "FanHealthTestButton");
+            _fanHealthTestButton.Click += BtnTestFanNotification_Click;
+            InfoContainer.Children.Add(_fanHealthTestButton);
+
+            ApplyFanHealthExpansionState();
+        }
+
+        public void HighlightFan(string fanKey)
+        {
+            _highlightFanKey = fanKey;
+            _highlightScrolled = false;
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _fanHealthExpanded = true;
+                    ApplyFanHealthExpansionState();
+                }));
+                return;
+            }
+
+            _fanHealthExpanded = true;
+            ApplyFanHealthExpansionState();
+        }
+
+        private void FanHealthIdleFilter_Changed(object sender, RoutedEventArgs e)
+        {
+            _fanHealthHideIdle = _fanHealthIdleFilter?.IsChecked == true;
+            RefreshFanHealthRows();
+        }
+
+        private void FanHealthToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_syncingFanHealthToggle)
+            {
+                return;
+            }
+
+            _fanHealthExpanded = _fanHealthToggleButton?.IsChecked == true;
+            ApplyFanHealthExpansionState();
+        }
+
+        private void ApplyFanHealthExpansionState()
+        {
+            _syncingFanHealthToggle = true;
+            try
+            {
+                if (_fanHealthToggleButton != null &&
+                    _fanHealthToggleButton.IsChecked != _fanHealthExpanded)
+                {
+                    _fanHealthToggleButton.IsChecked = _fanHealthExpanded;
+                }
+            }
+            finally
+            {
+                _syncingFanHealthToggle = false;
+            }
+
+            if (_fanHealthChevron != null)
+            {
+                _fanHealthChevron.Text = _fanHealthExpanded ? "▾" : "›";
+            }
+
+            if (_fanHealthIdleFilter != null)
+            {
+                _fanHealthIdleFilter.Visibility = _fanHealthExpanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (_fanHealthRowsPanel != null)
+            {
+                _fanHealthRowsPanel.Visibility = _fanHealthExpanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (_fanHealthTestButton != null)
+            {
+                _fanHealthTestButton.Visibility = _fanHealthExpanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (_fanHealthExpanded)
+            {
+                RefreshFanHealthRows();
+            }
+        }
+
+        private void RefreshFanHealthRows()
+        {
+            if (_fanHealthRowsPanel == null || !_fanHealthExpanded)
+            {
+                return;
+            }
+
+            _fanHealthRowsPanel.Children.Clear();
+            _fanHealthRows.Clear();
+
+            if (!SettingsService.Instance.Current.FanHealthAlertsEnabled)
+            {
+                AddFanHealthMessage("System_FanHealthDisabled");
+                return;
+            }
+
+            var statuses = (System.Windows.Application.Current as App)?.FanHealth?.GetStatuses();
+            if (statuses == null || statuses.Count == 0)
+            {
+                AddFanHealthMessage("System_FanHealthNoData");
+                return;
+            }
+
+            int index = 0;
+            foreach (var status in statuses)
+            {
+                bool isHighlighted = string.Equals(
+                    status.Key, _highlightFanKey, StringComparison.OrdinalIgnoreCase);
+                if (_fanHealthHideIdle &&
+                    status.State == FanHealthState.IdleAtZero &&
+                    !isHighlighted)
+                {
+                    continue;
+                }
+
+                var row = CreateFanHealthRow(status, index++);
+                _fanHealthRows[status.Key] = row;
+                _fanHealthRowsPanel.Children.Add(row);
+            }
+
+            if (index == 0)
+            {
+                AddFanHealthMessage("System_FanHealthNoActive");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_highlightFanKey) ||
+                !_fanHealthRows.TryGetValue(_highlightFanKey, out var highlighted))
+            {
+                return;
+            }
+
+            highlighted.Background = ThemeService.GetBrush("HighlightRowBrush");
+            highlighted.BorderBrush = ThemeService.GetBrush("HighlightRowBorderBrush");
+            highlighted.BorderThickness = new Thickness(1);
+            if (!_highlightScrolled)
+            {
+                _highlightScrolled = true;
+                highlighted.Dispatcher.BeginInvoke(new Action(() => highlighted.BringIntoView()));
+            }
+        }
+
+        private void AddFanHealthMessage(string key)
+        {
+            if (_fanHealthRowsPanel == null)
+            {
+                return;
+            }
+
+            _fanHealthRowsPanel.Children.Add(new TextBlock
+            {
+                Text = LocalizationService.Get(key),
+                Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(12, 6, 12, 8)
+            });
+        }
+
+        private Border CreateFanHealthRow(FanHealthStatus status, int index)
+        {
+            var border = new Border
+            {
+                Background = index % 2 == 1
+                    ? ThemeService.GetBrush("AlternateRowBrush")
+                    : Brushes.Transparent,
+                Padding = new Thickness(12, 8, 12, 8)
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var label = new TextBlock
+            {
+                Text = FanHealthService.GetDisplayName(status),
+                Foreground = ThemeService.GetBrush("TextSecondaryBrush"),
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Top,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(label, 0);
+            grid.Children.Add(label);
+
+            var valStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            valStack.Children.Add(new TextBlock
+            {
+                Text = $"{status.Rpm} {LocalizationService.Get("Main_RpmUnit")}",
+                Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                FlowDirection = System.Windows.FlowDirection.LeftToRight
+            });
+            valStack.Children.Add(new TextBlock
+            {
+                Text = GetFanStateLabel(status.State),
+                Foreground = ThemeService.GetBrush("TextSecondaryBrush"),
+                FontSize = 12,
+                Margin = new Thickness(0, 2, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            if (status.State == FanHealthState.Watching && status.SpinningSinceUtc.HasValue)
+            {
+                double remaining = FanHealthService.SpinArmDuration.TotalSeconds -
+                                   (DateTime.UtcNow - status.SpinningSinceUtc.Value).TotalSeconds;
+                valStack.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.Format(
+                        "System_FanHealthArming",
+                        Math.Max(0, (int)Math.Ceiling(remaining))),
+                    Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                    FontSize = 11.5,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+            }
+            else if (status.State == FanHealthState.Stopped && status.ZeroSinceUtc.HasValue && !status.LastAlertUtc.HasValue)
+            {
+                double remaining = FanHealthService.StoppedAlertDuration.TotalSeconds -
+                                   (DateTime.UtcNow - status.ZeroSinceUtc.Value).TotalSeconds;
+                if (remaining > 0)
+                {
+                    valStack.Children.Add(new TextBlock
+                    {
+                        Text = LocalizationService.Format(
+                            "System_FanHealthStopPending",
+                            (int)Math.Ceiling(remaining)),
+                        Foreground = ThemeService.GetBrush("WarningTextBrush"),
+                        FontSize = 11.5,
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+                }
+            }
+
+            if (status.LastAlertUtc.HasValue)
+            {
+                valStack.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.Format(
+                        "System_FanHealthLastAlert",
+                        status.LastAlertUtc.Value.ToLocalTime().ToString("HH:mm:ss")),
+                    Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                    FontSize = 11.5,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+            }
+
+            Grid.SetColumn(valStack, 1);
+            grid.Children.Add(valStack);
+            border.Child = grid;
+            return border;
+        }
+
+        private static string GetFanStateLabel(FanHealthState state)
+        {
+            return state switch
+            {
+                FanHealthState.Watching => LocalizationService.Get("System_FanHealthStateWatching"),
+                FanHealthState.Armed => LocalizationService.Get("System_FanHealthStateArmed"),
+                FanHealthState.IdleAtZero => LocalizationService.Get("System_FanHealthStateIdle"),
+                _ => LocalizationService.Get("System_FanHealthStateStopped")
+            };
+        }
+
+        private void BtnCopyDiagnostics_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var statuses = (System.Windows.Application.Current as App)?.FanHealth?.GetStatuses();
+                string snapshot = SystemInfoQueryService.Instance.GenerateDiagnosticsSnapshot(
+                    _data,
+                    HardwareMonitorService.Instance.CurrentSnapshot,
+                    statuses,
+                    SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit");
+                Clipboard.SetText(snapshot);
+                ShowCopyFeedback("System_Copied");
+            }
+            catch
+            {
+                ShowCopyFeedback("System_CopyFailed");
+            }
+        }
+
+        private void ShowCopyFeedback(string key)
+        {
+            _copyFeedbackTimer?.Stop();
+            TxtCopyDiagnostics.Text = LocalizationService.Get(key);
+            _copyFeedbackTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1.6)
+            };
+            _copyFeedbackTimer.Tick += (s, e) =>
+            {
+                _copyFeedbackTimer?.Stop();
+                TxtCopyDiagnostics.Text = LocalizationService.Get("System_Copy");
+            };
+            _copyFeedbackTimer.Start();
+        }
+
+        private void BtnTestFanNotification_Click(object sender, RoutedEventArgs e)
+        {
+            (System.Windows.Application.Current as App)?.ShowTrayNotification(
+                LocalizationService.Get("Alert_FanTitle"),
+                LocalizationService.Get("Alert_FanTestBody"),
+                null,
+                System.Windows.Forms.ToolTipIcon.Info);
         }
 
         private void BtnSaveTo_Click(object sender, RoutedEventArgs e)

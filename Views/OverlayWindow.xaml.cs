@@ -19,6 +19,7 @@ namespace CryoTray.Views
             Loaded += OverlayWindow_Loaded;
             Closing += OverlayWindow_Closing;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+            ThemeService.ThemeChanged += OnThemeChanged;
         }
 
         private void OverlayWindow_Loaded(object sender, RoutedEventArgs e)
@@ -74,6 +75,7 @@ namespace CryoTray.Views
         private void OverlayWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            ThemeService.ThemeChanged -= OnThemeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
             SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
             SettingsService.Instance.Current.OverlayLeft = Left;
@@ -114,8 +116,8 @@ namespace CryoTray.Views
                 }
 
                 TxtCpuTemp.Foreground = snapshot.CoolingModeActive
-                    ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E9FDB"))
-                    : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D9835B"));
+                    ? ThemeService.GetBrush("CoolingOnTextBrush")
+                    : ThemeService.GetBrush("CoolingOffTextBrush");
                 TxtCpuLoad.Text = double.IsFinite(snapshot.CpuLoad) && snapshot.CpuLoad >= 0
                     ? $"{Math.Round(snapshot.CpuLoad)}%"
                     : "--%";
@@ -148,6 +150,18 @@ namespace CryoTray.Views
                 TxtRamPercent.Text = double.IsFinite(snapshot.RamUsagePercent) && snapshot.RamUsagePercent >= 0
                     ? $"{Math.Round(snapshot.RamUsagePercent)}%"
                     : "--%";
+
+                var battery = BatteryTelemetryService.Read();
+                if (battery.HasBattery)
+                {
+                    TxtBatteryPercent.Text = $"{battery.Percent}%";
+                    TxtBatteryState.Text = BatteryTelemetryService.GetStateLabel(battery);
+                }
+                else
+                {
+                    TxtBatteryPercent.Text = "--%";
+                    TxtBatteryState.Text = "";
+                }
             });
         }
 
@@ -161,6 +175,8 @@ namespace CryoTray.Views
                 settings.OverlayShowGpuLoad ||
                 settings.OverlayShowGpuPower;
             bool showRam = settings.OverlayShowRam;
+            var battery = BatteryTelemetryService.Read();
+            bool showBattery = settings.ShowBatteryStatus && battery.HasBattery;
 
             CpuOverlayGroup.Visibility = showCpu
                 ? Visibility.Visible
@@ -174,8 +190,18 @@ namespace CryoTray.Views
             RamOverlayGroup.Margin = (showCpu || showGpu) && showRam
                 ? new Thickness(12, 0, 0, 0)
                 : new Thickness(0);
+            BatteryOverlayGroup.Visibility = showBattery
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            BatteryOverlayGroup.Margin = (showCpu || showGpu || showRam) && showBattery
+                ? new Thickness(12, 0, 0, 0)
+                : new Thickness(0);
 
             double targetWidth = showCpu && showGpu && showRam ? 430 : 360;
+            if (showBattery)
+            {
+                targetWidth += 70;
+            }
             if (Math.Abs(Width - targetWidth) > 0.5)
             {
                 Width = targetWidth;
@@ -205,7 +231,7 @@ namespace CryoTray.Views
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
-            TxtOverlayEmpty.Visibility = showCpu || showGpu || showRam
+            TxtOverlayEmpty.Visibility = showCpu || showGpu || showRam || showBattery
                 ? Visibility.Collapsed
                 : Visibility.Visible;
 
@@ -222,7 +248,8 @@ namespace CryoTray.Views
 
             _appliedOpacityPercent = percent;
             byte alpha = (byte)Math.Round(percent * 255.0 / 100.0);
-            var brush = new SolidColorBrush(Color.FromArgb(alpha, 0x16, 0x16, 0x16));
+            Color baseColor = ThemeService.GetColor("OverlayBackgroundBrush");
+            var brush = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
             brush.Freeze();
             OverlaySurface.Background = brush;
         }
@@ -230,6 +257,20 @@ namespace CryoTray.Views
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
         {
             UpdateTelemetry(snapshot);
+        }
+
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            if (!IsLoaded || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _appliedOpacityPercent = -1;
+                ApplySurfaceOpacity(SettingsService.Instance.Current);
+            }));
         }
 
         private void OnSettingsChanged()

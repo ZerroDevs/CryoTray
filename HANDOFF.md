@@ -1,10 +1,46 @@
 # HANDOFF
 
+## Working preference
+
+- Do not add unsolicited features. When the user explicitly asks for suggestions, give a short prioritized list first; implement only the items they approve.
+
+## Latest pass (README audit, installer rebuild)
+
+- Corrected `README.md` to list all eight Settings tabs (including Memory), describe the full configurable cooling hotkey range, add the Appearance row, and show the theme/fan-health/storage/battery services plus `ConfirmExitWindow` in the architecture tree.
+- Hardened `build-installer.ps1`: validates the three-part `VERSION`, checks the bundled `Resources\PawnIO_setup.exe` exists, and publishes with `DebugType=None` / `DebugSymbols=false` so no PDBs enter the portable payload.
+- Reviewed `Installer/CryoTray.iss`: `AppId`, x64 restriction, admin privileges, PawnIO silent install, scheduled-task cleanup, `/uninstall-cleanup` fallback, icon/license paths, and output naming all remain correct for v0.0.100. No `.iss` changes were required.
+- Verification: `build-installer.ps1` exited `0`; Inno Setup 6.7.3 compiled `Installer\Output\CryoTray-Setup-0.0.100.exe` (`50.08 MB`, ProductVersion `0.0.100`) with `0` PDB files in `publish\win-x64`. App relaunched as PID `31264` and minimized to the tray with `Theme` still `Dark`.
+
+## Previous pass (Dark / Light / System appearance)
+
+- Added `Services/ThemeService.cs` with 73 shared brush keys in dark and light palettes. Dark preserves the original UI; light uses warm off-white surfaces with dark text. `System` resolves Windows `AppsUseLightTheme` and follows live `UserPreferenceChanged` events on the WPF dispatcher. `WindowBorderBrush` still uses the user's Cooling ON/OFF frame color.
+- Added `AppSettings.Theme` (default `"Dark"`, normalized to `Dark` / `Light` / `System`) and a `CmbTheme` dropdown at the top of `Settings > View`, styled like `CmbLanguage`.
+- Converted settings, dashboard, System Information, CPU Temperature Test, confirm-exit, overlay, code-created rows/charts, and the owner-drawn tray menu to theme resources. Theme changes refresh open windows without recreating them.
+- Added theme round-trip/default/normalize assertions to `TestRamHotkeyAndSettingsPersistence`; `/test` remains 38 checks.
+- Verification: Release build `0 Warning(s), 0 Error(s)`. Live UIAutomation opened `Settings > View`, confirmed `Theme` with `Dark` / `Light` / `System`, selected each option, and `settings.json` changed to `Light`, `System`, then back to `Dark`; the app stayed responsive. Theme resource keys were checked for full dark/light parity and every XAML `DynamicResource` reference resolves. Full `/test` was not run because `TestPowerPlanUninstallCleanup` deletes and recreates the active cooling scheme. No screenshot or pixel review was performed, so final light-theme contrast was not visually inspected; the app was left in Dark and minimized to the tray.
+
 ## Performance & accuracy baselines (prior passes)
 
 - WPF runs in `RenderMode.SoftwareOnly`, set before any window or `HwndSource` is created.
 - `MainWindow` is created on demand, closed on deactivation or tray close, and recreated from the tray while the 3,600-sample `TelemetryRingBuffer` persists in `HardwareMonitorService`.
 - Removed synthetic telemetry fallbacks across `HardwareSnapshot`, `HardwareMonitorService`, `TrayIconManager`, `MainWindow`, `OverlayWindow`, and `StressTestWindow` (now `double.NaN` / `null` rendered as `--` or unavailable notices), removed hardcoded `"C, Z"` / `"E"` drive letters, isolated multi-GPU telemetry with `Settings > GPU` primary picker, matched WMI/LHM drives by serial/disk index/model, added runtime PawnIO registry detection with install/download banners, and scoped `System_TempStats` to `CoolingModeActive == true`.
+
+## Latest pass (Fan idle filter, diagnostics copy, aliases, battery status)
+
+- **Hide idle fan rows**: the expanded Fan health panel now has a dark `FanHealthIdleFilterStyle` checkbox, `FanHealthHideIdle`, defaulting to on. `RefreshFanHealthRows()` skips `FanHealthState.IdleAtZero` rows unless they are the highlighted deep-link target; `Stopped` rows always remain visible. When every remaining row is filtered out, `System_FanHealthNoActive` explains how to show all headers. The panel remains collapsed by default and the filter visibility follows the disclosure.
+- **Copy diagnostics**: `SystemInfoWindow` adds `BtnCopyDiagnostics` beside `Save to...`, with transient `Copied`/`Copy failed` feedback and a 1.6 s reset timer. `SystemInfoQueryService.GenerateDiagnosticsSnapshot(...)` builds a short support snapshot with app version, OS, CPU/GPU names plus live temperatures/load/power/fan, RAM, fan states using aliases, and drive SMART health. It deliberately omits serial numbers, PC names, hardware identifiers, and file paths. `README`/`FEATURES` document the privacy boundary.
+- **Friendly fan names**: `AppSettings.FanAliases` persists `fan:<sensor name>` or `gpu` keys. `Settings > General > Fan names` renders one editor per live fan (`RefreshFanAliasList`), saves on Enter or focus loss (`SaveFanAlias`), sanitizes newlines, limits entries to 32 characters, and rebuilding on language change preserves localized source labels. `FanHealthService.GetDisplayName` is the shared resolver for the Fan health panel, moving fan-speed rows, fan notifications, and diagnostics.
+- **Battery percentage**: `BatteryTelemetryService` reads WinForms `SystemInformation.PowerStatus` without WMI and returns `BatteryTelemetry` (`HasBattery`, `Percent`, `IsCharging`, `IsOnAc`) plus localized `Charging`/`Full`/`Plugged in`/`On battery` labels. `AppSettings.ShowBatteryStatus` defaults true but both the Settings toggle and overlay group are hidden when no battery exists. The overlay adds `BatteryOverlayGroup` and grows by 70 px; the tray appends `BAT n% · state` to merged/GPU/CPU tooltips with `ComposeTooltip` clipping to the WinForms 63-character limit.
+- **Verification**: Release build passed `0 Warning(s), 0 Error(s)` after stopping the previous locked app instance and relaunching PID `26256`. Live UIAutomation confirmed the panel starts `Off`, opens to `On`, the Hide idle filter starts `On` with `3` visible state rows versus `9` when unchecked, and restored to `3`; **Copy diagnostics** produced a snapshot with app version, CPU/GPU temperatures, all fan states, drive health (`C: 96% Good`, `E: 100% Good`), and a `Copied` feedback state. A temporary alias `Top intake` saved to `settings.json`, appeared once in the Fan health panel, and was used in the copied diagnostics; the settings file was restored to an empty alias map afterward. On this desktop `PowerStatus.BatteryChargeStatus` is `NoSystemBattery`; UIAutomation confirmed the View tab loads while both `ChkShowBatteryStatus` and `PnlBatterySetting` are absent. Actual battery percentages/charging states and the populated overlay battery group could not be exercised on this machine. Full `/test` was not run because `TestPowerPlanUninstallCleanup` deletes and recreates the active cooling scheme; `/test` remains 38 checks because no new permanent test was added. No screenshot or visual pixel review was performed.
+
+## Previous pass (Fan Health surface, GPU fan, storage health, badge metrics)
+
+- **Fan Health panel**: `FanHealthService.GetStatuses()` feeds a read-only disclosure under System Information > Fan speeds with each raw motherboard header plus the GPU fan, current RPM, localized state (`Watching`, `Armed`, `Idle at 0 RPM`, `Stopped`), arming/stop countdown, last alert time, and a **Test fan notification** button. The header is a keyboard-accessible `ToggleButton` with a `›` chevron and is collapsed by default; opening it reveals the rows and test button. Fan notifications carry `FanKey`; clicking one calls `MainWindow.OpenSystemInfoDialog(fanKey)`, which expands the disclosure, scrolls to the row, and highlights it. The panel remains available for a deep link when `ShowFanSpeeds` is off.
+- **GPU fan health**: `HardwareSnapshot.GpuFanRpm` is observed as one synthetic `gpu` fan. It shares the 60 s arm / 30 s stop timers, but uses GPU load and GPU temperature demand instead of CPU demand, so idle zero-fan mode stays inert and a hot GPU raises the warning before a temperature alert.
+- **SMART health watch**: `StorageHealthAlertService` alerts on first observation in `Worn` or `Replace`, on `Worn` to `Replace`, or on a 10 point health drop, with a 10 minute per-drive cooldown and `ExcludedDrives` filtering. `App.xaml.cs` feeds it from `OnTelemetryUpdated`; notification clicks open the dashboard. `Settings > Disk` has the new `ChkStorageHealthAlerts` toggle (`StorageHealthAlertsEnabled`, default true).
+- **Tray badge metrics**: CPU and GPU badges independently render temperature, load, or RAM percentage; temperature remains the default. `Settings > View` has both selectors, previews use `TrayIconManager.ResolveBadgeValue`, and tooltips switch between `°C`/`°F` and `%` units.
+- **Tests**: added `TestStorageHealthWatch`, extended `TestFanHealthWatch` with status and GPU fan assertions, extended settings persistence for the new fields, and added `ResolveBadgeValue` / `NormalizeBadgeMetric` assertions. `/test` count is now 38.
+- **Verification**: `0 Warning(s), 0 Error(s)`; a temporary focused `/test-health-tray` passed 4 checks with live fan probe (`8` raw headers, GPU fan `0`, states `Watching` / `IdleAtZero`), and UIAutomation confirmed the panel, test button, 9 state rows, both badge combo boxes (selected `Temperature`), and the Disk health toggle. A later live check confirmed the Fan health disclosure starts `Off` with `0` state rows and no test button, opens to `On` with `9` rows and the test button, and closes to `Off` with `0` rows. Full `/test` was not run because `TestPowerPlanUninstallCleanup` deletes and recreates the active cooling scheme. No screenshot or visual pixel review was performed for this pass.
 
 ## Completed this turn (all 8 enhancements)
 
@@ -28,9 +64,10 @@
 
 ## Current status
 
-- Release executable ready and elevated-verified: `bin\Release\net8.0-windows\CryoTray.exe` (`388,096` bytes, `Start-Process .\bin\Release\net8.0-windows\CryoTray.exe`).
-- Windows installer ready: `Installer\Output\CryoTray-Setup-0.0.100.exe` (`52,482,163` bytes / `50.05 MB`).
-- `0` running `CryoTray` processes; active Windows power plan restored to `Balanced` (`381b4222-f694-41f0-9685-ff5bb260df2e`).
+- `bin\Release\net8.0-windows\CryoTray.exe` rebuilt with `0 Warning(s), 0 Error(s)` (`388,096` bytes) and `CryoTray.dll` (`1,360,896` bytes); it includes the Fan Health disclosure, GPU fan, storage health, and tray badge metrics.
+- `CryoTray.exe` PID `31264` is running and responsive with `Theme` set to `Dark`; its dashboard was minimized to the tray.
+- `Installer\Output\CryoTray-Setup-0.0.100.exe` was rebuilt after the README and build-script pass (`50.08 MB`, ProductVersion `0.0.100`).
+- The full `/test` suite was not run because `TestPowerPlanUninstallCleanup` deletes and recreates the active scheme; the focused `/test-health-tray` and live UI checks passed.
 
 ## Environment
 
@@ -94,8 +131,47 @@
 - Release rebuild: `0 Warning(s), 0 Error(s)`; elevated `/test`: `36 / 36 PASSED` (`TestWpfContextMenusDarkRendering` verified LTR + Arabic RTL renders with zero white gutter pixels).
 - Live UIA capture (`verify-11-tools-menu-dark.png`): `POPUP_SIZE=157x155`, `WHITE_GUTTER_HITS=0`, clean dark `#1E1E1E` menu.
 
+## Stress Test Retained Throughput
+
+- Added `TelemetrySample.StressIterationsPerSecond` and per-worker `Volatile` iteration counters in `Views/StressTestWindow.xaml.cs`; each 1 Hz telemetry tick records iterations/second, discards the tick straddling a Cooling ON/OFF change, and `ComputeCoolingComparison` averages the trailing 5 valid rates per phase to show `Performance retained: N%` under the existing `-°C · -W` delta.
+- Added `Stress_PerformanceRetained` in English and Arabic; the stress workload now uses a non-foldable changing `Math.Sqrt` + `Math.Sin` accumulator so iteration counts reflect real work.
+- Extended `TestStressCoolingDelta` to assert `1000 iter/s` OFF, `900 iter/s` ON, and `90%` retained; the focused `/test-stress` run passed (`EXIT=0`), then the temporary test switch was removed.
+- Verification build to `build-check`: `0 Warning(s), 0 Error(s)`.
+
+## Stress Test FPS Impact
+
+- Added `TxtFpsImpact` under `Performance retained` in `Views/StressTestWindow.xaml`, with a dark wrapped tooltip bound to `Stress_FpsImpactHint`.
+- Added `StressTestWindow.ComputeFpsImpact(double, int = 100)` and `Stress_FpsImpact` / `Stress_FpsImpactHint` in English and Arabic. The line projects a 100 FPS reference (`If 100 FPS: ~84 FPS (16 lost)`) and clamps retained throughput to `0..100` so it never claims a gain; the tooltip says actual loss may be less or more and applies only to CPU-bound games.
+- Extended `TestStressCoolingDelta` with `84% -> 84/16` at 100 FPS, `84% -> 121/23` at 144 FPS, `103% -> 100/0`, and `NaN -> 0/0`.
+- Release build at `22:46`: `0 Warning(s), 0 Error(s)`.
+
+## Stress Test FPS Reference Preset
+
+- Added `CmbFpsReference` under `TxtFpsImpact` in `Views/StressTestWindow.xaml` (compact dark ComboBox, window height `502`), with `60 / 100 / 120 / 144 / 165 / 240 FPS` presets.
+- Added `AppSettings.StressFpsReference` (default `100`) plus `StressTestWindow.NormalizeFpsReference`, which falls back to `100` for any value outside the preset list. The selection saves through `SettingsService.Save()` and calls `UpdateComparisonDisplay()` so the line changes immediately (`84%` at `144 FPS` renders `If 144 FPS: ~121 FPS (23 lost)`).
+- Added the `Stress_FpsReferenceAutomation` accessible name in English and Arabic.
+- Extended `TestStressCoolingDelta` with the six-preset count, `75 -> 100` normalization, `240 FPS` projection (`202 / 38`), and `AppSettings` JSON round-trip/default assertions. The focused `/test-stress` run printed `PASSED`; the temporary switch was then removed.
+- Final Release build at `23:00`: `0 Warning(s), 0 Error(s)`; `CryoTray.exe` `388,096` bytes / `CryoTray.dll` `1,321,472` bytes. The app was relaunched afterward.
+
+## Read-only Motherboard Fan Speeds
+
+- `HardwareSnapshot.Fans` now carries `FanTelemetry` entries read from non-CPU, non-GPU, non-storage hardware and subhardware by `CollectFanSensors`; raw non-negative readings (including `0 RPM`) are kept for health tracking, and `CloneSnapshot` preserves the list.
+- `SystemInfoWindow` adds a `Fan speeds` row after CPU temp stats when `ShowFanSpeeds` is enabled. `SystemInfoQueryService.FormatFanSpeeds` joins moving `Name: RPM` lines, hides stopped headers, and returns `--` when nothing is spinning; the text report includes the same data.
+- `Settings > View > System information` adds `Show motherboard fan speeds` (`ShowFanSpeeds`, default `true`) with EN/AR strings.
+- Extended `TestZeroHardcodedHardwareInfoAndCloneIntegrity` with fan clone and `FormatFanSpeeds` assertions, and `TestRamHotkeyAndSettingsPersistence` with the new setting. The focused `/test-fans` run passed both tests and read live fans (`CPU Fan 1413 RPM`, `Pump Fan 3208 RPM`, `System Fan #2 1396 RPM`), then the temporary switch was removed.
+- Final Release build at `23:13`: `0 Warning(s), 0 Error(s)`; `CryoTray.exe` `388,096` bytes / `CryoTray.dll` `1,325,568` bytes. The app was relaunched.
+
+## Fan Health Watch & Autopilot Foreground-Only
+
+- Added `Services/FanHealthService.cs`: per-fan state arms only after `60 s` continuously at or above `300 RPM`, then raises `FanStopped` after `30 s` at `0 RPM` when CPU/GPU demand is sustained. Demand requires `15 s` of either `CpuLoad >= 25% && CpuTemp >= 60 °C` or `GpuLoad >= 25% && GpuTemp >= 60 °C`. Headers that never spin stay inert, recovery resets arming, `Suspend()`/`Resume()` clears state with a `60 s` grace, and each fan has a `10 min` alert cooldown. `FanHealthAlertsEnabled` defaults true.
+- `App.xaml.cs` feeds every telemetry snapshot to the service, maps `PowerModes.Suspend` / `PowerModes.Resume` to `Suspend()` / `Resume()`, and shows the `Alert_FanTitle` / `Alert_FanStopped` tray warning with a dashboard click action. EN/AR strings added.
+- `HardwareMonitorService.CollectFanSensors` now retains `0 RPM` headers; `SystemInfoQueryService.FormatFanSpeeds` filters them so System Information still lists only moving fans.
+- Added `AutopilotForegroundOnly` (default false) and `Settings > Autopilot` checkbox. `AutopilotService.IsWhitelistedForegroundProcess` resolves `GetForegroundWindow` + `GetWindowThreadProcessId`, matches the PID against the existing Toolhelp32 map, and excludes CryoTray itself. Background launchers no longer hold Cooling Mode paused; the independent fullscreen branch is unchanged.
+- Added `Settings > General` `Warn when a running fan stops` checkbox wired to `FanHealthAlertsEnabled`; both new settings load/save through `SettingsWindow` and persist in JSON.
+- Added `TestFanHealthWatch` (never-spinning header, 60 s arm, 30 s stop, idle-stop suppression, resume grace) and foreground whitelist assertions in `TestAutopilotToolhelpAndFullscreenScan`; extended settings persistence and fan clone/format tests. The focused `/test-fan-health` run passed all four checks and read `8` raw headers with `3` moving; the temporary switch was removed.
+- Final Release build at `23:28`: `0 Warning(s), 0 Error(s)`; `CryoTray.exe` `388,096` bytes / `CryoTray.dll` `1,336,320` bytes. App relaunched as PID `11440`. `git diff --check` passes. Full `/test` was not run because `TestPowerPlanUninstallCleanup` deletes and recreates the active cooling scheme.
+
 ## Next steps
 
-- Commit the 9 modified Wave 7 working-tree files cleanly on top of baseline commit `855916e`.
-- Launch updated app cleanly with `Start-Process .\bin\Release\net8.0-windows\CryoTray.exe` (or run `Installer\Output\CryoTray-Setup-0.0.100.exe`).
+- Rebuild `Installer\Output\CryoTray-Setup-0.0.100.exe` again after any further code or asset change.
 - Restart Antigravity normally (without Administrator rights) once testing finishes.

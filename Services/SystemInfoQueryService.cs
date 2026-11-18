@@ -331,6 +331,10 @@ namespace CryoTray.Services
             // 11. System Errors (BSOD Count)
             info.SystemErrors = QueryBsodCount();
 
+            info.FanSpeeds = SettingsService.Instance.Current.ShowFanSpeeds
+                ? FormatFanSpeeds(HardwareMonitorService.Instance.CurrentSnapshot.Fans)
+                : "";
+
             return info;
         }
 
@@ -654,6 +658,135 @@ namespace CryoTray.Services
             return LocalizationService.Format("System_BsodCount", count);
         }
 
+        internal static string FormatFanSpeeds(IReadOnlyList<FanTelemetry> fans)
+        {
+            if (fans.Count == 0)
+            {
+                return "--";
+            }
+
+            var sb = new StringBuilder();
+            foreach (var fan in fans)
+            {
+                if (string.IsNullOrWhiteSpace(fan.Name) || fan.Rpm <= 0)
+                {
+                    continue;
+                }
+
+                if (sb.Length > 0)
+                {
+                    sb.AppendLine();
+                }
+
+                string fanName = FanHealthService.GetDisplayName(
+                    $"fan:{fan.Name}", fan.Name, false);
+                sb.Append(LocalizationService.Format(
+                    "System_FanLine",
+                    fanName,
+                    fan.Rpm,
+                    LocalizationService.Get("Main_RpmUnit")));
+            }
+
+            return sb.Length > 0 ? sb.ToString() : "--";
+        }
+
+        public string GenerateDiagnosticsSnapshot(
+            SystemInfoData data,
+            HardwareSnapshot snapshot,
+            IReadOnlyList<FanHealthStatus>? fanStatuses,
+            bool isFahrenheit)
+        {
+            var sb = new StringBuilder();
+            string unit = isFahrenheit ? "F" : "C";
+
+            string FormatTemp(double celsius)
+            {
+                if (!double.IsFinite(celsius) || celsius <= 0)
+                {
+                    return "--";
+                }
+
+                double value = isFahrenheit ? (celsius * 9 / 5) + 32 : celsius;
+                return $"{Math.Round(value).ToString(CultureInfo.InvariantCulture)}°{unit}";
+            }
+
+            string FormatPercent(double percent)
+            {
+                return double.IsFinite(percent) && percent >= 0
+                    ? $"{Math.Round(percent).ToString(CultureInfo.InvariantCulture)}%"
+                    : "--";
+            }
+
+            string FormatWatts(int? watts)
+            {
+                return watts.HasValue
+                    ? $"{watts.Value.ToString(CultureInfo.InvariantCulture)}W"
+                    : "--";
+            }
+
+            sb.AppendLine($"CryoTray {UpdateService.CurrentVersion}");
+            sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"OS: {data.OperatingSystem}");
+            sb.AppendLine($"CPU: {(string.IsNullOrWhiteSpace(data.ProcessorName) ? snapshot.CpuName : data.ProcessorName)}");
+            sb.AppendLine(
+                $"  Temp: {FormatTemp(snapshot.CpuTemp)} | Load: {FormatPercent(snapshot.CpuLoad)} | Power: {FormatWatts(snapshot.CpuPackageWatts)}");
+            sb.AppendLine($"GPU: {(string.IsNullOrWhiteSpace(data.GraphicsCard) ? snapshot.GpuName : data.GraphicsCard)}");
+            sb.AppendLine(
+                $"  Temp: {FormatTemp(snapshot.GpuTemp)} | Load: {FormatPercent(snapshot.GpuLoad)} | Power: {FormatWatts(snapshot.GpuPowerWatts)} | Fan: {(snapshot.GpuFanRpm.HasValue ? $"{snapshot.GpuFanRpm.Value} RPM" : "--")}");
+            string ramUsed = double.IsFinite(snapshot.RamUsedGb) && snapshot.RamUsedGb > 0
+                ? snapshot.RamUsedGb.ToString("0.0", CultureInfo.InvariantCulture)
+                : "--";
+            string ramTotal = double.IsFinite(snapshot.RamTotalGb) && snapshot.RamTotalGb > 0
+                ? snapshot.RamTotalGb.ToString("0.0", CultureInfo.InvariantCulture)
+                : "--";
+            sb.AppendLine($"RAM: {ramUsed} / {ramTotal} GB ({FormatPercent(snapshot.RamUsagePercent)})");
+
+            sb.AppendLine("Fans:");
+            if (fanStatuses == null || fanStatuses.Count == 0)
+            {
+                sb.AppendLine("  --");
+            }
+            else
+            {
+                foreach (var fan in fanStatuses)
+                {
+                    string fanName = FanHealthService.GetDisplayName(fan);
+                    string state = fan.State switch
+                    {
+                        FanHealthState.Armed => "Armed",
+                        FanHealthState.IdleAtZero => "Idle at 0 RPM",
+                        FanHealthState.Stopped => "Stopped",
+                        _ => "Watching"
+                    };
+                    sb.AppendLine($"  {fanName}: {fan.Rpm} RPM, {state}");
+                }
+            }
+
+            sb.AppendLine("Drives:");
+            if (snapshot.StorageDrives.Count == 0)
+            {
+                sb.AppendLine("  --");
+            }
+            else
+            {
+                foreach (var drive in snapshot.StorageDrives)
+                {
+                    string driveName = string.IsNullOrWhiteSpace(drive.DriveLetters)
+                        ? $"Drive {drive.Index + 1}"
+                        : drive.DriveLetters.Trim();
+                    string health = drive.SmartHealthPercent.HasValue
+                        ? $"{drive.SmartHealthPercent.Value}%"
+                        : "--";
+                    string status = string.IsNullOrWhiteSpace(drive.StatusText)
+                        ? "Unknown"
+                        : drive.StatusText.Trim();
+                    sb.AppendLine($"  {driveName}: {health} ({status})");
+                }
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
         public string GenerateTextReport(SystemInfoData data)
         {
             var sb = new StringBuilder();
@@ -683,6 +816,13 @@ namespace CryoTray.Services
             sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Uptime"), data.WindowsUptime));
             sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_StartupSpeed"), data.StartupSpeed));
             sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_ReportTempStats"), data.TempStats));
+            if (!string.IsNullOrEmpty(data.FanSpeeds))
+            {
+                sb.AppendLine(LocalizationService.Format(
+                    "System_ReportLine",
+                    LocalizationService.Get("System_FanSpeeds"),
+                    data.FanSpeeds));
+            }
             sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Monitors"), data.Monitors));
             sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_Network"), data.Network));
             sb.AppendLine(LocalizationService.Format("System_ReportLine", LocalizationService.Get("System_ReportSystemErrors"), data.SystemErrors));

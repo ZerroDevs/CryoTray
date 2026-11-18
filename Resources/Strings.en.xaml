@@ -6,6 +6,11 @@
     <sys:String x:Key="Common_On">ON</sys:String>
     <sys:String x:Key="Common_Off">OFF</sys:String>
     <sys:String x:Key="Common_Cpu">CPU</sys:String>
+    <sys:String x:Key="Common_Battery">BAT</sys:String>
+    <sys:String x:Key="Battery_Charging">Charging</sys:String>
+    <sys:String x:Key="Battery_Full">Full</sys:String>
+    <sys:String x:Key="Battery_PluggedIn">Plugged in</sys:String>
+    <sys:String x:Key="Battery_OnBattery">On battery</sys:String>
     <sys:String x:Key="Common_Gpu">GPU</sys:String>
     <sys:String x:Key="Common_Manage">Manage</sys:String>
     <sys:String x:Key="Common_Unknown">Unknown</sys:String>
@@ -117,6 +122,10 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_TabAutopilot">Autopilot</sys:String>
     <sys:String x:Key="Settings_TabAbout">About</sys:String>
     <sys:String x:Key="Settings_Language">Language</sys:String>
+    <sys:String x:Key="Settings_Theme">Theme</sys:String>
+    <sys:String x:Key="Theme_Dark">Dark</sys:String>
+    <sys:String x:Key="Theme_Light">Light</sys:String>
+    <sys:String x:Key="Theme_System">System</sys:String>
     <sys:String x:Key="Settings_TemperatureUnits">Temperature units</sys:String>
     <sys:String x:Key="Settings_Celsius">Celsius (°C)</sys:String>
     <sys:String x:Key="Settings_Fahrenheit">Fahrenheit (°F)</sys:String>
@@ -136,6 +145,11 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_HotkeyConflict">Could not register {0}. Another app already uses it.</sys:String>
     <sys:String x:Key="Settings_TemperatureAlerts">Temperature alerts</sys:String>
     <sys:String x:Key="Settings_MuteAlerts">Mute temperature alerts</sys:String>
+    <sys:String x:Key="Settings_FanHealthAlerts">Warn when a running fan stops</sys:String>
+    <sys:String x:Key="Settings_FanHealthAlertsDesc">Alerts after a fan that was spinning drops to 0 RPM while the system is under load. Idle fan curves are ignored.</sys:String>
+    <sys:String x:Key="Settings_FanNames">Fan names</sys:String>
+    <sys:String x:Key="Settings_FanNamesDesc">Rename fans for this app. Leave blank to use the sensor name.</sys:String>
+    <sys:String x:Key="Settings_FanNameAutomation">{0} name</sys:String>
     <sys:String x:Key="Settings_TestAlert">Send test notification</sys:String>
     <sys:String x:Key="Settings_SystemTrayBadges">System Tray Badges</sys:String>
     <sys:String x:Key="Settings_ShowGpuBadge">Show GPU temperature in tray</sys:String>
@@ -174,6 +188,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_OverlayGpuLoad">GPU load</sys:String>
     <sys:String x:Key="Settings_OverlayGpuPower">GPU power usage</sys:String>
     <sys:String x:Key="Settings_OverlayShowRam">RAM usage</sys:String>
+    <sys:String x:Key="Settings_ShowBatteryStatus">Show battery percentage</sys:String>
+    <sys:String x:Key="Settings_ShowBatteryStatusDesc">Adds battery charge and charging state to the overlay and tray tooltip when a battery is present.</sys:String>
     <sys:String x:Key="Settings_DashboardReadouts">Dashboard readouts</sys:String>
     <sys:String x:Key="Settings_ShowCpuPower">Show CPU power usage</sys:String>
     <sys:String x:Key="Settings_ShowRamRow">Show RAM usage row</sys:String>
@@ -183,6 +199,15 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_ShowGpuHotspot">Show GPU hotspot temperature</sys:String>
     <sys:String x:Key="Settings_ShowGpuVram">Show GPU VRAM temperature</sys:String>
     <sys:String x:Key="Settings_ShowGpuFan">Show GPU fan speed</sys:String>
+    <sys:String x:Key="Settings_SystemInfoReadouts">System information</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetric">Badge value</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetricTemperature">Temperature</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetricLoad">Load</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetricRam">RAM</sys:String>
+    <sys:String x:Key="Settings_StorageHealthAlerts">Warn when drive health drops</sys:String>
+    <sys:String x:Key="Settings_StorageHealthAlertsDesc">Notifies when a drive enters Worn or Replace, or its SMART health falls by 10 points. Excluded drives are ignored.</sys:String>
+    <sys:String x:Key="Settings_ShowFanSpeeds">Show motherboard fan speeds</sys:String>
+    <sys:String x:Key="Settings_ShowFanSpeedsDesc">Read-only fan RPM from the motherboard sensor driver. Only moving fans are listed in System Information.</sys:String>
     <sys:String x:Key="Settings_PowerPlanOff">Power plan when cooling is off</sys:String>
     <sys:String x:Key="Settings_PowerPlanDesc">Used when you turn Cooling Mode off. Balanced is the default.</sys:String>
     <sys:String x:Key="Settings_CoolingControls">CryoTray Cooling Controls</sys:String>
@@ -213,6 +238,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_RamHotkeyConflictCooling">Conflicts with the Cooling Mode shortcut.</sys:String>
     <sys:String x:Key="Settings_AutopilotEnable">Enable Smart Autopilot (Auto-pause Cooling Mode for selected games &amp; apps)</sys:String>
     <sys:String x:Key="Settings_AutopilotPauseFullscreen">Pause Cooling Mode automatically for fullscreen 3D games &amp; apps</sys:String>
+    <sys:String x:Key="Settings_AutopilotForegroundOnly">Pause only while a whitelisted app is in the foreground</sys:String>
+    <sys:String x:Key="Settings_AutopilotForegroundOnlyDesc">Background launchers no longer keep Cooling Mode paused. The selected app must be the foreground window.</sys:String>
     <sys:String x:Key="Settings_AutopilotDesc">When a selected app is running, Cooling Mode pauses for full performance. It resumes when the app closes.</sys:String>
     <sys:String x:Key="Settings_AutopilotWhitelist">Whitelisted games &amp; apps</sys:String>
     <sys:String x:Key="Settings_AutopilotWhitelistDesc">Cooling Mode pauses while any app in this list is running.</sys:String>
@@ -286,12 +313,20 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Stress_PhaseOn">COOLING ON</sys:String>
     <sys:String x:Key="Stress_PhaseDelta">DELTA</sys:String>
     <sys:String x:Key="Stress_DeltaHint">Toggle Cooling to compare</sys:String>
+    <sys:String x:Key="Stress_PerformanceRetained">Performance retained: {0}%</sys:String>
+    <sys:String x:Key="Stress_FpsImpact">If {0} FPS: ~{1} FPS ({2} lost)</sys:String>
+    <sys:String x:Key="Stress_FpsImpactHint">Estimate only for CPU-bound games. Actual FPS loss may be less or more depending on the game, GPU limits, thread usage, and frame pacing.</sys:String>
+    <sys:String x:Key="Stress_FpsReferenceAutomation">FPS reference for the game-impact estimate</sys:String>
     <sys:String x:Key="Stress_Start">Start Test</sys:String>
     <sys:String x:Key="Stress_Stop">Stop Test</sys:String>
 
     <sys:String x:Key="System_Title">System Information</sys:String>
     <sys:String x:Key="System_Header">System Information</sys:String>
     <sys:String x:Key="System_SaveTo">Save report</sys:String>
+    <sys:String x:Key="System_Copy">Copy</sys:String>
+    <sys:String x:Key="System_CopyDiagnostics">Copy diagnostics</sys:String>
+    <sys:String x:Key="System_Copied">Copied</sys:String>
+    <sys:String x:Key="System_CopyFailed">Copy failed</sys:String>
     <sys:String x:Key="System_CloseAutomation">Close system information</sys:String>
     <sys:String x:Key="System_Pc">PC</sys:String>
     <sys:String x:Key="System_Processor">Processor</sys:String>
@@ -306,6 +341,22 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
 Cooling Mode on</sys:String>
     <sys:String x:Key="System_TempStatsDetail">min / average / max</sys:String>
     <sys:String x:Key="System_TempStatsNoCooling">No Cooling Mode samples yet</sys:String>
+    <sys:String x:Key="System_FanSpeeds">Fan speeds</sys:String>
+    <sys:String x:Key="System_FanLine">{0}: {1} {2}</sys:String>
+    <sys:String x:Key="System_FanHealth">Fan health</sys:String>
+    <sys:String x:Key="System_FanHealthGpuFan">GPU fan</sys:String>
+    <sys:String x:Key="System_FanHealthStateWatching">Watching</sys:String>
+    <sys:String x:Key="System_FanHealthStateArmed">Armed</sys:String>
+    <sys:String x:Key="System_FanHealthStateIdle">Idle at 0 RPM</sys:String>
+    <sys:String x:Key="System_FanHealthStateStopped">Stopped</sys:String>
+    <sys:String x:Key="System_FanHealthArming">Arms in {0} s</sys:String>
+    <sys:String x:Key="System_FanHealthStopPending">Alert in {0} s</sys:String>
+    <sys:String x:Key="System_FanHealthLastAlert">Last alert: {0}</sys:String>
+    <sys:String x:Key="System_FanHealthNoData">No fan sensors reported.</sys:String>
+    <sys:String x:Key="System_FanHealthHideIdle">Hide idle fans</sys:String>
+    <sys:String x:Key="System_FanHealthNoActive">No moving fans. Uncheck Hide idle to show all headers.</sys:String>
+    <sys:String x:Key="System_FanHealthDisabled">Fan health alerts are disabled in Settings &gt; General.</sys:String>
+    <sys:String x:Key="System_TestFanAlert">Test fan notification</sys:String>
     <sys:String x:Key="System_Monitors">Monitors</sys:String>
     <sys:String x:Key="System_Network">Network</sys:String>
     <sys:String x:Key="System_SystemErrors">System errors</sys:String>
@@ -343,6 +394,8 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Tray_CpuTooltip">CPU: {0}{1} (Cooling: {2})</sys:String>
     <sys:String x:Key="Tray_CpuTooltipPaused">CPU: {0}{1} (Paused {2}m)</sys:String>
     <sys:String x:Key="Tray_MergedTooltip">CPU {0}{1} • GPU {2}{1}</sys:String>
+    <sys:String x:Key="Tray_MergedTooltipMixed">CPU {0}{1} • GPU {2}{3}</sys:String>
+    <sys:String x:Key="Tray_BatteryTooltip">BAT {0}% · {1}</sys:String>
 
     <sys:String x:Key="Common_Yes">Yes</sys:String>
     <sys:String x:Key="Common_No">No</sys:String>
@@ -356,6 +409,12 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Alert_Gpu">GPU is {0}, above the {1} threshold.</sys:String>
     <sys:String x:Key="Alert_Drive">{0} is {1}, above the {2} threshold.</sys:String>
     <sys:String x:Key="Alert_DriveName">Drive {0}</sys:String>
+    <sys:String x:Key="Alert_FanTitle">CryoTray fan alert</sys:String>
+    <sys:String x:Key="Alert_FanStopped">{0} was spinning at {1} RPM and is now stopped.</sys:String>
+    <sys:String x:Key="Alert_FanTestBody">This is a test of the fan health notification.</sys:String>
+    <sys:String x:Key="FanHealth_GpuFan">GPU fan</sys:String>
+    <sys:String x:Key="Alert_DriveHealthTitle">CryoTray drive health alert</sys:String>
+    <sys:String x:Key="Alert_DriveHealthBody">{0} health is {1}% ({2}).</sys:String>
 
     <sys:String x:Key="Update_NotificationTitle">CryoTray update available</sys:String>
     <sys:String x:Key="Update_NotificationBody">Version {0} is ready. Open Settings to install it.</sys:String>

@@ -22,6 +22,7 @@ namespace CryoTray.Models
         public string WindowsUptime { get; set; } = "";
         public string StartupSpeed { get; set; } = "";
         public string TempStats { get; set; } = "";
+        public string FanSpeeds { get; set; } = "";
         public string Monitors { get; set; } = "";
         public string Network { get; set; } = "";
         public string SystemErrors { get; set; } = "";

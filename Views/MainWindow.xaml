@@ -20,18 +20,18 @@
     <Window.Resources>
         <!-- Sleek Tooltip Style -->
         <Style TargetType="ToolTip">
-            <Setter Property="Background" Value="#222222"/>
-            <Setter Property="Foreground" Value="#EEEEEE"/>
-            <Setter Property="BorderBrush" Value="#444444"/>
+            <Setter Property="Background" Value="{DynamicResource TooltipBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource TooltipBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="Padding" Value="6,3"/>
         </Style>
 
         <Style x:Key="SsdToolTipStyle" TargetType="ToolTip">
-            <Setter Property="Background" Value="#1F1F1F"/>
-            <Setter Property="Foreground" Value="#F0F0F0"/>
-            <Setter Property="BorderBrush" Value="#4A4A4A"/>
+            <Setter Property="Background" Value="{DynamicResource PanelAltBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="10,8"/>
             <Setter Property="FontFamily" Value="{StaticResource SegoeUIVariableText}"/>
@@ -52,9 +52,9 @@
         </Style>
 
         <Style x:Key="RamToolTipStyle" TargetType="ToolTip">
-            <Setter Property="Background" Value="#1E1E1E"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#3A3A3A"/>
+            <Setter Property="Background" Value="{DynamicResource MenuBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,10"/>
             <Setter Property="HasDropShadow" Value="True"/>
@@ -78,7 +78,7 @@
         <Style x:Key="RamDarkMenuItemStyle" TargetType="MenuItem">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#F0F0F0"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
             <Setter Property="FontFamily" Value="{StaticResource SegoeUIVariableText}"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="10,7"/>
@@ -103,15 +103,15 @@
                                 <Border x:Name="CheckBoxBdr"
                                         Width="13" Height="13"
                                         CornerRadius="2"
-                                        Background="#141414"
-                                        BorderBrush="#5A5A5A"
+                                        Background="{DynamicResource WindowBackgroundBrush}"
+                                        BorderBrush="{DynamicResource BorderStrongBrush}"
                                         BorderThickness="1"
                                         Margin="0,0,8,0"
                                         VerticalAlignment="Center"
                                         Visibility="Collapsed">
                                     <Path x:Name="CheckGlyph"
                                           Data="M2,6.2 L4.8,9 L9.8,3"
-                                          Stroke="#29B6F6"
+                                          Stroke="{DynamicResource RamAccentBrush}"
                                           StrokeThickness="1.8"
                                           Visibility="Collapsed"
                                           HorizontalAlignment="Center"
@@ -129,14 +129,14 @@
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible"/>
-                                <Setter TargetName="CheckBoxBdr" Property="BorderBrush" Value="#29B6F6"/>
+                                <Setter TargetName="CheckBoxBdr" Property="BorderBrush" Value="{DynamicResource RamAccentBrush}"/>
                             </Trigger>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="ItemBdr" Property="Background" Value="#2D2D2D"/>
-                                <Setter TargetName="ItemBdr" Property="BorderBrush" Value="#6E6E6E"/>
+                                <Setter TargetName="ItemBdr" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                <Setter TargetName="ItemBdr" Property="BorderBrush" Value="{DynamicResource MenuHoverBorderBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="#787878"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}"/>
                                 <Setter Property="Cursor" Value="Arrow"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -153,7 +153,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Separator">
-                        <Border Height="1" Background="#333333" SnapsToDevicePixels="True"/>
+                        <Border Height="1" Background="{DynamicResource DividerBrush}" SnapsToDevicePixels="True"/>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -165,8 +165,8 @@
                        TargetType="Separator"
                        BasedOn="{StaticResource DarkMenuSeparatorStyle}"/>
             </Style.Resources>
-            <Setter Property="Background" Value="#1E1E1E"/>
-            <Setter Property="BorderBrush" Value="#525252"/>
+            <Setter Property="Background" Value="{DynamicResource MenuBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource MenuBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="4,4"/>
             <Setter Property="HasDropShadow" Value="True"/>
@@ -194,8 +194,8 @@
         <ControlTemplate x:Key="DarkComboBoxTemplate" TargetType="ComboBox">
             <Grid>
                 <ToggleButton x:Name="ToggleButton"
-                              Background="#1E1E1E"
-                              BorderBrush="#484848"
+                              Background="{DynamicResource PanelBackgroundBrush}"
+                              BorderBrush="{DynamicResource BorderStrongBrush}"
                               BorderThickness="1"
                               Focusable="False"
                               IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
@@ -216,7 +216,7 @@
                                     <!-- Arrow -->
                                     <Path Grid.Column="1"
                                           Data="M0,0 L4,4 L8,0"
-                                          Stroke="#A0A0A0"
+                                          Stroke="{DynamicResource TextTertiaryBrush}"
                                           StrokeThickness="1.4"
                                           VerticalAlignment="Center"
                                           HorizontalAlignment="Right"
@@ -225,8 +225,8 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Border" Property="Background" Value="#2A2A2A"/>
-                                    <Setter TargetName="Border" Property="BorderBrush" Value="#555555"/>
+                                    <Setter TargetName="Border" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                    <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -249,8 +249,8 @@
                        Focusable="False"
                        PopupAnimation="Slide">
                     <Border x:Name="DropDownBorder"
-                            Background="#1A1A1A"
-                            BorderBrush="#383838"
+                            Background="{DynamicResource PanelAltBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderStrongBrush}"
                             BorderThickness="1"
                             CornerRadius="4"
                             MinWidth="{TemplateBinding ActualWidth}"
@@ -265,7 +265,7 @@
 
         <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#DDDDDD"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="Template">
@@ -276,8 +276,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="ItemBorder" Property="Background" Value="#2B88D8"/>
-                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SelectionBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -288,7 +288,7 @@
         <Style x:Key="TimeframeComboStyle" TargetType="ComboBox">
             <Setter Property="Template" Value="{StaticResource DarkComboBoxTemplate}"/>
             <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
-            <Setter Property="Foreground" Value="#D8D8D8"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="Height" Value="23"/>
         </Style>
@@ -312,7 +312,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="BtnBdr" Property="Background" Value="#2A2A2A"/>
+                                <Setter TargetName="BtnBdr" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
                             </Trigger>
                             <MultiDataTrigger>
                                 <MultiDataTrigger.Conditions>
@@ -330,7 +330,7 @@
     </Window.Resources>
 
     <!-- Outer Border -->
-    <Border Background="#141414"
+    <Border Background="{DynamicResource WindowBackgroundBrush}"
             BorderBrush="{DynamicResource WindowBorderBrush}"
             BorderThickness="1"
             CornerRadius="0"
@@ -347,12 +347,12 @@
             </Grid.RowDefinitions>
 
             <!-- 1. CUSTOM DARK TITLE BAR -->
-            <Grid Grid.Row="0" Background="#141414" Margin="12,0,9,0">
+            <Grid Grid.Row="0" Background="{DynamicResource WindowBackgroundBrush}" Margin="12,0,9,0">
                 <!-- App Title -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock x:Name="TxtAppTitle"
                                Text="CryoTray"
-                               Foreground="#D5D5D5"
+                               Foreground="{DynamicResource TextTitleBrush}"
                                FontSize="12.5"
                                FontWeight="SemiBold"/>
                 </StackPanel>
@@ -362,8 +362,8 @@
                     <!-- CPU Stress Test (Outline chip) -->
                     <Button x:Name="BtnStressTest" Style="{StaticResource TitleActionBtn}" Click="BtnStressTest_Click" ToolTip="{DynamicResource Main_TooltipStressTest}" AutomationProperties.Name="{DynamicResource Main_TooltipStressTest}">
                         <Grid Width="19" Height="19">
-                            <Ellipse x:Name="StressIconRing" Stroke="#C4C4C4" StrokeThickness="1.35"/>
-                            <Path x:Name="StressIconBlades" Fill="#C4C4C4"
+                            <Ellipse x:Name="StressIconRing" Stroke="{DynamicResource IconBrush}" StrokeThickness="1.35"/>
+                            <Path x:Name="StressIconBlades" Fill="{DynamicResource IconBrush}"
                                   Opacity="0.55">
                                 <Path.Data>
                                     <GeometryGroup FillRule="Nonzero">
@@ -377,7 +377,7 @@
                                     </GeometryGroup>
                                 </Path.Data>
                             </Path>
-                            <Ellipse x:Name="StressIconHub" Width="3" Height="3" Fill="#C4C4C4"/>
+                            <Ellipse x:Name="StressIconHub" Width="3" Height="3" Fill="{DynamicResource IconBrush}"/>
                         </Grid>
                     </Button>
 
@@ -403,28 +403,28 @@
                             </ContextMenu>
                         </Button.ContextMenu>
                         <Path Data="M2,3 L14,3 M5,1.5 L5,4.5 M2,8 L14,8 M10,6.5 L10,9.5 M2,13 L14,13 M6,11.5 L6,14.5"
-                              Stroke="#C4C4C4" StrokeThickness="1.5"
+                              Stroke="{DynamicResource IconBrush}" StrokeThickness="1.5"
                               Width="20" Height="20" Stretch="Uniform"/>
                     </Button>
 
                     <!-- Settings (Gear) -->
                     <Button x:Name="BtnSettings" Style="{StaticResource TitleActionBtn}" Click="BtnSettings_Click" ToolTip="{DynamicResource Main_TooltipSettings}" AutomationProperties.Name="{DynamicResource Main_TooltipSettings}">
                         <Path x:Name="SettingsIconPath" Data="M7,2 L9,2 L9.3,3.8 A5,5 0 0,1 10.8,4.7 L12.5,3.8 L13.9,5.2 L13,6.9 A5,5 0 0,1 13.9,8.4 L15.7,8.7 L15.7,10.7 L13.9,11 A5,5 0 0,1 13,12.5 L13.9,14.2 L12.5,15.6 L10.8,14.7 A5,5 0 0,1 9.3,15.6 L9,17.4 L7,17.4 L6.7,15.6 A5,5 0 0,1 5.2,14.7 L3.5,15.6 L2.1,14.2 L3,12.5 A5,5 0 0,1 2.1,11 L0.3,10.7 L0.3,8.7 L2.1,8.4 A5,5 0 0,1 3,6.9 L2.1,5.2 L3.5,3.8 L5.2,4.7 A5,5 0 0,1 6.7,3.8 Z M8,6 A3.5,3.5 0 1,0 8,13 A3.5,3.5 0 1,0 8,6 Z"
-                              Fill="#C4C4C4"
+                              Fill="{DynamicResource IconBrush}"
                               Width="20" Height="20" Stretch="Uniform"/>
                     </Button>
 
                     <!-- System Info (Monitor outline with i) -->
                     <Button x:Name="BtnSystemInfo" Style="{StaticResource TitleActionBtn}" Click="BtnSystemInfo_Click" ToolTip="{DynamicResource Main_TooltipSystemInfo}" AutomationProperties.Name="{DynamicResource Main_TooltipSystemInfo}">
                         <Path x:Name="SystemInfoIconPath" Data="M2,2 L14,2 A1,1 0 0,1 15,3 L15,11 A1,1 0 0,1 14,12 L10,12 L10,14 L12,14 L12,15 L4,15 L4,14 L6,14 L6,12 L2,12 A1,1 0 0,1 1,11 L1,3 A1,1 0 0,1 2,2 Z M7.5,4.5 A0.8,0.8 0 1,0 8.5,4.5 A0.8,0.8 0 1,0 7.5,4.5 Z M7.3,6.5 L8.7,6.5 L8.7,10 L7.3,10 Z"
-                              Fill="#C4C4C4"
+                              Fill="{DynamicResource IconBrush}"
                               Width="20" Height="20" Stretch="Uniform"/>
                     </Button>
 
                     <!-- Close (Hide to tray) -->
                     <Button Style="{StaticResource TitleActionBtn}" Click="BtnClose_Click" ToolTip="{DynamicResource Main_TooltipMinimize}" AutomationProperties.Name="{DynamicResource Main_TooltipMinimize}">
                         <Path Data="M2,2 L12,12 M12,2 L2,12"
-                              Stroke="#C4C4C4" StrokeThickness="1.5"
+                              Stroke="{DynamicResource IconBrush}" StrokeThickness="1.5"
                               Width="16" Height="16" Stretch="Uniform"/>
                     </Button>
                 </StackPanel>
@@ -434,8 +434,8 @@
             <Border x:Name="PawnIoBanner"
                     Grid.Row="1"
                     Height="38"
-                    Background="#261A14"
-                    BorderBrush="#7A462D"
+                    Background="{DynamicResource PawnIoBackgroundBrush}"
+                    BorderBrush="{DynamicResource PawnIoBorderBrush}"
                     BorderThickness="0,0,0,1"
                     Padding="14,4"
                     Visibility="Collapsed">
@@ -446,7 +446,7 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0"
                                Text="{DynamicResource Main_PawnIoMissing}"
-                               Foreground="#F2DFD5"
+                               Foreground="{DynamicResource PawnIoTextBrush}"
                                FontSize="11"
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis"
@@ -456,9 +456,9 @@
                             Grid.Column="1"
                             Content="{DynamicResource Main_PawnIoAction}"
                             Click="BtnInstallPawnIo_Click"
-                            Background="#2D2D2D"
-                            Foreground="#FFFFFF"
-                            BorderBrush="#5A5A5A"
+                            Background="{DynamicResource ActiveBackgroundBrush}"
+                            Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderStrongBrush}"
                             BorderThickness="1"
                             FontSize="11"
                             FontWeight="SemiBold"
@@ -479,11 +479,11 @@
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="ActionBorder" Property="Background" Value="#3A3A3A"/>
-                                        <Setter TargetName="ActionBorder" Property="BorderBrush" Value="#7A7A7A"/>
+                                        <Setter TargetName="ActionBorder" Property="Background" Value="{DynamicResource PawnIoButtonHoverBrush}"/>
+                                        <Setter TargetName="ActionBorder" Property="BorderBrush" Value="{DynamicResource MenuHoverBorderBrush}"/>
                                     </Trigger>
                                     <Trigger Property="IsPressed" Value="True">
-                                        <Setter TargetName="ActionBorder" Property="Background" Value="#242424"/>
+                                        <Setter TargetName="ActionBorder" Property="Background" Value="{DynamicResource PawnIoButtonPressedBrush}"/>
                                     </Trigger>
                                     <MultiDataTrigger>
                                         <MultiDataTrigger.Conditions>
@@ -805,8 +805,8 @@
 
             <!-- 3. LIVE CPU TEMPERATURE CHART & TIMEFRAME SELECTOR -->
             <Grid x:Name="CpuLargeChartContainer" Grid.Row="3" Height="76" Margin="18,4,18,0">
-                <Border Background="#0D0D0D"
-                        BorderBrush="#3A3A3A"
+                <Border Background="{DynamicResource ChartBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderStrongBrush}"
                         BorderThickness="1"
                         SnapsToDevicePixels="True">
                     <Grid>
@@ -823,7 +823,7 @@
                                 ClipToBounds="True"/>
                         <TextBlock x:Name="TxtCpuChartUnavailable"
                                    Text="{DynamicResource Main_CpuSensorsUnavailable}"
-                                   Foreground="#9A9A9A"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
                                    FontSize="11"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
@@ -854,7 +854,7 @@
             </Grid>
 
             <!-- 4. COOLING MODE CONTROL ROW -->
-            <Border Grid.Row="4" Background="#141414" Padding="36,9,18,9" BorderBrush="#333333" BorderThickness="0,1,0,1">
+            <Border Grid.Row="4" Background="{DynamicResource WindowBackgroundBrush}" Padding="36,9,18,9" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,1">
                 <Grid>
                     <!-- Left: Fan Icon + Label -->
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -1009,7 +1009,7 @@
                             </Grid>
                         </Viewbox>
 
-                        <TextBlock Text="{DynamicResource Main_CoolingMode}" Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <TextBlock Text="{DynamicResource Main_CoolingMode}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Right: Info + Smooth Animated Pill Toggle Switch matching Camomile -->
@@ -1020,9 +1020,9 @@
                                 Cursor="Help"
                                 ToolTip="{DynamicResource Main_CoolingHelp}">
                             <Grid Width="14" Height="14">
-                                <Ellipse Stroke="#929292" StrokeThickness="1"/>
+                                <Ellipse Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1"/>
                                 <TextBlock Text="i"
-                                           Foreground="#B0B0B0"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
                                            FontFamily="Georgia"
                                            FontSize="9"
                                            FontWeight="Bold"
@@ -1060,13 +1060,13 @@
                             <Border x:Name="TogglePillBorder"
                                     Width="48" Height="24"
                                     CornerRadius="12"
-                                    Background="#4A2A1E"
+                                    Background="{DynamicResource ToggleOffTrackBrush}"
                                     Padding="2">
                                 <Grid>
                                     <!-- Text (OFF or ON) -->
                                     <TextBlock x:Name="TxtToggleState"
                                                Text="{DynamicResource Common_Off}"
-                                               Foreground="#D9835B"
+                                               Foreground="{DynamicResource ToggleOffTextBrush}"
                                                FontSize="9.5"
                                                FontWeight="Bold"
                                                VerticalAlignment="Center"
@@ -1076,7 +1076,7 @@
                                     <!-- Thumb Knob -->
                                     <Ellipse x:Name="ToggleThumb"
                                              Width="20" Height="20"
-                                             Fill="#E68A57"
+                                             Fill="{DynamicResource ToggleOffThumbBrush}"
                                              HorizontalAlignment="Left"
                                              Margin="0,0,0,0">
                                     </Ellipse>
@@ -1100,21 +1100,21 @@
                                             M6,7 C7,6 8,8 9,7 C10,6 11,8 12,7 C13,6 14,8 15,7
                                             M6,10 C7,9 8,11 9,10 C10,9 11,11 12,10 C13,9 14,11 15,10
                                             M6,13 C7,12 8,14 9,13 C10,12 11,14 12,13 C13,12 14,14 15,13"
-                                      Stroke="#D5D5D5" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                      Stroke="{DynamicResource TextTitleBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
-                            <TextBlock Text="{DynamicResource Main_LabelCpuSpeed}" Foreground="#D5D5D5" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Main_LabelCpuSpeed}" Foreground="{DynamicResource TextTitleBrush}" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight">
-                            <Border Background="#242424" BorderBrush="#303030" BorderThickness="1" CornerRadius="3" Padding="10,4" Margin="0,0,6,0">
-                                <TextBlock x:Name="TxtCpuClockRatio" Text="-- / --" Foreground="#D8D8D8" FontSize="12" FontWeight="SemiBold"/>
+                            <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="3" Padding="10,4" Margin="0,0,6,0">
+                                <TextBlock x:Name="TxtCpuClockRatio" Text="-- / --" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12" FontWeight="SemiBold"/>
                             </Border>
-                            <Border Background="Transparent" BorderBrush="#4A4A4A" BorderThickness="1" CornerRadius="3" Padding="7,4">
-                                <TextBlock Text="{DynamicResource Main_LabelGhz}" Foreground="#9A9A9A" FontSize="11" FontWeight="SemiBold"/>
+                            <Border Background="Transparent" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="7,4">
+                                <TextBlock Text="{DynamicResource Main_LabelGhz}" Foreground="{DynamicResource TextTertiaryBrush}" FontSize="11" FontWeight="SemiBold"/>
                             </Border>
                             <TextBlock x:Name="TxtCpuPackageWatts"
                                        Text="--W"
-                                       Foreground="#9E9E9E"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
                                        FontSize="11"
                                        FontWeight="SemiBold"
                                        FlowDirection="LeftToRight"
@@ -1123,7 +1123,7 @@
                         </StackPanel>
                     </Grid>
 
-                    <Rectangle x:Name="CpuSpeedSeparator" Height="1" Fill="#333333" Margin="0,1"/>
+                    <Rectangle x:Name="CpuSpeedSeparator" Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,1"/>
 
                     <!-- ROW 1B: RAM USAGE -->
                     <Grid x:Name="RamRow" Height="44">
@@ -1136,9 +1136,9 @@
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <Grid Width="26" Height="26" Margin="0,0,10,0">
                                     <Path Data="M3,6 L17,6 L17,13 L3,13 Z M5,13 L5,16 M8,13 L8,16 M12,13 L12,16 M15,13 L15,16 M6,8 L8,8 L8,11 L6,11 Z M11,8 L14,8 L14,11 L11,11 Z"
-                                          Stroke="#D5D5D5" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                          Stroke="{DynamicResource TextTitleBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Grid>
-                                <TextBlock Text="{DynamicResource Main_LabelRam}" Foreground="#D5D5D5" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <TextBlock Text="{DynamicResource Main_LabelRam}" Foreground="{DynamicResource TextTitleBrush}" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight">
@@ -1171,21 +1171,21 @@
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock Grid.Column="0"
                                                                Text="{DynamicResource Ram_TooltipTitle}"
-                                                               Foreground="#FFFFFF"
+                                                               Foreground="{DynamicResource TextPrimaryBrush}"
                                                                FontSize="12"
                                                                FontWeight="SemiBold"
                                                                VerticalAlignment="Center"/>
                                                     <TextBlock x:Name="TxtTipInstalled"
                                                                Grid.Column="1"
                                                                Text="Installed: --"
-                                                               Foreground="#A6A6A6"
+                                                               Foreground="{DynamicResource TextDimBrush}"
                                                                FontSize="11"
                                                                Margin="16,0,0,0"
                                                                VerticalAlignment="Center"/>
                                                 </Grid>
 
                                                 <!-- 4px Mini Stacked Bar -->
-                                                <Border Height="4" Background="#262626" CornerRadius="2" ClipToBounds="True" Margin="0,0,0,9" FlowDirection="LeftToRight">
+                                                <Border Height="4" Background="{DynamicResource CardAltBackgroundBrush}" CornerRadius="2" ClipToBounds="True" Margin="0,0,0,9" FlowDirection="LeftToRight">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition x:Name="TipBarInUseCol" Width="0*"/>
@@ -1193,10 +1193,10 @@
                                                             <ColumnDefinition x:Name="TipBarStandbyCol" Width="0*"/>
                                                             <ColumnDefinition x:Name="TipBarFreeCol" Width="1*"/>
                                                         </Grid.ColumnDefinitions>
-                                                        <Rectangle Grid.Column="0" Fill="#29B6F6"/>
-                                                        <Rectangle Grid.Column="1" Fill="#F3C765"/>
+                                                        <Rectangle Grid.Column="0" Fill="{DynamicResource RamAccentBrush}"/>
+                                                        <Rectangle Grid.Column="1" Fill="{DynamicResource WarningTextBrush}"/>
                                                         <Rectangle Grid.Column="2" Fill="#546E7A"/>
-                                                        <Rectangle Grid.Column="3" Fill="#262626"/>
+                                                        <Rectangle Grid.Column="3" Fill="{DynamicResource CardAltBackgroundBrush}"/>
                                                     </Grid>
                                                 </Border>
 
@@ -1218,58 +1218,58 @@
 
                                                     <!-- In Use -->
                                                     <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Margin="0,1.5">
-                                                        <Ellipse Width="6" Height="6" Fill="#29B6F6" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                        <TextBlock Text="{DynamicResource Ram_InUse}" Foreground="#D4D4D4" FontSize="11.5"/>
+                                                        <Ellipse Width="6" Height="6" Fill="{DynamicResource RamAccentBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                                        <TextBlock Text="{DynamicResource Ram_InUse}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5"/>
                                                     </StackPanel>
-                                                    <TextBlock x:Name="TxtTipInUse" Grid.Row="0" Grid.Column="1" Text="--" Foreground="#FFFFFF" FontSize="11.5" FontWeight="SemiBold" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
+                                                    <TextBlock x:Name="TxtTipInUse" Grid.Row="0" Grid.Column="1" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5" FontWeight="SemiBold" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
 
                                                     <!-- Available -->
                                                     <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="0,1.5">
                                                         <Ellipse Width="6" Height="6" Fill="#8CAAB8" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                        <TextBlock Text="{DynamicResource Ram_Available}" Foreground="#D4D4D4" FontSize="11.5"/>
+                                                        <TextBlock Text="{DynamicResource Ram_Available}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5"/>
                                                     </StackPanel>
-                                                    <TextBlock x:Name="TxtTipAvailable" Grid.Row="1" Grid.Column="1" Text="--" Foreground="#E4E4E4" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
+                                                    <TextBlock x:Name="TxtTipAvailable" Grid.Row="1" Grid.Column="1" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
 
                                                     <!-- Free -->
                                                     <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="0,1.5">
-                                                        <Ellipse Width="6" Height="6" Fill="#262626" Stroke="#6A6A6A" StrokeThickness="1" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                        <TextBlock Text="{DynamicResource Ram_Free}" Foreground="#C8C8C8" FontSize="11.5"/>
+                                                        <Ellipse Width="6" Height="6" Fill="{DynamicResource CardAltBackgroundBrush}" Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                                        <TextBlock Text="{DynamicResource Ram_Free}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11.5"/>
                                                     </StackPanel>
-                                                    <TextBlock x:Name="TxtTipFree" Grid.Row="2" Grid.Column="1" Text="--" Foreground="#D4D4D4" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
+                                                    <TextBlock x:Name="TxtTipFree" Grid.Row="2" Grid.Column="1" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
 
                                                     <!-- Standby -->
                                                     <StackPanel Grid.Row="3" Grid.Column="0" Orientation="Horizontal" Margin="0,1.5">
                                                         <Ellipse Width="6" Height="6" Fill="#546E7A" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                        <TextBlock Text="{DynamicResource Ram_Standby}" Foreground="#C8C8C8" FontSize="11.5"/>
+                                                        <TextBlock Text="{DynamicResource Ram_Standby}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11.5"/>
                                                     </StackPanel>
-                                                    <TextBlock x:Name="TxtTipStandby" Grid.Row="3" Grid.Column="1" Text="--" Foreground="#D4D4D4" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
+                                                    <TextBlock x:Name="TxtTipStandby" Grid.Row="3" Grid.Column="1" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
 
                                                     <!-- Modified -->
                                                     <StackPanel Grid.Row="4" Grid.Column="0" Orientation="Horizontal" Margin="0,1.5">
-                                                        <Ellipse Width="6" Height="6" Fill="#F3C765" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                        <TextBlock Text="{DynamicResource Ram_Modified}" Foreground="#C8C8C8" FontSize="11.5"/>
+                                                        <Ellipse Width="6" Height="6" Fill="{DynamicResource WarningTextBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                                        <TextBlock Text="{DynamicResource Ram_Modified}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11.5"/>
                                                     </StackPanel>
-                                                    <TextBlock x:Name="TxtTipModified" Grid.Row="4" Grid.Column="1" Text="--" Foreground="#D4D4D4" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
+                                                    <TextBlock x:Name="TxtTipModified" Grid.Row="4" Grid.Column="1" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
 
                                                     <!-- Cached -->
                                                     <StackPanel Grid.Row="5" Grid.Column="0" Orientation="Horizontal" Margin="0,1.5">
                                                         <Ellipse Width="6" Height="6" Fill="#6D8A96" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                        <TextBlock Text="{DynamicResource Ram_Cached}" Foreground="#C8C8C8" FontSize="11.5"/>
+                                                        <TextBlock Text="{DynamicResource Ram_Cached}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11.5"/>
                                                     </StackPanel>
-                                                    <TextBlock x:Name="TxtTipCached" Grid.Row="5" Grid.Column="1" Text="--" Foreground="#D4D4D4" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
+                                                    <TextBlock x:Name="TxtTipCached" Grid.Row="5" Grid.Column="1" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
 
                                                     <!-- Hardware Reserved -->
                                                     <StackPanel Grid.Row="6" Grid.Column="0" Orientation="Horizontal" Margin="0,1.5">
                                                         <Ellipse Width="6" Height="6" Fill="#787878" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                        <TextBlock Text="{DynamicResource Ram_HardwareReserved}" Foreground="#B8B8B8" FontSize="11.5"/>
+                                                        <TextBlock Text="{DynamicResource Ram_HardwareReserved}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11.5"/>
                                                     </StackPanel>
-                                                    <TextBlock x:Name="TxtTipReserved" Grid.Row="6" Grid.Column="1" Text="--" Foreground="#BDBDBD" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
+                                                    <TextBlock x:Name="TxtTipReserved" Grid.Row="6" Grid.Column="1" Text="--" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11.5" FlowDirection="LeftToRight" HorizontalAlignment="Right" Margin="16,1.5,0,1.5"/>
                                                 </Grid>
 
-                                                <Rectangle Height="1" Fill="#333333" Margin="0,0,0,6"/>
+                                                <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,0,0,6"/>
                                                 <TextBlock x:Name="TxtTipFooter"
                                                            Text="{DynamicResource Ram_FooterHint}"
-                                                           Foreground="#A6A6A6"
+                                                           Foreground="{DynamicResource TextDimBrush}"
                                                            FontSize="11"
                                                            TextWrapping="Wrap"/>
                                             </StackPanel>
@@ -1278,8 +1278,8 @@
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
                                             <Border x:Name="RamPillBdr"
-                                                    Background="#242424"
-                                                    BorderBrush="#303030"
+                                                    Background="{DynamicResource CardBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="3"
                                                     Padding="9,4">
@@ -1287,8 +1287,8 @@
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="RamPillBdr" Property="Background" Value="#2C2C2C"/>
-                                                    <Setter TargetName="RamPillBdr" Property="BorderBrush" Value="#484848"/>
+                                                    <Setter TargetName="RamPillBdr" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                                    <Setter TargetName="RamPillBdr" Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}"/>
                                                 </Trigger>
                                                 <MultiDataTrigger>
                                                     <MultiDataTrigger.Conditions>
@@ -1300,14 +1300,14 @@
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Button.Template>
-                                    <TextBlock x:Name="TxtRamRatio" Text="-- / --" Foreground="#D8D8D8" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="TxtRamRatio" Text="-- / --" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12" FontWeight="SemiBold"/>
                                 </Button>
-                                <Border Background="Transparent" BorderBrush="#4A4A4A" BorderThickness="1" CornerRadius="3" Padding="6,4">
-                                    <TextBlock Text="{DynamicResource Main_LabelGb}" Foreground="#9A9A9A" FontSize="11" FontWeight="SemiBold"/>
+                                <Border Background="Transparent" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="6,4">
+                                    <TextBlock Text="{DynamicResource Main_LabelGb}" Foreground="{DynamicResource TextTertiaryBrush}" FontSize="11" FontWeight="SemiBold"/>
                                 </Border>
                                 <TextBlock x:Name="TxtRamPercent"
                                            Text="--%"
-                                           Foreground="#9E9E9E"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
                                            FontSize="11"
                                            FontWeight="SemiBold"
                                            FlowDirection="LeftToRight"
@@ -1344,19 +1344,19 @@
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">
                                         <Border x:Name="OptBdr"
-                                                Background="#262626"
-                                                BorderBrush="#3A3A3A"
+                                                Background="{DynamicResource CardAltBackgroundBrush}"
+                                                BorderBrush="{DynamicResource BorderStrongBrush}"
                                                 BorderThickness="1"
                                                 CornerRadius="3,0,0,3">
                                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="OptBdr" Property="Background" Value="#303030"/>
-                                                <Setter TargetName="OptBdr" Property="BorderBrush" Value="#525252"/>
+                                                <Setter TargetName="OptBdr" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                                <Setter TargetName="OptBdr" Property="BorderBrush" Value="{DynamicResource MenuBorderBrush}"/>
                                             </Trigger>
                                             <Trigger Property="IsPressed" Value="True">
-                                                <Setter TargetName="OptBdr" Property="Background" Value="#1E1E1E"/>
+                                                <Setter TargetName="OptBdr" Property="Background" Value="{DynamicResource PanelBackgroundBrush}"/>
                                             </Trigger>
                                             <Trigger Property="IsEnabled" Value="False">
                                                 <Setter TargetName="OptBdr" Property="Opacity" Value="0.72"/>
@@ -1374,7 +1374,7 @@
                                 <Grid x:Name="OptGlyphHost" Width="13" Height="13">
                                     <Path x:Name="RamCleanIcon"
                                           Data="M10.5,1.5 L7.2,6.2 L4.5,6.2 L2.5,12.5 L6.8,12.5 L7.5,10.2 L8.3,12.5 L11.5,12.5 L9.8,6.2 L12,3 Z M4.6,7.6 L9.3,7.6"
-                                          Stroke="#D8D8D8"
+                                          Stroke="{DynamicResource TextPrimaryBrush}"
                                           StrokeThickness="1.2"
                                           StrokeLineJoin="Round"
                                           StrokeStartLineCap="Round"
@@ -1383,7 +1383,7 @@
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <Path x:Name="RamCheckIcon"
                                           Data="M2,7 L5.5,10.5 L12,3.5"
-                                          Stroke="#29B6F6"
+                                          Stroke="{DynamicResource RamAccentBrush}"
                                           StrokeThickness="1.7"
                                           StrokeLineJoin="Round"
                                           StrokeStartLineCap="Round"
@@ -1405,12 +1405,12 @@
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">
                                         <Border x:Name="ChevBdr"
-                                                Background="#262626"
-                                                BorderBrush="#3A3A3A"
+                                                Background="{DynamicResource CardAltBackgroundBrush}"
+                                                BorderBrush="{DynamicResource BorderStrongBrush}"
                                                 BorderThickness="1"
                                                 CornerRadius="0,3,3,0">
                                             <Path Data="M0,0 L3.5,3.5 L7,0"
-                                                  Stroke="#B8B8B8"
+                                                  Stroke="{DynamicResource TextSecondaryBrush}"
                                                   StrokeThickness="1.3"
                                                   StrokeLineJoin="Round"
                                                   HorizontalAlignment="Center"
@@ -1418,11 +1418,11 @@
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="ChevBdr" Property="Background" Value="#303030"/>
-                                                <Setter TargetName="ChevBdr" Property="BorderBrush" Value="#525252"/>
+                                                <Setter TargetName="ChevBdr" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                                <Setter TargetName="ChevBdr" Property="BorderBrush" Value="{DynamicResource MenuBorderBrush}"/>
                                             </Trigger>
                                             <Trigger Property="IsPressed" Value="True">
-                                                <Setter TargetName="ChevBdr" Property="Background" Value="#1E1E1E"/>
+                                                <Setter TargetName="ChevBdr" Property="Background" Value="{DynamicResource PanelBackgroundBrush}"/>
                                             </Trigger>
                                             <MultiDataTrigger>
                                                 <MultiDataTrigger.Conditions>
@@ -1442,7 +1442,7 @@
                     <Border x:Name="RamSeparator"
                             Height="2"
                             Margin="0,0.5"
-                            Background="#262626"
+                            Background="{DynamicResource CardAltBackgroundBrush}"
                             CornerRadius="1"
                             ClipToBounds="True"
                             FlowDirection="LeftToRight">
@@ -1452,9 +1452,9 @@
                                 <ColumnDefinition x:Name="RamBarStandbyCol" Width="0*"/>
                                 <ColumnDefinition x:Name="RamBarFreeCol" Width="1*"/>
                             </Grid.ColumnDefinitions>
-                            <Rectangle Grid.Column="0" Fill="#29B6F6"/>
+                            <Rectangle Grid.Column="0" Fill="{DynamicResource RamAccentBrush}"/>
                             <Rectangle Grid.Column="1" Fill="#546E7A"/>
-                            <Rectangle Grid.Column="2" Fill="#262626"/>
+                            <Rectangle Grid.Column="2" Fill="{DynamicResource CardAltBackgroundBrush}"/>
                         </Grid>
                     </Border>
 
@@ -1472,18 +1472,18 @@
                                             M1.5,7 L4,7 M1.5,10 L4,10 M1.5,13 L4,13
                                             M16,7 L18.5,7 M16,10 L18.5,10 M16,13 L18.5,13
                                             M6,10.5 L8,10.5 L9.3,7.2 L11,13.2 L12.2,10.5 L14,10.5"
-                                      Stroke="#D5D5D5" StrokeThickness="1.15" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                      Stroke="{DynamicResource TextTitleBrush}" StrokeThickness="1.15" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
                             <TextBlock x:Name="TxtCpuSmallLabel"
                                        Text="{DynamicResource Common_Cpu}"
-                                       Foreground="#D5D5D5"
+                                       Foreground="{DynamicResource TextTitleBrush}"
                                        FontSize="12.5"
                                        FontWeight="SemiBold"
                                        FlowDirection="LeftToRight"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
 
-                        <Border Grid.Column="1" HorizontalAlignment="Right" Width="238" Height="36" Background="#121212" BorderBrush="#383838" BorderThickness="1" CornerRadius="0" VerticalAlignment="Center" FlowDirection="LeftToRight">
+                        <Border Grid.Column="1" HorizontalAlignment="Right" Width="238" Height="36" Background="{DynamicResource InsetBackgroundBrush}" BorderBrush="{DynamicResource BorderStrongBrush}" BorderThickness="1" CornerRadius="0" VerticalAlignment="Center" FlowDirection="LeftToRight">
                             <Grid>
                                 <Canvas x:Name="CpuSmallChartCanvas"
                                         FlowDirection="LeftToRight"
@@ -1498,7 +1498,7 @@
                                         ClipToBounds="True"/>
                                 <TextBlock x:Name="TxtCpuSmallChartUnavailable"
                                            Text="{DynamicResource Main_CpuSensorsUnavailable}"
-                                           Foreground="#9A9A9A"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
                                            FontSize="10.5"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -1508,7 +1508,7 @@
                         </Border>
                     </Grid>
 
-                    <Rectangle x:Name="CpuSmallChartSeparator" Height="1" Fill="#333333" Margin="0,1" Visibility="Collapsed"/>
+                    <Rectangle x:Name="CpuSmallChartSeparator" Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,1" Visibility="Collapsed"/>
 
                     <!-- ROW 2: GPU (Nvidia / AMD / Intel) -->
                     <Grid Height="56">
@@ -1523,21 +1523,21 @@
                                             M5,10 A3,3 0 1,0 11,10 A3,3 0 1,0 5,10 Z
                                             M8,10 L8,7 M8,10 L11,10
                                             M13,8 L16,8 M13,11 L16,11 M13,14 L16,14"
-                                      Stroke="#D5D5D5" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                      Stroke="{DynamicResource TextTitleBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock x:Name="TxtGpuLabel" Text="{DynamicResource Main_GpuLabel}" Foreground="#D5D5D5" FontSize="12.5" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="TxtGpuLabel" Text="{DynamicResource Main_GpuLabel}" Foreground="{DynamicResource TextTitleBrush}" FontSize="12.5" FontWeight="SemiBold"/>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,1,0,0">
                                     <TextBlock x:Name="TxtGpuVendor"
                                                Text=""
-                                               Foreground="#9A9A9A"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
                                                FontSize="10.5"
                                                FlowDirection="LeftToRight"
                                                VerticalAlignment="Center"
                                                Visibility="Collapsed"/>
                                     <TextBlock x:Name="TxtGpuTemp"
                                                Text="--°C"
-                                               Foreground="#9E9E9E"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
                                                FontSize="10.5"
                                                FontWeight="SemiBold"
                                                FlowDirection="LeftToRight"
@@ -1545,7 +1545,7 @@
                                                Margin="8,0,0,0"/>
                                     <TextBlock x:Name="TxtGpuPower"
                                                Text="--W"
-                                               Foreground="#9E9E9E"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
                                                FontSize="10.5"
                                                FontWeight="SemiBold"
                                                FlowDirection="LeftToRight"
@@ -1554,7 +1554,7 @@
                                 </StackPanel>
                                 <TextBlock x:Name="TxtGpuName"
                                            Text=""
-                                           Foreground="#8A8A8A"
+                                           Foreground="{DynamicResource TextMutedBrush}"
                                            FontSize="10"
                                            FlowDirection="LeftToRight"
                                            MaxWidth="112"
@@ -1564,7 +1564,7 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <Border Grid.Column="1" HorizontalAlignment="Right" Width="238" Height="36" Background="#121212" BorderBrush="#383838" BorderThickness="1" CornerRadius="0" VerticalAlignment="Center" FlowDirection="LeftToRight">
+                        <Border Grid.Column="1" HorizontalAlignment="Right" Width="238" Height="36" Background="{DynamicResource InsetBackgroundBrush}" BorderBrush="{DynamicResource BorderStrongBrush}" BorderThickness="1" CornerRadius="0" VerticalAlignment="Center" FlowDirection="LeftToRight">
                             <Grid>
                                 <Canvas x:Name="GpuChartCanvas"
                                         FlowDirection="LeftToRight"
@@ -1578,7 +1578,7 @@
                                         ClipToBounds="True"/>
                                 <TextBlock x:Name="TxtGpuChartUnavailable"
                                            Text="{DynamicResource Main_GpuSensorsUnavailable}"
-                                           Foreground="#9A9A9A"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
                                            FontSize="10.5"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -1592,21 +1592,21 @@
                     <Grid x:Name="GpuHealthRow" Height="26" Visibility="Collapsed" Margin="36,0,0,0">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" FlowDirection="LeftToRight">
                             <StackPanel x:Name="GpuHotspotGroup" Orientation="Horizontal" Margin="0,0,16,0">
-                                <TextBlock Text="{DynamicResource Main_GpuHotspotLabel}" Foreground="#7F7F7F" FontSize="10"/>
-                                <TextBlock x:Name="TxtGpuHotspot" Text="--" Foreground="#BDBDBD" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                                <TextBlock Text="{DynamicResource Main_GpuHotspotLabel}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10"/>
+                                <TextBlock x:Name="TxtGpuHotspot" Text="--" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
                             </StackPanel>
                             <StackPanel x:Name="GpuVramGroup" Orientation="Horizontal" Margin="0,0,16,0">
-                                <TextBlock Text="{DynamicResource Main_GpuVramLabel}" Foreground="#7F7F7F" FontSize="10"/>
-                                <TextBlock x:Name="TxtGpuVram" Text="--" Foreground="#BDBDBD" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                                <TextBlock Text="{DynamicResource Main_GpuVramLabel}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10"/>
+                                <TextBlock x:Name="TxtGpuVram" Text="--" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
                             </StackPanel>
                             <StackPanel x:Name="GpuFanGroup" Orientation="Horizontal">
-                                <TextBlock Text="{DynamicResource Main_GpuFanLabel}" Foreground="#7F7F7F" FontSize="10"/>
-                                <TextBlock x:Name="TxtGpuFan" Text="--" Foreground="#BDBDBD" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                                <TextBlock Text="{DynamicResource Main_GpuFanLabel}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10"/>
+                                <TextBlock x:Name="TxtGpuFan" Text="--" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
                             </StackPanel>
                         </StackPanel>
                     </Grid>
 
-                    <Rectangle Height="1" Fill="#333333" Margin="0,1"/>
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,1"/>
 
                     <!-- DYNAMIC SSD ROWS CONTAINER -->
                     <StackPanel x:Name="SsdRowsContainer">
@@ -1618,9 +1618,9 @@
                             <Grid Width="26" Height="26" Margin="0,0,10,0">
                                 <!-- Chip outline with a pulse line, no surrounding badge. -->
                                 <Path Data="M4,4 L16,4 L16,16 L4,16 Z M6,10 L8,10 L9,7 L11,13 L12,10 L14,10"
-                                      Stroke="#D5D5D5" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                      Stroke="{DynamicResource TextTitleBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
-                            <TextBlock Text="{DynamicResource Main_LabelOverlay}" Foreground="#D5D5D5" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Main_LabelOverlay}" Foreground="{DynamicResource TextTitleBrush}" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
 
                         <Button Click="BtnOverlay_Click"
@@ -1632,13 +1632,13 @@
                                 Padding="4"
                                 AutomationProperties.Name="{DynamicResource Main_ManageOverlayAutomation}">
                             <TextBlock Text="{DynamicResource Common_Manage}"
-                                       Foreground="#D5D5D5"
+                                       Foreground="{DynamicResource TextTitleBrush}"
                                        FontWeight="SemiBold"
                                        FontSize="12.5"/>
                         </Button>
                     </Grid>
 
-                    <Rectangle x:Name="AutopilotSeparator" Height="1" Fill="#333333" Margin="0,1" Visibility="Collapsed"/>
+                    <Rectangle x:Name="AutopilotSeparator" Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,1" Visibility="Collapsed"/>
 
                     <!-- ROW: AUTOPILOT (Unlocked Feature) -->
                     <Grid x:Name="AutopilotRow" Height="44" Visibility="Collapsed">
@@ -1650,9 +1650,9 @@
                                             M4,11 A1.5,1.5 0 1,0 4,14 A1.5,1.5 0 1,0 4,11 Z
                                             M12,11 A1.5,1.5 0 1,0 12,14 A1.5,1.5 0 1,0 12,11 Z
                                             M4,6 L12,6 M4,12 L12,12 M5,5 L11,13 M5,13 L11,5"
-                                      Stroke="#D5D5D5" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                      Stroke="{DynamicResource TextTitleBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
-                            <TextBlock Text="{DynamicResource Main_LabelAutopilot}" Foreground="#D5D5D5" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Main_LabelAutopilot}" Foreground="{DynamicResource TextTitleBrush}" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </StackPanel>
 
                         <Button Click="BtnAutopilot_Click"
@@ -1664,7 +1664,7 @@
                                 Padding="4"
                                 AutomationProperties.Name="{DynamicResource Main_ManageAutopilotAutomation}">
                             <TextBlock Text="{DynamicResource Common_Manage}"
-                                       Foreground="#D5D5D5"
+                                       Foreground="{DynamicResource TextTitleBrush}"
                                        FontWeight="SemiBold"
                                        FontSize="12.5"/>
                         </Button>

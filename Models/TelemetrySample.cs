@@ -19,6 +19,9 @@ namespace CryoTray.Models
         public bool CoolingModeActive { get; set; }
         public KeyValuePair<string, double>[]? DriveTemps { get; set; }
 
+        /// <summary>Stress-test throughput in work iterations per second; NaN outside the CPU test.</summary>
+        public double StressIterationsPerSecond { get; set; } = double.NaN;
+
         /// <summary>Creates a telemetry sample from a full hardware snapshot.</summary>
         public static TelemetrySample FromSnapshot(HardwareSnapshot snapshot)
         {

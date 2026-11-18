@@ -30,6 +30,8 @@ namespace CryoTray
         private DispatcherTimer? _coolingPauseTimer;
         private DispatcherTimer? _updateCheckTimer;
         private TemperatureAlertService? _temperatureAlertService;
+        private FanHealthService? _fanHealthService;
+        private StorageHealthAlertService? _storageHealthAlertService;
         private bool _updateCheckInProgress;
         private bool _coolingEnabledByBattery;
         private bool _isExiting;
@@ -119,9 +121,12 @@ namespace CryoTray
 
             var settings = SettingsService.Instance.Current;
             LocalizationService.Instance.Apply(settings.Language);
+            ThemeService.Initialize(settings.Theme);
+            ThemeService.ThemeChanged += OnThemeChanged;
             StartupTaskService.EnsureSynchronized(settings.LaunchOnStartup);
 
             _trayManager = new TrayIconManager();
+            _trayManager.ApplyTheme();
             _trayManager.OnOpenDashboardRequested += ToggleDashboard;
             _trayManager.OnToggleCoolingRequested += () => PowerPlanService.Instance.ToggleCoolingMode();
             _trayManager.OnPauseCoolingRequested += PauseCoolingFor;
@@ -138,6 +143,12 @@ namespace CryoTray
 
             _temperatureAlertService = new TemperatureAlertService();
             _temperatureAlertService.AlertRaised += OnTemperatureAlertRaised;
+
+            _fanHealthService = new FanHealthService();
+            _fanHealthService.FanStopped += OnFanStopped;
+
+            _storageHealthAlertService = new StorageHealthAlertService();
+            _storageHealthAlertService.AlertRaised += OnStorageHealthAlertRaised;
 
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             HardwareMonitorService.Instance.Start();
@@ -278,6 +289,18 @@ namespace CryoTray
 
         private void OnSystemPowerModeChanged(object sender, PowerModeChangedEventArgs e)
         {
+            if (e.Mode == PowerModes.Suspend)
+            {
+                _fanHealthService?.Suspend();
+                return;
+            }
+
+            if (e.Mode == PowerModes.Resume)
+            {
+                _fanHealthService?.Resume();
+                return;
+            }
+
             if (e.Mode != PowerModes.StatusChange || _isExiting)
             {
                 return;
@@ -611,13 +634,23 @@ namespace CryoTray
 
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
         {
-            _trayManager?.UpdateBadges(snapshot.GpuTemp, snapshot.CpuTemp, snapshot.CoolingModeActive);
+            _trayManager?.UpdateBadges(
+                snapshot.GpuTemp,
+                snapshot.CpuTemp,
+                snapshot.CoolingModeActive,
+                gpuLoad: snapshot.GpuLoad,
+                cpuLoad: snapshot.CpuLoad,
+                ramPercent: snapshot.RamUsagePercent);
             _temperatureAlertService?.Observe(snapshot);
+            _fanHealthService?.Observe(snapshot);
+            _storageHealthAlertService?.Observe(snapshot);
         }
 
         private void OnSettingsChanged()
         {
-            LocalizationService.Instance.Apply(SettingsService.Instance.Current.Language);
+            var settings = SettingsService.Instance.Current;
+            LocalizationService.Instance.Apply(settings.Language);
+            ThemeService.Apply(settings.Theme);
             ApplyWindowAccent(PowerPlanService.Instance.IsCoolingModeActive);
             _trayManager?.ApplyLanguage();
             EvaluateBatteryCoolingRule();
@@ -627,6 +660,41 @@ namespace CryoTray
         private void OnLanguageChanged()
         {
             _trayManager?.ApplyLanguage();
+        }
+
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            _trayManager?.ApplyTheme();
+        }
+
+        private void OnFanStopped(FanStoppedEvent alert)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                string fanName = FanHealthService.GetDisplayName(
+                    alert.FanKey, alert.FanName, alert.IsGpuFan);
+                ShowTrayNotification(
+                    LocalizationService.Get("Alert_FanTitle"),
+                    LocalizationService.Format("Alert_FanStopped", fanName, alert.LastRpm),
+                    () => ShowDashboard()?.OpenSystemInfoDialog(alert.FanKey),
+                    System.Windows.Forms.ToolTipIcon.Warning);
+            }));
+        }
+
+        private void OnStorageHealthAlertRaised(StorageHealthAlert alert)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                ShowTrayNotification(
+                    LocalizationService.Get("Alert_DriveHealthTitle"),
+                    LocalizationService.Format(
+                        "Alert_DriveHealthBody",
+                        alert.DriveName,
+                        alert.HealthPercent,
+                        LocalizationService.Health(alert.StatusText)),
+                    () => ShowDashboard(),
+                    System.Windows.Forms.ToolTipIcon.Warning);
+            }));
         }
 
         private void OnTemperatureAlertRaised(TemperatureAlert alert)
@@ -668,6 +736,8 @@ namespace CryoTray
         {
             _trayManager?.ShowNotification(title, message, onClick, icon);
         }
+
+        public FanHealthService? FanHealth => _fanHealthService;
 
         private static string FormatTemperature(double celsius)
         {
@@ -817,6 +887,18 @@ namespace CryoTray
                 _temperatureAlertService = null;
             }
 
+            if (_fanHealthService != null)
+            {
+                _fanHealthService.FanStopped -= OnFanStopped;
+                _fanHealthService = null;
+            }
+
+            if (_storageHealthAlertService != null)
+            {
+                _storageHealthAlertService.AlertRaised -= OnStorageHealthAlertRaised;
+                _storageHealthAlertService = null;
+            }
+
             if (_hotkeySource != null)
             {
                 _hotkeySource.RemoveHook(HwndHook);
@@ -955,6 +1037,8 @@ namespace CryoTray
             PowerPlanService.Instance.CoolingModeChanged -= ApplyWindowAccent;
             PowerPlanService.Instance.CoolingModeChanged -= OnPowerPlanCoolingChanged;
             SystemEvents.PowerModeChanged -= OnSystemPowerModeChanged;
+            ThemeService.ThemeChanged -= OnThemeChanged;
+            ThemeService.Shutdown();
             UnregisterActivationWaitHandle();
             AutopilotService.Instance.ExternalPauseHoldCheck = null;
 

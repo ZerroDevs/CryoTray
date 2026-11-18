@@ -142,7 +142,9 @@ namespace CryoTray.Services
                 : null;
 
             bool isWhitelistedRunning = hasWhitelist && runningByPid != null &&
-                IsAnyWhitelistedProcessRunning(whitelist, runningByPid.Values);
+                (settings.AutopilotForegroundOnly
+                    ? IsWhitelistedForegroundProcess(whitelist, runningByPid)
+                    : IsAnyWhitelistedProcessRunning(whitelist, runningByPid.Values));
             bool isFullscreenRunning = settings.AutopilotPauseOnFullscreen &&
                 IsFullscreen3DOrBorderlessActive(runningByPid);
             bool shouldPause = isWhitelistedRunning || isFullscreenRunning;
@@ -200,6 +202,50 @@ namespace CryoTray.Services
             }
 
             return false;
+        }
+
+        internal static bool IsWhitelistedProcessName(
+            string? processName,
+            IReadOnlyCollection<string> whitelist)
+        {
+            string normalized = NormalizeProcessName(processName);
+            if (normalized.Length == 0)
+            {
+                return false;
+            }
+
+            foreach (string entry in whitelist)
+            {
+                if (string.Equals(
+                    NormalizeProcessName(entry),
+                    normalized,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool IsWhitelistedForegroundProcess(
+            IReadOnlyCollection<string> whitelist,
+            IReadOnlyDictionary<uint, string> processesByPid)
+        {
+            IntPtr fgWindow = NativeMethods.GetForegroundWindow();
+            if (fgWindow == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            _ = NativeMethods.GetWindowThreadProcessId(fgWindow, out uint fgPid);
+            if (fgPid == 0 || fgPid == (uint)Environment.ProcessId)
+            {
+                return false;
+            }
+
+            return processesByPid.TryGetValue(fgPid, out string? processName) &&
+                   IsWhitelistedProcessName(processName, whitelist);
         }
 
         /// <summary>Enumerates running process names keyed by PID with a single Toolhelp32 kernel snapshot.</summary>

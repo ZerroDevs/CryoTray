@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -23,6 +24,9 @@ namespace CryoTray.Views
         private readonly List<double> _testTemps = new();
         private readonly List<bool> _testCoolingStates = new();
         private readonly List<TelemetrySample> _recordedSamples = new();
+        private long[] _workerIterations = Array.Empty<long>();
+        private long _lastIterationTotal;
+        private double _lastIterationSampleSeconds;
 
         internal readonly record struct StressCoolingComparison(
             bool HasOffPhase,
@@ -32,13 +36,21 @@ namespace CryoTray.Views
             double OnTemp,
             double OnWatts,
             double DeltaTemp,
-            double DeltaWatts);
+            double DeltaWatts,
+            double OffIterationsPerSecond,
+            double OnIterationsPerSecond,
+            double PerformanceRetainedPercent);
 
-        private static readonly Brush PhaseOffChartBrush = CreateFrozenBrush("#E07D62");
-        private static readonly Brush PhaseOnChartBrush = CreateFrozenBrush("#2B88D8");
-        private static readonly Brush DeltaGoodBrush = CreateFrozenBrush("#ABD068");
-        private static readonly Brush DeltaWarmBrush = CreateFrozenBrush("#E5987E");
-        private static readonly Brush DeltaHintBrush = CreateFrozenBrush("#B0B0B0");
+        private const int DefaultFpsReference = 100;
+        internal static readonly int[] FpsPresets = { 60, 100, 120, 144, 165, 240 };
+        private int _fpsReference = DefaultFpsReference;
+        private bool _isRestoringFpsReference;
+
+        private static Brush PhaseOffChartBrush => ThemeService.GetBrush("CoolingOffTextBrush");
+        private static Brush PhaseOnChartBrush => ThemeService.GetBrush("AccentBrush");
+        private static Brush DeltaGoodBrush => ThemeService.GetBrush("SuccessTextBrush");
+        private static Brush DeltaWarmBrush => ThemeService.GetBrush("CoolingOffTextBrush");
+        private static Brush DeltaHintBrush => ThemeService.GetBrush("TextSecondaryBrush");
 
         private static Brush CreateFrozenBrush(string hex)
         {
@@ -52,6 +64,13 @@ namespace CryoTray.Views
             InitializeComponent();
             LocalizationService.Instance.ApplyWindow(this);
 
+            int savedFpsReference = NormalizeFpsReference(
+                SettingsService.Instance.Current.StressFpsReference);
+            _fpsReference = savedFpsReference;
+            _isRestoringFpsReference = true;
+            CmbFpsReference.SelectedIndex = Array.IndexOf(FpsPresets, savedFpsReference);
+            _isRestoringFpsReference = false;
+
             _timer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(1)
@@ -61,6 +80,7 @@ namespace CryoTray.Views
             Loaded += StressTestWindow_Loaded;
             Closing += StressTestWindow_Closing;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+            ThemeService.ThemeChanged += OnThemeChanged;
         }
 
         private void StressTestWindow_Loaded(object sender, RoutedEventArgs e)
@@ -75,6 +95,7 @@ namespace CryoTray.Views
         {
             StopTest();
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            ThemeService.ThemeChanged -= OnThemeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetry;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingChanged;
         }
@@ -84,12 +105,21 @@ namespace CryoTray.Views
             Dispatcher.Invoke(() => UpdateCoolingDisplay(active));
         }
 
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
+                DrawChart();
+            }));
+        }
+
         private void UpdateCoolingDisplay(bool active)
         {
             TxtCoolingStatus.Text = LocalizationService.Get(active ? "Common_On" : "Common_Off");
             TxtCoolingStatus.Foreground = active
-                ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E9FDB"))
-                : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D9835B"));
+                ? ThemeService.GetBrush("CoolingOnTextBrush")
+                : ThemeService.GetBrush("CoolingOffTextBrush");
         }
 
         private void OnTelemetry(HardwareSnapshot snapshot)
@@ -120,7 +150,9 @@ namespace CryoTray.Views
 
             if (_isRunning)
             {
-                _recordedSamples.Add(TelemetrySample.FromSnapshot(snapshot));
+                var sample = TelemetrySample.FromSnapshot(snapshot);
+                sample.StressIterationsPerSecond = TakeIterationRate(sample.CoolingModeActive);
+                _recordedSamples.Add(sample);
                 BtnExportCsv.IsEnabled = _recordedSamples.Count > 0;
                 if (hasTemp)
                 {
@@ -158,25 +190,36 @@ namespace CryoTray.Views
                 }
             }
 
-            (bool hasOff, double offTemp, double offWatts) = SummarizePhase(offSamples, trailingWindow, isFahrenheit);
-            (bool hasOn, double onTemp, double onWatts) = SummarizePhase(onSamples, trailingWindow, isFahrenheit);
+            (bool hasOff, double offTemp, double offWatts, double offIterations) =
+                SummarizePhase(offSamples, trailingWindow, isFahrenheit);
+            (bool hasOn, double onTemp, double onWatts, double onIterations) =
+                SummarizePhase(onSamples, trailingWindow, isFahrenheit);
 
             double deltaTemp = hasOff && hasOn ? onTemp - offTemp : double.NaN;
             double deltaWatts = hasOff && hasOn && double.IsFinite(offWatts) && double.IsFinite(onWatts)
                 ? onWatts - offWatts
                 : double.NaN;
+            double performanceRetained = hasOff && hasOn &&
+                                         double.IsFinite(offIterations) && offIterations > 0 &&
+                                         double.IsFinite(onIterations) && onIterations > 0
+                ? onIterations / offIterations * 100.0
+                : double.NaN;
 
-            return new StressCoolingComparison(hasOff, offTemp, offWatts, hasOn, onTemp, onWatts, deltaTemp, deltaWatts);
+            return new StressCoolingComparison(
+                hasOff, offTemp, offWatts,
+                hasOn, onTemp, onWatts,
+                deltaTemp, deltaWatts,
+                offIterations, onIterations, performanceRetained);
         }
 
-        private static (bool HasSamples, double AvgTemp, double AvgWatts) SummarizePhase(
+        private static (bool HasSamples, double AvgTemp, double AvgWatts, double AvgIterations) SummarizePhase(
             List<TelemetrySample> samples,
             int trailingWindow,
             bool isFahrenheit)
         {
             if (samples.Count == 0)
             {
-                return (false, double.NaN, double.NaN);
+                return (false, double.NaN, double.NaN, double.NaN);
             }
 
             int start = Math.Max(0, samples.Count - trailingWindow);
@@ -184,6 +227,8 @@ namespace CryoTray.Views
             double tempSum = 0;
             double wattsSum = 0;
             int wattsCount = 0;
+            double iterationsSum = 0;
+            int iterationsCount = 0;
 
             for (int i = start; i < samples.Count; i++)
             {
@@ -196,11 +241,45 @@ namespace CryoTray.Views
                     wattsSum += cpuPower.Value;
                     wattsCount++;
                 }
+
+                double iterations = samples[i].StressIterationsPerSecond;
+                if (double.IsFinite(iterations) && iterations > 0)
+                {
+                    iterationsSum += iterations;
+                    iterationsCount++;
+                }
             }
 
             double avgTemp = tempSum / count;
             double avgWatts = wattsCount > 0 ? wattsSum / wattsCount : double.NaN;
-            return (true, avgTemp, avgWatts);
+            double avgIterations = iterationsCount > 0 ? iterationsSum / iterationsCount : double.NaN;
+            return (true, avgTemp, avgWatts, avgIterations);
+        }
+
+        private double TakeIterationRate(bool coolingModeActive)
+        {
+            double nowSeconds = _stopwatch.Elapsed.TotalSeconds;
+            long totalIterations = 0;
+            var counts = _workerIterations;
+            for (int i = 0; i < counts.Length; i++)
+            {
+                totalIterations += Volatile.Read(ref counts[i]);
+            }
+
+            double elapsedSeconds = nowSeconds - _lastIterationSampleSeconds;
+            long deltaIterations = totalIterations - _lastIterationTotal;
+            bool phaseChanged = _recordedSamples.Count > 0 &&
+                                _recordedSamples[_recordedSamples.Count - 1].CoolingModeActive != coolingModeActive;
+
+            _lastIterationSampleSeconds = nowSeconds;
+            _lastIterationTotal = totalIterations;
+
+            if (elapsedSeconds < 0.5 || deltaIterations < 0 || phaseChanged)
+            {
+                return double.NaN;
+            }
+
+            return deltaIterations / elapsedSeconds;
         }
 
         private void UpdateComparisonDisplay()
@@ -236,6 +315,69 @@ namespace CryoTray.Views
                 TxtPhaseDelta.Text = LocalizationService.Get("Stress_DeltaHint");
                 TxtPhaseDelta.Foreground = DeltaHintBrush;
             }
+
+            if (double.IsFinite(cmp.PerformanceRetainedPercent))
+            {
+                long retainedPercent = (long)Math.Round(cmp.PerformanceRetainedPercent);
+                TxtPerformanceRetained.Text = LocalizationService.Format(
+                    "Stress_PerformanceRetained",
+                    retainedPercent);
+
+                var fpsImpact = ComputeFpsImpact(cmp.PerformanceRetainedPercent, _fpsReference);
+                TxtFpsImpact.Text = LocalizationService.Format(
+                    "Stress_FpsImpact",
+                    _fpsReference,
+                    fpsImpact.ProjectedFps,
+                    fpsImpact.LostFps);
+            }
+            else
+            {
+                TxtPerformanceRetained.Text = string.Empty;
+                TxtFpsImpact.Text = string.Empty;
+            }
+        }
+
+        internal static (long ProjectedFps, long LostFps) ComputeFpsImpact(
+            double retainedPercent,
+            int referenceFps = DefaultFpsReference)
+        {
+            if (!double.IsFinite(retainedPercent) || referenceFps <= 0)
+            {
+                return (0, 0);
+            }
+
+            double clampedPercent = Math.Clamp(retainedPercent, 0.0, 100.0);
+            long projected = (long)Math.Round(referenceFps * clampedPercent / 100.0);
+            return (projected, referenceFps - projected);
+        }
+
+        internal static int NormalizeFpsReference(int fps)
+        {
+            return Array.IndexOf(FpsPresets, fps) >= 0 ? fps : DefaultFpsReference;
+        }
+
+        private void CmbFpsReference_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isRestoringFpsReference)
+            {
+                return;
+            }
+
+            int index = CmbFpsReference.SelectedIndex;
+            if (index < 0 || index >= FpsPresets.Length)
+            {
+                return;
+            }
+
+            _fpsReference = FpsPresets[index];
+            var settings = SettingsService.Instance.Current;
+            if (settings.StressFpsReference != _fpsReference)
+            {
+                settings.StressFpsReference = _fpsReference;
+                SettingsService.Instance.Save();
+            }
+
+            UpdateComparisonDisplay();
         }
 
         private static string FormatPhaseText(double temp, double watts, string unit)
@@ -263,7 +405,7 @@ namespace CryoTray.Views
                     X2 = w,
                     Y1 = y,
                     Y2 = y,
-                    Stroke = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                    Stroke = ThemeService.GetBrush("ChartGridBrush"),
                     StrokeThickness = 1
                 };
                 ChartCanvas.Children.Add(line);
@@ -326,6 +468,8 @@ namespace CryoTray.Views
             _testTemps.Clear();
             _testCoolingStates.Clear();
             _recordedSamples.Clear();
+            _lastIterationTotal = 0;
+            _lastIterationSampleSeconds = 0;
             _recordedSamples.Add(TelemetrySample.FromSnapshot(HardwareMonitorService.Instance.CurrentSnapshot));
             BtnExportCsv.IsEnabled = _recordedSamples.Count > 0;
             UpdateComparisonDisplay();
@@ -340,16 +484,26 @@ namespace CryoTray.Views
 
             // Use dedicated BelowNormal OS threads so full CPU load never starves ThreadPool polling.
             int cores = Environment.ProcessorCount;
+            var iterationCounts = new long[cores];
+            _workerIterations = iterationCounts;
             for (int c = 0; c < cores; c++)
             {
+                int workerIndex = c;
                 var worker = new Thread(() =>
                 {
+                    double value = 1.0 + workerIndex;
+                    long iterations = 0;
                     while (!token.IsCancellationRequested)
                     {
-                        double a = Math.Sqrt(12345.6789);
-                        double b = Math.Sin(a);
-                        _ = b;
+                        value = Math.Sqrt(value + 1.0) + Math.Sin(value) * 1e-9;
+                        iterations++;
+                        if ((iterations & 0x3FF) == 0)
+                        {
+                            Volatile.Write(ref iterationCounts[workerIndex], iterations);
+                        }
                     }
+
+                    Volatile.Write(ref iterationCounts[workerIndex], iterations);
                 })
                 {
                     IsBackground = true,
@@ -370,7 +524,7 @@ namespace CryoTray.Views
             _timer.Stop();
 
             BtnStartStop.Content = LocalizationService.Get("Stress_Start");
-            BtnStartStop.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8"));
+            BtnStartStop.Background = ThemeService.GetBrush("AccentBrush");
         }
 
         private void OnLanguageChanged()

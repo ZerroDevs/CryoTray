@@ -557,6 +557,7 @@ namespace CryoTray.Services
                 GpuVramTemp = source.GpuVramTemp,
                 GpuFanRpm = source.GpuFanRpm,
                 Gpus = source.Gpus,
+                Fans = source.Fans,
                 StorageDrives = source.StorageDrives,
                 PawnIoInstalled = source.PawnIoInstalled,
                 CoolingModeActive = source.CoolingModeActive,
@@ -700,6 +701,8 @@ namespace CryoTray.Services
             var cpuSensors = new CpuSensorSet();
             double? motherboardCpuTemp = null;
             var gpus = new List<GpuTelemetry>();
+            var fans = new List<FanTelemetry>();
+            var fanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var drives = new List<DriveTelemetry>();
             int driveIndex = 0;
 
@@ -708,6 +711,15 @@ namespace CryoTray.Services
                 foreach (var hardware in _computer.Hardware)
                 {
                     hardware.Update();
+
+                    if (hardware.HardwareType != HardwareType.Cpu &&
+                        hardware.HardwareType != HardwareType.GpuNvidia &&
+                        hardware.HardwareType != HardwareType.GpuAmd &&
+                        hardware.HardwareType != HardwareType.GpuIntel &&
+                        hardware.HardwareType != HardwareType.Storage)
+                    {
+                        CollectFanSensors(hardware, fans, fanKeys);
+                    }
 
                     if (hardware.HardwareType == HardwareType.Cpu)
                     {
@@ -844,6 +856,7 @@ namespace CryoTray.Services
             PopulateMemoryTelemetry(snapshot);
 
             snapshot.StorageDrives = drives;
+            snapshot.Fans = fans;
             return snapshot;
         }
 
@@ -906,6 +919,52 @@ namespace CryoTray.Services
             snapshot.GpuHotspotTemp = primary.HotspotTemp;
             snapshot.GpuVramTemp = primary.VramTemp;
             snapshot.GpuFanRpm = primary.FanRpm;
+        }
+
+        private static void CollectFanSensors(
+            IHardware hardware,
+            List<FanTelemetry> fans,
+            HashSet<string> seen)
+        {
+            foreach (var sensor in hardware.Sensors)
+            {
+                if (sensor.SensorType != SensorType.Fan || !sensor.Value.HasValue)
+                {
+                    continue;
+                }
+
+                double rpm = sensor.Value.Value;
+                if (!double.IsFinite(rpm) || rpm < 0 || rpm > 20000)
+                {
+                    continue;
+                }
+
+                string name = string.IsNullOrWhiteSpace(sensor.Name)
+                    ? hardware.Name?.Trim() ?? ""
+                    : sensor.Name.Trim();
+                if (name.Length == 0)
+                {
+                    name = "Fan";
+                }
+
+                string key = $"{hardware.Identifier}|{name}";
+                if (!seen.Add(key))
+                {
+                    continue;
+                }
+
+                fans.Add(new FanTelemetry
+                {
+                    Name = name,
+                    Rpm = (int)Math.Round(rpm)
+                });
+            }
+
+            foreach (var sub in hardware.SubHardware)
+            {
+                sub.Update();
+                CollectFanSensors(sub, fans, seen);
+            }
         }
 
         private static GpuTelemetry ReadGpuTelemetry(IHardware hardware)

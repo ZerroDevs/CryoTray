@@ -41,6 +41,12 @@ namespace CryoTray.Models
         public string DisplayName { get; set; } = "";
     }
 
+    public class FanTelemetry
+    {
+        public string Name { get; set; } = "";
+        public int Rpm { get; set; }
+    }
+
     public class CoreTelemetry
     {
         public int Index { get; set; }
@@ -103,6 +109,7 @@ namespace CryoTray.Models
         public double? GpuVramTemp { get; set; }
         public int? GpuFanRpm { get; set; }
         public List<GpuTelemetry> Gpus { get; set; } = new();
+        public List<FanTelemetry> Fans { get; set; } = new();
 
         public List<DriveTelemetry> StorageDrives { get; set; } = new();
         public bool PawnIoInstalled { get; set; } = true;

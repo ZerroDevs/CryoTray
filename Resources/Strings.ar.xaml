@@ -6,6 +6,11 @@
     <sys:String x:Key="Common_On">تشغيل</sys:String>
     <sys:String x:Key="Common_Off">إيقاف</sys:String>
     <sys:String x:Key="Common_Cpu">المعالج</sys:String>
+    <sys:String x:Key="Common_Battery">بطارية</sys:String>
+    <sys:String x:Key="Battery_Charging">تشحن</sys:String>
+    <sys:String x:Key="Battery_Full">ممتلئة</sys:String>
+    <sys:String x:Key="Battery_PluggedIn">موصولة بالطاقة</sys:String>
+    <sys:String x:Key="Battery_OnBattery">على البطارية</sys:String>
     <sys:String x:Key="Common_Gpu">كرت الرسومات</sys:String>
     <sys:String x:Key="Common_Manage">إدارة</sys:String>
     <sys:String x:Key="Common_Unknown">غير معروف</sys:String>
@@ -117,6 +122,10 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_TabAutopilot">الطيار الآلي</sys:String>
     <sys:String x:Key="Settings_TabAbout">حول</sys:String>
     <sys:String x:Key="Settings_Language">اللغة</sys:String>
+    <sys:String x:Key="Settings_Theme">المظهر</sys:String>
+    <sys:String x:Key="Theme_Dark">داكن</sys:String>
+    <sys:String x:Key="Theme_Light">فاتح</sys:String>
+    <sys:String x:Key="Theme_System">النظام</sys:String>
     <sys:String x:Key="Settings_TemperatureUnits">وحدات الحرارة</sys:String>
     <sys:String x:Key="Settings_Celsius">مئوية (°C)</sys:String>
     <sys:String x:Key="Settings_Fahrenheit">فهرنهايت (°F)</sys:String>
@@ -136,6 +145,11 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_HotkeyConflict">تعذر تسجيل {0}. قد يكون مستخدماً من تطبيق آخر.</sys:String>
     <sys:String x:Key="Settings_TemperatureAlerts">تنبيهات الحرارة</sys:String>
     <sys:String x:Key="Settings_MuteAlerts">كتم تنبيهات الحرارة</sys:String>
+    <sys:String x:Key="Settings_FanHealthAlerts">تنبيه عند توقف مروحة كانت تعمل</sys:String>
+    <sys:String x:Key="Settings_FanHealthAlertsDesc">ينبه عندما تهبط مروحة كانت تدور إلى 0 دورة/د أثناء حمل النظام. يتم تجاهل منحنيات التبريد في وضع الخمول.</sys:String>
+    <sys:String x:Key="Settings_FanNames">أسماء المراوح</sys:String>
+    <sys:String x:Key="Settings_FanNamesDesc">أعد تسمية المراوح لهذا التطبيق. اتركه فارغاً لاستخدام اسم المستشعر.</sys:String>
+    <sys:String x:Key="Settings_FanNameAutomation">اسم {0}</sys:String>
     <sys:String x:Key="Settings_TestAlert">إرسال إشعار تجريبي</sys:String>
     <sys:String x:Key="Settings_SystemTrayBadges">شارات شريط المهام</sys:String>
     <sys:String x:Key="Settings_ShowGpuBadge">إظهار حرارة كرت الرسومات في شريط المهام</sys:String>
@@ -174,6 +188,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_OverlayGpuLoad">حمل كرت الرسومات</sys:String>
     <sys:String x:Key="Settings_OverlayGpuPower">استهلاك طاقة كرت الرسومات</sys:String>
     <sys:String x:Key="Settings_OverlayShowRam">استخدام الذاكرة</sys:String>
+    <sys:String x:Key="Settings_ShowBatteryStatus">إظهار نسبة البطارية</sys:String>
+    <sys:String x:Key="Settings_ShowBatteryStatusDesc">يضيف شحن البطارية وحالة الشحن إلى التراكب وتلميح شريط المهام عند وجود بطارية.</sys:String>
     <sys:String x:Key="Settings_DashboardReadouts">قراءات لوحة التحكم</sys:String>
     <sys:String x:Key="Settings_ShowCpuPower">إظهار استهلاك طاقة المعالج</sys:String>
     <sys:String x:Key="Settings_ShowRamRow">إظهار صف استخدام الذاكرة</sys:String>
@@ -183,6 +199,15 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_ShowGpuHotspot">إظهار درجة حرارة النقطة الساخنة لكرت الرسومات</sys:String>
     <sys:String x:Key="Settings_ShowGpuVram">إظهار درجة حرارة VRAM لكرت الرسومات</sys:String>
     <sys:String x:Key="Settings_ShowGpuFan">إظهار سرعة مروحة كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_SystemInfoReadouts">معلومات النظام</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetric">قيمة الشارة</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetricTemperature">الحرارة</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetricLoad">الحمل</sys:String>
+    <sys:String x:Key="Settings_TrayBadgeMetricRam">الذاكرة</sys:String>
+    <sys:String x:Key="Settings_StorageHealthAlerts">تنبيه عند انخفاض صحة القرص</sys:String>
+    <sys:String x:Key="Settings_StorageHealthAlertsDesc">ينبه عندما يصل القرص إلى Worn أو Replace، أو تنخفض صحة SMART بمقدار 10 نقاط. يتم تجاهل الأقراص المستبعدة.</sys:String>
+    <sys:String x:Key="Settings_ShowFanSpeeds">إظهار سرعات مراوح اللوحة الأم</sys:String>
+    <sys:String x:Key="Settings_ShowFanSpeedsDesc">سرعة المراوح للقراءة فقط من برنامج تعريف مستشعرات اللوحة الأم. تُعرض المراوح الدوارة فقط في معلومات النظام.</sys:String>
     <sys:String x:Key="Settings_PowerPlanOff">خطة الطاقة عند إيقاف التبريد</sys:String>
     <sys:String x:Key="Settings_PowerPlanDesc">تُستخدم عند إيقاف وضع التبريد. متوازن هو الافتراضي.</sys:String>
     <sys:String x:Key="Settings_CoolingControls">عناصر تحكم تبريد CryoTray</sys:String>
@@ -213,6 +238,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_RamHotkeyConflictCooling">يتعارض مع اختصار وضع التبريد.</sys:String>
     <sys:String x:Key="Settings_AutopilotEnable">تفعيل الطيار الآلي الذكي (إيقاف وضع التبريد تلقائياً للألعاب والتطبيقات المحددة)</sys:String>
     <sys:String x:Key="Settings_AutopilotPauseFullscreen">إيقاف وضع التبريد تلقائياً أثناء تشغيل الألعاب والتطبيقات بملء الشاشة</sys:String>
+    <sys:String x:Key="Settings_AutopilotForegroundOnly">الإيقاف فقط عندما يكون التطبيق المحدد في المقدمة</sys:String>
+    <sys:String x:Key="Settings_AutopilotForegroundOnlyDesc">لن تُبقي برامج التشغيل في الخلفية وضع التبريد متوقفاً. يجب أن يكون التطبيق المحدد هو النافذة الأمامية.</sys:String>
     <sys:String x:Key="Settings_AutopilotDesc">عند تشغيل تطبيق محدد، يتوقف وضع التبريد للحصول على أقصى أداء، ثم يعود عند إغلاق التطبيق.</sys:String>
     <sys:String x:Key="Settings_AutopilotWhitelist">الألعاب والتطبيقات المسموح بها</sys:String>
     <sys:String x:Key="Settings_AutopilotWhitelistDesc">يتوقف وضع التبريد أثناء تشغيل أي تطبيق من هذه القائمة.</sys:String>
@@ -286,12 +313,20 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Stress_PhaseOn">التبريد مفعّل</sys:String>
     <sys:String x:Key="Stress_PhaseDelta">الفرق</sys:String>
     <sys:String x:Key="Stress_DeltaHint">بدّل التبريد للمقارنة</sys:String>
+    <sys:String x:Key="Stress_PerformanceRetained">الأداء المتبقي: {0}%</sys:String>
+    <sys:String x:Key="Stress_FpsImpact">عند {0} إطار/ث: حوالي {1} إطار/ث (خسارة {2})</sys:String>
+    <sys:String x:Key="Stress_FpsImpactHint">تقدير تقريبي للألعاب المحدودة بالمعالج فقط. قد تكون خسارة الإطارات أقل أو أكثر حسب اللعبة وحدود بطاقة الرسومات وعدد الخيوط وتوزيع الإطارات.</sys:String>
+    <sys:String x:Key="Stress_FpsReferenceAutomation">مرجع معدل الإطارات لتقدير تأثير اللعب</sys:String>
     <sys:String x:Key="Stress_Start">بدء الاختبار</sys:String>
     <sys:String x:Key="Stress_Stop">إيقاف الاختبار</sys:String>
 
     <sys:String x:Key="System_Title">معلومات النظام</sys:String>
     <sys:String x:Key="System_Header">معلومات النظام</sys:String>
     <sys:String x:Key="System_SaveTo">حفظ التقرير</sys:String>
+    <sys:String x:Key="System_Copy">نسخ</sys:String>
+    <sys:String x:Key="System_CopyDiagnostics">نسخ التشخيص</sys:String>
+    <sys:String x:Key="System_Copied">تم النسخ</sys:String>
+    <sys:String x:Key="System_CopyFailed">فشل النسخ</sys:String>
     <sys:String x:Key="System_CloseAutomation">إغلاق معلومات النظام</sys:String>
     <sys:String x:Key="System_Pc">الكمبيوتر</sys:String>
     <sys:String x:Key="System_Processor">المعالج</sys:String>
@@ -306,6 +341,22 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
 تشغيل وضع التبريد</sys:String>
     <sys:String x:Key="System_TempStatsDetail">الأدنى / المتوسط / الأعلى</sys:String>
     <sys:String x:Key="System_TempStatsNoCooling">لا توجد قراءات لوضع التبريد بعد</sys:String>
+    <sys:String x:Key="System_FanSpeeds">سرعات المراوح</sys:String>
+    <sys:String x:Key="System_FanLine">{0}: {1} {2}</sys:String>
+    <sys:String x:Key="System_FanHealth">صحة المراوح</sys:String>
+    <sys:String x:Key="System_FanHealthGpuFan">مروحة كرت الرسومات</sys:String>
+    <sys:String x:Key="System_FanHealthStateWatching">قيد المراقبة</sys:String>
+    <sys:String x:Key="System_FanHealthStateArmed">مفعّل</sys:String>
+    <sys:String x:Key="System_FanHealthStateIdle">خامل عند 0 دورة/د</sys:String>
+    <sys:String x:Key="System_FanHealthStateStopped">متوقف</sys:String>
+    <sys:String x:Key="System_FanHealthArming">يفعّل بعد {0} ثانية</sys:String>
+    <sys:String x:Key="System_FanHealthStopPending">تنبيه بعد {0} ثانية</sys:String>
+    <sys:String x:Key="System_FanHealthLastAlert">آخر تنبيه: {0}</sys:String>
+    <sys:String x:Key="System_FanHealthNoData">لا توجد مستشعرات مراوح.</sys:String>
+    <sys:String x:Key="System_FanHealthHideIdle">إخفاء المراوح الخاملة</sys:String>
+    <sys:String x:Key="System_FanHealthNoActive">لا توجد مراوح تعمل. أزل تحديد إخفاء الخاملة لعرض جميع المراوح.</sys:String>
+    <sys:String x:Key="System_FanHealthDisabled">تنبيهات صحة المراوح معطلة في الإعدادات &gt; عام.</sys:String>
+    <sys:String x:Key="System_TestFanAlert">اختبار إشعار المروحة</sys:String>
     <sys:String x:Key="System_Monitors">الشاشات</sys:String>
     <sys:String x:Key="System_Network">الشبكة</sys:String>
     <sys:String x:Key="System_SystemErrors">أخطاء النظام</sys:String>
@@ -343,6 +394,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Tray_CpuTooltip">المعالج: {0}{1} (التبريد: {2})</sys:String>
     <sys:String x:Key="Tray_CpuTooltipPaused">المعالج: {0}{1} (متوقف {2}د)</sys:String>
     <sys:String x:Key="Tray_MergedTooltip">المعالج {0}{1} • الرسومات {2}{1}</sys:String>
+    <sys:String x:Key="Tray_MergedTooltipMixed">المعالج {0}{1} • الرسومات {2}{3}</sys:String>
+    <sys:String x:Key="Tray_BatteryTooltip">بطارية {0}% · {1}</sys:String>
 
     <sys:String x:Key="Common_Yes">نعم</sys:String>
     <sys:String x:Key="Common_No">لا</sys:String>
@@ -356,6 +409,12 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Alert_Gpu">حرارة كرت الرسومات {0}، أعلى من الحد {1}.</sys:String>
     <sys:String x:Key="Alert_Drive">{0} عند {1}، أعلى من الحد {2}.</sys:String>
     <sys:String x:Key="Alert_DriveName">القرص {0}</sys:String>
+    <sys:String x:Key="Alert_FanTitle">تنبيه مروحة CryoTray</sys:String>
+    <sys:String x:Key="Alert_FanStopped">كانت {0} تدور بسرعة {1} دورة/د ثم توقفت الآن.</sys:String>
+    <sys:String x:Key="Alert_FanTestBody">هذا اختبار لإشعار صحة المراوح.</sys:String>
+    <sys:String x:Key="FanHealth_GpuFan">مروحة كرت الرسومات</sys:String>
+    <sys:String x:Key="Alert_DriveHealthTitle">تنبيه صحة قرص CryoTray</sys:String>
+    <sys:String x:Key="Alert_DriveHealthBody">صحة {0} هي {1}% ({2}).</sys:String>
 
     <sys:String x:Key="Update_NotificationTitle">تحديث CryoTray متاح</sys:String>
     <sys:String x:Key="Update_NotificationBody">الإصدار {0} جاهز. افتح الإعدادات لتثبيته.</sys:String>

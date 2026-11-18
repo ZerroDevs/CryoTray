@@ -37,6 +37,7 @@ namespace CryoTray.Views
         private string _coolingOnFrameColor = App.DefaultCoolingOnFrameColor;
         private string _coolingOffFrameColor = App.DefaultCoolingOffFrameColor;
         private readonly List<DiskDriveControlRow> _diskDriveRows = new();
+        private readonly Dictionary<string, TextBox> _fanAliasBoxes = new(StringComparer.OrdinalIgnoreCase);
 
         private sealed class DiskDriveControlRow
         {
@@ -53,16 +54,11 @@ namespace CryoTray.Views
             public Win32WindowOwner(IntPtr handle) => Handle = handle;
         }
 
-        private static readonly Brush WhitelistTextBrush =
-            CreateFrozenBrush(Color.FromRgb(224, 224, 224));
-        private static readonly Brush HotkeyDefaultBorderBrush =
-            CreateFrozenBrush(Color.FromRgb(0x4A, 0x4A, 0x4A));
-        private static readonly Brush HotkeyActiveBorderBrush =
-            CreateFrozenBrush(Color.FromRgb(0x2B, 0x88, 0xD8));
-        private static readonly Brush HotkeyHintBrush =
-            CreateFrozenBrush(Color.FromRgb(0x88, 0x88, 0x88));
-        private static readonly Brush HotkeyWarningBrush =
-            CreateFrozenBrush(Color.FromRgb(0xE5, 0x98, 0x7E));
+        private static Brush WhitelistTextBrush => ThemeService.GetBrush("TextPrimaryBrush");
+        private static Brush HotkeyDefaultBorderBrush => ThemeService.GetBrush("InputBorderBrush");
+        private static Brush HotkeyActiveBorderBrush => ThemeService.GetBrush("AccentBrush");
+        private static Brush HotkeyHintBrush => ThemeService.GetBrush("TextMutedBrush");
+        private static Brush HotkeyWarningBrush => ThemeService.GetBrush("CoolingOffTextBrush");
 
 
         public bool OpenAboutOnLoad { get; set; }
@@ -92,6 +88,7 @@ namespace CryoTray.Views
             Activated += SettingsWindow_Activated;
             Closed += SettingsWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+            ThemeService.ThemeChanged += OnThemeChanged;
         }
 
         private void SettingsWindow_Closed(object? sender, EventArgs e)
@@ -101,6 +98,7 @@ namespace CryoTray.Views
             HardwareMonitorService.Instance.TelemetryUpdated -= OnSettingsTelemetryUpdated;
             SettingsService.Instance.SettingsChanged -= OnExternalSettingsChanged;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            ThemeService.ThemeChanged -= OnThemeChanged;
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
             _updateCancellation = null;
@@ -207,6 +205,9 @@ namespace CryoTray.Views
             // Language
             CmbLanguage.SelectedIndex = s.Language == "العربية" ? 1 : 0;
 
+            // Theme
+            CmbTheme.SelectedIndex = s.Theme == "Light" ? 1 : s.Theme == "System" ? 2 : 0;
+
             // Temperature Units
             CmbTempUnits.SelectedIndex = s.TemperatureUnit == "Fahrenheit" ? 1 : 0;
 
@@ -237,13 +238,21 @@ namespace CryoTray.Views
             TxtHotkeyShortcut.Text = GlobalHotkeyService.FormatShortcutDisplay(_hotkeyModifiers, _hotkeyKey);
             TxtHotkeyShortcut.IsEnabled = s.UseHotkey;
             ChkMuteTemperatureAlerts.IsChecked = s.MuteTemperatureAlerts;
+            ChkFanHealthAlerts.IsChecked = s.FanHealthAlertsEnabled;
+            ChkStorageHealthAlerts.IsChecked = s.StorageHealthAlertsEnabled;
+            ChkShowBatteryStatus.IsChecked = s.ShowBatteryStatus;
+            PnlBatterySetting.Visibility = BatteryTelemetryService.Read().HasBattery
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             ChkAutomaticUpdates.IsChecked = s.AutomaticUpdateChecks;
 
             // View Tab
             ChkShowGpuBadge.IsChecked = s.ShowGpuBadge;
+            SelectTrayBadgeMetric(CmbGpuBadgeMetric, s.GpuTrayBadgeMetric);
             RdoGpuBlackDigits.IsChecked = !s.GpuTrayWhiteDigits;
             RdoGpuWhiteDigits.IsChecked = s.GpuTrayWhiteDigits;
             ChkShowCpuBadge.IsChecked = s.ShowCpuBadge;
+            SelectTrayBadgeMetric(CmbCpuBadgeMetric, s.CpuTrayBadgeMetric);
             RdoCpuBlackDigits.IsChecked = !s.CpuTrayWhiteDigits;
             RdoCpuWhiteDigits.IsChecked = s.CpuTrayWhiteDigits;
             ChkMergeTrayIcons.IsChecked = s.MergeTrayIcons;
@@ -273,6 +282,7 @@ namespace CryoTray.Views
             ChkShowGpuHotspot.IsChecked = s.ShowGpuHotspot;
             ChkShowGpuVram.IsChecked = s.ShowGpuVram;
             ChkShowGpuFan.IsChecked = s.ShowGpuFan;
+            ChkShowFanSpeeds.IsChecked = s.ShowFanSpeeds;
 
             // CPU Tab - Display & Cooling Controls
             ChkShowCpuClock.IsChecked = s.ShowCpuClock;
@@ -307,6 +317,7 @@ namespace CryoTray.Views
 
             ChkAutopilotEnabled.IsChecked = s.AutopilotEnabled;
             ChkAutopilotFullscreen.IsChecked = s.AutopilotPauseOnFullscreen;
+            ChkAutopilotForegroundOnly.IsChecked = s.AutopilotForegroundOnly;
             RefreshAutopilotWhitelist();
 
             // CPU, disk, and GPU alert thresholds
@@ -316,6 +327,7 @@ namespace CryoTray.Views
             SldGpuThreshold.Value = s.HighTempThresholdGpu;
             LoadGpuOptions();
             RefreshDiskDriveList();
+            RefreshFanAliasList();
             UpdateDiskControlStates();
             RefreshHotkeyFeedback();
             RefreshRamHotkeyFeedback();
@@ -332,6 +344,7 @@ namespace CryoTray.Views
             ApplyUpdateState();
             RefreshAutopilotWhitelist();
             RefreshDiskDriveListSafely();
+            RefreshFanAliasListSafely();
             RefreshHotkeyFeedback();
             RefreshRamHotkeyFeedback();
         }
@@ -422,8 +435,8 @@ namespace CryoTray.Views
             {
                 var row = new Border
                 {
-                    Background = CreateFrozenBrush(Color.FromRgb(37, 37, 37)),
-                    BorderBrush = CreateFrozenBrush(Color.FromRgb(48, 48, 48)),
+                    Background = ThemeService.GetBrush("CardBackgroundBrush"),
+                    BorderBrush = ThemeService.GetBrush("BorderBrush"),
                     BorderThickness = new Thickness(0, 0, 0, 1),
                     Padding = new Thickness(8, 5, 4, 5)
                 };
@@ -707,6 +720,7 @@ namespace CryoTray.Views
             var s = SettingsService.Instance.Current;
 
             s.Language = CmbLanguage.SelectedIndex == 1 ? "العربية" : "English";
+            s.Theme = CmbTheme.SelectedIndex == 1 ? "Light" : CmbTheme.SelectedIndex == 2 ? "System" : "Dark";
             s.TemperatureUnit = CmbTempUnits.SelectedIndex == 1 ? "Fahrenheit" : "Celsius";
 
             s.ShowComputerName = ChkShowComputerName.IsChecked == true;
@@ -723,12 +737,17 @@ namespace CryoTray.Views
             s.HotkeyModifiers = _hotkeyModifiers;
             s.HotkeyKey = _hotkeyKey;
             s.MuteTemperatureAlerts = ChkMuteTemperatureAlerts.IsChecked == true;
+            s.FanHealthAlertsEnabled = ChkFanHealthAlerts.IsChecked == true;
+            s.StorageHealthAlertsEnabled = ChkStorageHealthAlerts.IsChecked == true;
+            s.ShowBatteryStatus = ChkShowBatteryStatus.IsChecked == true;
             s.AutomaticUpdateChecks = ChkAutomaticUpdates.IsChecked == true;
 
             s.ShowGpuBadge = ChkShowGpuBadge.IsChecked == true;
             s.GpuTrayWhiteDigits = RdoGpuWhiteDigits.IsChecked == true;
             s.ShowCpuBadge = ChkShowCpuBadge.IsChecked == true;
             s.CpuTrayWhiteDigits = RdoCpuWhiteDigits.IsChecked == true;
+            s.CpuTrayBadgeMetric = ReadTrayBadgeMetric(CmbCpuBadgeMetric);
+            s.GpuTrayBadgeMetric = ReadTrayBadgeMetric(CmbGpuBadgeMetric);
             s.MergeTrayIcons = ChkMergeTrayIcons.IsChecked == true;
             s.CoolingOnFrameColor = _coolingOnFrameColor;
             s.CoolingOffFrameColor = _coolingOffFrameColor;
@@ -753,6 +772,7 @@ namespace CryoTray.Views
             s.ShowGpuHotspot = ChkShowGpuHotspot.IsChecked == true;
             s.ShowGpuVram = ChkShowGpuVram.IsChecked == true;
             s.ShowGpuFan = ChkShowGpuFan.IsChecked == true;
+            s.ShowFanSpeeds = ChkShowFanSpeeds.IsChecked == true;
 
             s.ShowCpuClock = ChkShowCpuClock.IsChecked == true;
             s.ShowCpuBaseSpeed = ChkShowCpuBaseSpeed.IsChecked == true;
@@ -781,6 +801,7 @@ namespace CryoTray.Views
 
             s.AutopilotEnabled = ChkAutopilotEnabled.IsChecked == true;
             s.AutopilotPauseOnFullscreen = ChkAutopilotFullscreen.IsChecked == true;
+            s.AutopilotForegroundOnly = ChkAutopilotForegroundOnly.IsChecked == true;
 
             s.HighTempThresholdCpu = (int)SldCpuThreshold.Value;
             s.ShowDiskTemp = ChkShowDiskTemp.IsChecked == true;
@@ -823,6 +844,28 @@ namespace CryoTray.Views
             if (!_isBinding) SaveUiIntoSettings();
         }
 
+        private void CmbTheme_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            if (_isClosed)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                RefreshFanAliasListSafely();
+                RefreshAutopilotWhitelist();
+                RefreshDiskDriveListSafely();
+                RefreshHotkeyFeedback();
+                RefreshRamHotkeyFeedback();
+            }));
+        }
+
         private void BtnTestAlert_Click(object sender, RoutedEventArgs e)
         {
             (System.Windows.Application.Current as App)?.ShowTestNotification();
@@ -844,6 +887,45 @@ namespace CryoTray.Views
             if (!_isBinding) SaveUiIntoSettings();
         }
 
+        private void CmbTrayBadgeMetric_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            SaveUiIntoSettings();
+            UpdateTrayBadgeSampleTexts();
+        }
+
+        private static void SelectTrayBadgeMetric(ComboBox? combo, string? value)
+        {
+            if (combo == null)
+            {
+                return;
+            }
+
+            string normalized = CryoTray.Tray.TrayIconManager.NormalizeBadgeMetric(value).ToString();
+            foreach (var item in combo.Items)
+            {
+                if (item is ComboBoxItem comboItem &&
+                    string.Equals(comboItem.Tag as string, normalized, StringComparison.Ordinal))
+                {
+                    combo.SelectedItem = comboItem;
+                    return;
+                }
+            }
+
+            combo.SelectedIndex = 0;
+        }
+
+        private static string ReadTrayBadgeMetric(ComboBox? combo)
+        {
+            return combo?.SelectedItem is ComboBoxItem item && item.Tag is string tag
+                ? CryoTray.Tray.TrayIconManager.NormalizeBadgeMetric(tag).ToString()
+                : "Temperature";
+        }
+
         private void UpdateTrayBadgeSampleTexts()
         {
             if (TxtSampleGpuBlack == null || TxtSampleCpuOffBlack == null)
@@ -860,15 +942,17 @@ namespace CryoTray.Views
                 PnlCpuBadgeDigits.IsEnabled = ChkShowCpuBadge.IsChecked == true;
             }
 
-            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            var settings = SettingsService.Instance.Current;
+            bool isFahrenheit = settings.TemperatureUnit == "Fahrenheit";
             var snap = HardwareMonitorService.Instance.CurrentSnapshot;
-
-            string cpuSample = double.IsFinite(snap.CpuTemp) && snap.CpuTemp > 0
-                ? ((int)Math.Round(isFahrenheit ? (snap.CpuTemp * 9 / 5) + 32 : snap.CpuTemp)).ToString(CultureInfo.InvariantCulture)
-                : "--";
-            string gpuSample = double.IsFinite(snap.GpuTemp) && snap.GpuTemp > 0
-                ? ((int)Math.Round(isFahrenheit ? (snap.GpuTemp * 9 / 5) + 32 : snap.GpuTemp)).ToString(CultureInfo.InvariantCulture)
-                : "--";
+            var cpuMetric = CryoTray.Tray.TrayIconManager.NormalizeBadgeMetric(settings.CpuTrayBadgeMetric);
+            var gpuMetric = CryoTray.Tray.TrayIconManager.NormalizeBadgeMetric(settings.GpuTrayBadgeMetric);
+            int? cpuValue = CryoTray.Tray.TrayIconManager.ResolveBadgeValue(
+                cpuMetric, snap.CpuTemp, snap.CpuLoad, snap.RamUsagePercent, isFahrenheit);
+            int? gpuValue = CryoTray.Tray.TrayIconManager.ResolveBadgeValue(
+                gpuMetric, snap.GpuTemp, snap.GpuLoad, snap.RamUsagePercent, isFahrenheit);
+            string cpuSample = cpuValue?.ToString(CultureInfo.InvariantCulture) ?? "--";
+            string gpuSample = gpuValue?.ToString(CultureInfo.InvariantCulture) ?? "--";
 
             TxtSampleCpuOffBlack.Text = cpuSample;
             TxtSampleCpuOnBlack.Text = cpuSample;
@@ -1365,6 +1449,148 @@ namespace CryoTray.Views
             TxtRamHotkeyHint.Foreground = HotkeyHintBrush;
         }
 
+        private void RefreshFanAliasListSafely()
+        {
+            bool previousBinding = _isBinding;
+            _isBinding = true;
+            try
+            {
+                RefreshFanAliasList();
+            }
+            finally
+            {
+                _isBinding = previousBinding;
+            }
+        }
+
+        private void RefreshFanAliasList()
+        {
+            if (PnlFanAliases == null)
+            {
+                return;
+            }
+
+            PnlFanAliases.Children.Clear();
+            _fanAliasBoxes.Clear();
+            var statuses = (System.Windows.Application.Current as App)?.FanHealth?.GetStatuses();
+            if (statuses == null || statuses.Count == 0)
+            {
+                PnlFanAliases.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.Get("System_FanHealthNoData"),
+                    Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 4)
+                });
+                return;
+            }
+
+            var aliases = SettingsService.Instance.Current.FanAliases;
+            var labelBrush = ThemeService.GetBrush("TextSecondaryBrush");
+            var boxBackground = ThemeService.GetBrush("InputBackgroundBrush");
+            var boxBorder = ThemeService.GetBrush("InputBorderBrush");
+            foreach (var status in statuses)
+            {
+                var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var label = new TextBlock
+                {
+                    Text = status.IsGpuFan
+                        ? LocalizationService.Get("FanHealth_GpuFan")
+                        : status.Name,
+                    Foreground = labelBrush,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                Grid.SetColumn(label, 0);
+                row.Children.Add(label);
+
+                string alias = aliases != null &&
+                               aliases.TryGetValue(status.Key, out string? value)
+                    ? value
+                    : "";
+                var box = new TextBox
+                {
+                    Text = alias,
+                    Tag = status.Key,
+                    MaxLength = 32,
+                    Height = 26,
+                    Background = boxBackground,
+                    Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
+                    BorderBrush = boxBorder,
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(6, 0, 6, 0),
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    MaxWidth = 220,
+                    ToolTip = LocalizationService.Get("Settings_FanNamesDesc")
+                };
+                AutomationProperties.SetName(
+                    box, LocalizationService.Format("Settings_FanNameAutomation", label.Text));
+                box.LostFocus += FanAliasTextBox_LostFocus;
+                box.PreviewKeyDown += FanAliasTextBox_PreviewKeyDown;
+                Grid.SetColumn(box, 1);
+                row.Children.Add(box);
+                _fanAliasBoxes[status.Key] = box;
+                PnlFanAliases.Children.Add(row);
+            }
+        }
+
+        private void FanAliasTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox box)
+            {
+                SaveFanAlias(box);
+            }
+        }
+
+        private void FanAliasTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter || sender is not TextBox box)
+            {
+                return;
+            }
+
+            SaveFanAlias(box);
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+
+        private void SaveFanAlias(TextBox box)
+        {
+            if (_isBinding || box.Tag is not string key || string.IsNullOrWhiteSpace(key))
+            {
+                return;
+            }
+
+            string alias = (box.Text ?? "")
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Trim();
+            var aliases = SettingsService.Instance.Current.FanAliases ??= new();
+            string current = aliases.TryGetValue(key, out string? value) ? value : "";
+            if (string.Equals(current, alias, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (alias.Length == 0)
+            {
+                aliases.Remove(key);
+            }
+            else
+            {
+                aliases[key] = alias;
+            }
+
+            SettingsService.Instance.Save();
+        }
+
         private void RefreshDiskDriveListSafely()
         {
             bool previousBinding = _isBinding;
@@ -1402,7 +1628,7 @@ namespace CryoTray.Views
 
             TxtNoDrivesDetected.Visibility = Visibility.Collapsed;
             var miniComboStyle = (Style)FindResource("SettingsMiniComboStyle");
-            var dividerBrush = CreateFrozenBrush(Color.FromRgb(42, 42, 42));
+            var dividerBrush = ThemeService.GetBrush("DividerBrush");
 
             for (int i = 0; i < drives.Count; i++)
             {

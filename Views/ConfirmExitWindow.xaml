@@ -20,9 +20,9 @@
 
     <Window.Resources>
         <Style x:Key="DialogButton" TargetType="Button">
-            <Setter Property="Background" Value="#232323"/>
-            <Setter Property="Foreground" Value="#D8D8D8"/>
-            <Setter Property="BorderBrush" Value="#3B3B3B"/>
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -42,11 +42,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#2C2C2C"/>
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#525252"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource BorderStrongBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#1C1C1C"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ActiveBackgroundBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -55,9 +55,9 @@
         </Style>
 
         <Style x:Key="DialogPrimaryButton" TargetType="Button">
-            <Setter Property="Background" Value="#2B88D8"/>
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#2B88D8"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -77,11 +77,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#3A9AE8"/>
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#3A9AE8"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#1E6FAE"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource AccentPressedBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -90,7 +90,7 @@
         </Style>
     </Window.Resources>
 
-    <Border Background="#141414"
+    <Border Background="{DynamicResource WindowBackgroundBrush}"
             BorderBrush="{DynamicResource WindowBorderBrush}"
             BorderThickness="1"
             CornerRadius="6"
@@ -103,14 +103,14 @@
             </Grid.RowDefinitions>
 
             <TextBlock Text="{DynamicResource ExitConfirm_Title}"
-                       Foreground="#FFFFFF"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
                        FontSize="17"
                        FontWeight="SemiBold"
                        TextWrapping="Wrap"/>
 
             <TextBlock Grid.Row="1"
                        Text="{DynamicResource ExitConfirm_Body}"
-                       Foreground="#B8B8B8"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
                        FontSize="13"
                        TextWrapping="Wrap"
                        Margin="0,12,0,22"/>

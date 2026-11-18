@@ -29,6 +29,14 @@ $Version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
 if ([string]::IsNullOrWhiteSpace($Version)) {
     throw "VERSION file is empty: $versionFile"
 }
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "VERSION must contain exactly three numeric parts, for example 0.0.100."
+}
+
+$pawnIoSetup = Join-Path $repoRoot 'Resources\PawnIO_setup.exe'
+if (-not (Test-Path -LiteralPath $pawnIoSetup -PathType Leaf)) {
+    throw "Bundled PawnIO setup not found: $pawnIoSetup"
+}
 if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf)) {
     throw "Project file not found: $projectFile"
 }
@@ -45,7 +53,7 @@ if (Test-Path -LiteralPath $publishDir) {
 }
 
 Write-Host 'Publishing self-contained win-x64 build...'
-& dotnet publish $projectFile -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false "-p:Version=$Version" -o $publishDir
+& dotnet publish $projectFile -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false "-p:Version=$Version" -o $publishDir
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE."
 }

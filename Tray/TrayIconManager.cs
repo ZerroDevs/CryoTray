@@ -58,6 +58,9 @@ namespace CryoTray.Tray
         private DateTime? _coolingPausedUntilUtc;
         private double _lastGpuTemp = double.NaN;
         private double _lastCpuTemp = double.NaN;
+        private double _lastGpuLoad = double.NaN;
+        private double _lastCpuLoad = double.NaN;
+        private double _lastRamPercent = double.NaN;
         private bool _lastCoolingModeActive;
         private string _lastBadgeSignature = "";
         private bool _disposed;
@@ -172,7 +175,8 @@ namespace CryoTray.Tray
                 return;
             }
 
-            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true);
+            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true,
+                _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
         }
 
         public void ApplyLanguage()
@@ -198,7 +202,33 @@ namespace CryoTray.Tray
 
             UpdateDropDownSizes(_contextMenu, MainMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateDropDownSizes(_itemPauseCooling.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
-            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true);
+            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true,
+                _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
+        }
+
+        public void ApplyTheme()
+        {
+            DarkMenuRenderer.ApplyTheme(ThemeService.IsLight);
+            ApplyMenuTheme(_contextMenu);
+            ApplyMenuTheme(_itemPauseCooling.DropDown);
+            _contextMenu.Invalidate(true);
+        }
+
+        private static void ApplyMenuTheme(ToolStripDropDown dropDown)
+        {
+            dropDown.BackColor = DarkMenuRenderer.SurfaceBg;
+            dropDown.ForeColor = DarkMenuRenderer.TextNormal;
+
+            foreach (ToolStripItem item in dropDown.Items)
+            {
+                item.ForeColor = item.Enabled
+                    ? DarkMenuRenderer.TextNormal
+                    : DarkMenuRenderer.TextDisabled;
+                if (item is ToolStripMenuItem menuItem && menuItem.DropDown.Items.Count > 0)
+                {
+                    ApplyMenuTheme(menuItem.DropDown);
+                }
+            }
         }
 
         public void SetCoolingPauseUntil(DateTime? pauseUntilUtc)
@@ -209,7 +239,8 @@ namespace CryoTray.Tray
             }
 
             RefreshPauseMenuText();
-            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive);
+            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, false,
+                _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
         }
 
         private int GetPauseRemainingMinutes()
@@ -425,7 +456,9 @@ namespace CryoTray.Tray
             return bitmap;
         }
 
-        public void UpdateBadges(double gpuTemp, double cpuTemp, bool coolingModeActive, bool force = false)
+        public void UpdateBadges(double gpuTemp, double cpuTemp, bool coolingModeActive,
+            bool force = false, double gpuLoad = double.NaN, double cpuLoad = double.NaN,
+            double ramPercent = double.NaN)
         {
             lock (_renderLock)
             {
@@ -444,27 +477,36 @@ namespace CryoTray.Tray
             }
 
             bool isFahrenheit = settings.TemperatureUnit == "Fahrenheit";
-            string unit = isFahrenheit ? "°F" : "°C";
-            int? gpuInt = double.IsFinite(gpuTemp) && gpuTemp > 0
-                ? (int)Math.Round(isFahrenheit ? (gpuTemp * 9 / 5) + 32 : gpuTemp)
-                : null;
-            int? cpuInt = double.IsFinite(cpuTemp) && cpuTemp > 0
-                ? (int)Math.Round(isFahrenheit ? (cpuTemp * 9 / 5) + 32 : cpuTemp)
-                : null;
+            var battery = BatteryTelemetryService.Read();
+            string batteryText = settings.ShowBatteryStatus && battery.HasBattery
+                ? LocalizationService.Format(
+                    "Tray_BatteryTooltip",
+                    battery.Percent,
+                    BatteryTelemetryService.GetStateLabel(battery))
+                : "";
+            TrayBadgeMetric gpuMetric = NormalizeBadgeMetric(settings.GpuTrayBadgeMetric);
+            TrayBadgeMetric cpuMetric = NormalizeBadgeMetric(settings.CpuTrayBadgeMetric);
+            string gpuUnit = GetBadgeMetricUnit(gpuMetric, isFahrenheit);
+            string cpuUnit = GetBadgeMetricUnit(cpuMetric, isFahrenheit);
+            int? gpuInt = ResolveBadgeValue(gpuMetric, gpuTemp, gpuLoad, ramPercent, isFahrenheit);
+            int? cpuInt = ResolveBadgeValue(cpuMetric, cpuTemp, cpuLoad, ramPercent, isFahrenheit);
             string gpuText = gpuInt.HasValue ? gpuInt.Value.ToString(CultureInfo.InvariantCulture) : "--";
             string cpuText = cpuInt.HasValue ? cpuInt.Value.ToString(CultureInfo.InvariantCulture) : "--";
             int pauseMins = (!_coolingPausedUntilUtc.HasValue || _coolingPausedUntilUtc.Value <= DateTime.UtcNow)
                 ? 0
                 : Math.Max(1, (int)Math.Ceiling((_coolingPausedUntilUtc.Value - DateTime.UtcNow).TotalMinutes));
-            string signature = string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}",
+            string signature = string.Join(
+                "|",
                 gpuText, cpuText, coolingModeActive, settings.MergeTrayIcons,
                 settings.ShowGpuBadge, settings.ShowCpuBadge, isFahrenheit, holdCpu, holdGpu, pauseMins,
-                settings.CpuTrayWhiteDigits, settings.GpuTrayWhiteDigits);
+                settings.CpuTrayWhiteDigits, settings.GpuTrayWhiteDigits,
+                cpuMetric, gpuMetric, cpuUnit, gpuUnit, batteryText);
 
             _lastGpuTemp = gpuTemp;
             _lastCpuTemp = cpuTemp;
+            _lastGpuLoad = gpuLoad;
+            _lastCpuLoad = cpuLoad;
+            _lastRamPercent = ramPercent;
             _lastCoolingModeActive = coolingModeActive;
 
             if (!force && signature == _lastBadgeSignature)
@@ -493,8 +535,12 @@ namespace CryoTray.Tray
                     DrawMergedBadge(cpuInt, gpuInt, mergedCpuBg, mergedGpuBg,
                         settings.CpuTrayWhiteDigits, settings.GpuTrayWhiteDigits);
                     ReplaceCpuIcon();
-                    _cpuIcon.Text = LocalizationService.Format(
-                        "Tray_MergedTooltip", cpuText, unit, gpuText);
+                    string mergedTooltip = string.Equals(cpuUnit, gpuUnit, StringComparison.Ordinal)
+                        ? LocalizationService.Format(
+                            "Tray_MergedTooltip", cpuText, cpuUnit, gpuText)
+                        : LocalizationService.Format(
+                            "Tray_MergedTooltipMixed", cpuText, cpuUnit, gpuText, gpuUnit);
+                    _cpuIcon.Text = ComposeTooltip(mergedTooltip, batteryText);
                 }
                 else
                 {
@@ -511,7 +557,8 @@ namespace CryoTray.Tray
             {
                 DrawSingleBadge(gpuInt, gpuColor, settings.GpuTrayWhiteDigits);
                 ReplaceGpuIcon();
-                _gpuIcon.Text = LocalizationService.Format("Tray_GpuTooltip", gpuText, unit);
+                _gpuIcon.Text = ComposeTooltip(
+                    LocalizationService.Format("Tray_GpuTooltip", gpuText, gpuUnit), batteryText);
             }
             else
             {
@@ -524,15 +571,81 @@ namespace CryoTray.Tray
                 ReplaceCpuIcon();
                 string coolingText = LocalizationService.Get(
                     coolingModeActive ? "Common_On" : "Common_Off");
-                _cpuIcon.Text = pauseMins > 0 && !coolingModeActive
-                    ? LocalizationService.Format("Tray_CpuTooltipPaused", cpuText, unit, pauseMins)
-                    : LocalizationService.Format("Tray_CpuTooltip", cpuText, unit, coolingText);
+                string cpuTooltip = pauseMins > 0 && !coolingModeActive
+                    ? LocalizationService.Format("Tray_CpuTooltipPaused", cpuText, cpuUnit, pauseMins)
+                    : LocalizationService.Format("Tray_CpuTooltip", cpuText, cpuUnit, coolingText);
+                _cpuIcon.Text = ComposeTooltip(cpuTooltip, batteryText);
             }
             else
             {
                 ClearCpuIcon();
             }
             }
+        }
+
+        private static string ComposeTooltip(string baseText, string batteryText)
+        {
+            string text = string.IsNullOrEmpty(batteryText)
+                ? baseText
+                : $"{baseText} | {batteryText}";
+            const int maxLength = 63;
+            return text.Length <= maxLength
+                ? text
+                : text[..(maxLength - 1)] + "…";
+        }
+
+        internal enum TrayBadgeMetric
+        {
+            Temperature,
+            Load,
+            Ram
+        }
+
+        internal static TrayBadgeMetric NormalizeBadgeMetric(string? value)
+        {
+            if (string.Equals(value, "Load", StringComparison.OrdinalIgnoreCase))
+            {
+                return TrayBadgeMetric.Load;
+            }
+
+            if (string.Equals(value, "Ram", StringComparison.OrdinalIgnoreCase))
+            {
+                return TrayBadgeMetric.Ram;
+            }
+
+            return TrayBadgeMetric.Temperature;
+        }
+
+        internal static int? ResolveBadgeValue(TrayBadgeMetric metric, double temperature,
+            double load, double ramPercent, bool isFahrenheit)
+        {
+            double value = metric switch
+            {
+                TrayBadgeMetric.Load => load,
+                TrayBadgeMetric.Ram => ramPercent,
+                _ => double.IsFinite(temperature) && temperature > 0
+                    ? (isFahrenheit ? (temperature * 9 / 5) + 32 : temperature)
+                    : double.NaN
+            };
+
+            if (!double.IsFinite(value))
+            {
+                return null;
+            }
+
+            if (metric == TrayBadgeMetric.Temperature && value <= 0)
+            {
+                return null;
+            }
+
+            return (int)Math.Round(Math.Clamp(value, 0, 999));
+        }
+
+        internal static string GetBadgeMetricUnit(TrayBadgeMetric metric, bool isFahrenheit)
+        {
+            return metric == TrayBadgeMetric.Temperature
+                ? (isFahrenheit ? "°F" : "°C")
+                : "%";
         }
 
         private void DrawSingleBadge(int? temp, Color background, bool whiteDigits)
@@ -731,20 +844,60 @@ namespace CryoTray.Tray
         // Custom owner-drawn renderer avoids .NET 8 ToolStripProfessionalRenderer white ImageMargin and VisualStyle hover overrides.
         private sealed class DarkMenuRenderer : ToolStripRenderer
         {
-            public static readonly Color SurfaceBg = Color.FromArgb(30, 30, 30);
-            public static readonly Color SurfaceBorder = Color.FromArgb(58, 58, 58);
-            public static readonly Color HoverFill = Color.FromArgb(45, 45, 45);
-            public static readonly Color PressedFill = Color.FromArgb(53, 53, 53);
-            public static readonly Color HoverBorder = Color.FromArgb(66, 66, 66);
-            public static readonly Color SeparatorLine = Color.FromArgb(51, 51, 51);
-            public static readonly Color TextNormal = Color.FromArgb(234, 234, 234);
-            public static readonly Color TextSelected = Color.White;
-            public static readonly Color TextDisabled = Color.FromArgb(120, 120, 120);
-            public static readonly Color ChevronNormal = Color.FromArgb(190, 190, 190);
-            public static readonly Color ChevronSelected = Color.White;
-            public static readonly Color CheckBoxFill = Color.FromArgb(20, 20, 20);
-            public static readonly Color CheckBoxUncheckedBorder = Color.FromArgb(120, 120, 120);
-            public static readonly Color CheckBoxCheckedBorder = Color.FromArgb(41, 182, 246);
+            public static Color SurfaceBg = Color.FromArgb(30, 30, 30);
+            public static Color SurfaceBorder = Color.FromArgb(58, 58, 58);
+            public static Color HoverFill = Color.FromArgb(45, 45, 45);
+            public static Color PressedFill = Color.FromArgb(53, 53, 53);
+            public static Color HoverBorder = Color.FromArgb(66, 66, 66);
+            public static Color SeparatorLine = Color.FromArgb(51, 51, 51);
+            public static Color TextNormal = Color.FromArgb(234, 234, 234);
+            public static Color TextSelected = Color.White;
+            public static Color TextDisabled = Color.FromArgb(120, 120, 120);
+            public static Color ChevronNormal = Color.FromArgb(190, 190, 190);
+            public static Color ChevronSelected = Color.White;
+            public static Color CheckBoxFill = Color.FromArgb(20, 20, 20);
+            public static Color CheckBoxUncheckedBorder = Color.FromArgb(120, 120, 120);
+            public static Color CheckBoxCheckedBorder = Color.FromArgb(41, 182, 246);
+            public static Color CheckMarkColor = Color.White;
+
+            public static void ApplyTheme(bool light)
+            {
+                if (light)
+                {
+                    SurfaceBg = Color.FromArgb(255, 255, 255);
+                    SurfaceBorder = Color.FromArgb(207, 199, 186);
+                    HoverFill = Color.FromArgb(240, 237, 231);
+                    PressedFill = Color.FromArgb(232, 228, 220);
+                    HoverBorder = Color.FromArgb(185, 177, 165);
+                    SeparatorLine = Color.FromArgb(221, 215, 205);
+                    TextNormal = Color.FromArgb(28, 26, 23);
+                    TextSelected = Color.FromArgb(28, 26, 23);
+                    TextDisabled = Color.FromArgb(163, 155, 144);
+                    ChevronNormal = Color.FromArgb(92, 86, 77);
+                    ChevronSelected = Color.FromArgb(28, 26, 23);
+                    CheckBoxFill = Color.FromArgb(255, 255, 255);
+                    CheckBoxUncheckedBorder = Color.FromArgb(169, 161, 150);
+                    CheckBoxCheckedBorder = Color.FromArgb(27, 108, 179);
+                    CheckMarkColor = Color.FromArgb(27, 108, 179);
+                    return;
+                }
+
+                SurfaceBg = Color.FromArgb(30, 30, 30);
+                SurfaceBorder = Color.FromArgb(58, 58, 58);
+                HoverFill = Color.FromArgb(45, 45, 45);
+                PressedFill = Color.FromArgb(53, 53, 53);
+                HoverBorder = Color.FromArgb(66, 66, 66);
+                SeparatorLine = Color.FromArgb(51, 51, 51);
+                TextNormal = Color.FromArgb(234, 234, 234);
+                TextSelected = Color.White;
+                TextDisabled = Color.FromArgb(120, 120, 120);
+                ChevronNormal = Color.FromArgb(190, 190, 190);
+                ChevronSelected = Color.White;
+                CheckBoxFill = Color.FromArgb(20, 20, 20);
+                CheckBoxUncheckedBorder = Color.FromArgb(120, 120, 120);
+                CheckBoxCheckedBorder = Color.FromArgb(41, 182, 246);
+                CheckMarkColor = Color.White;
+            }
 
             protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
             {
@@ -808,7 +961,7 @@ namespace CryoTray.Tray
 
                     if (menuItem.Checked)
                     {
-                        using var checkPen = new Pen(Color.White, 1.75f)
+                        using var checkPen = new Pen(CheckMarkColor, 1.75f)
                         {
                             StartCap = LineCap.Round,
                             EndCap = LineCap.Round,

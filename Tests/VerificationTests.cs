@@ -36,6 +36,8 @@ namespace CryoTray.Tests
             allPassed &= TestWindowsXamlInstantiation();
             allPassed &= TestPerCoreTemperaturePolling();
             allPassed &= TestTemperatureAlerts();
+            allPassed &= TestFanHealthWatch();
+            allPassed &= TestStorageHealthWatch();
             allPassed &= TestNoSyntheticFallbacksAndNaNSafety();
             allPassed &= TestCoolingScopedCpuStats();
             allPassed &= TestDriveTelemetryMatching();
@@ -152,6 +154,55 @@ namespace CryoTray.Tests
                 if (string.IsNullOrEmpty(info.ProcessorName)) throw new Exception("ProcessorName empty");
                 if (string.IsNullOrEmpty(info.GraphicsCard)) throw new Exception("GraphicsCard empty");
                 if (string.IsNullOrEmpty(info.OperatingSystem)) throw new Exception("OS empty");
+
+                var diagnosticsData = new SystemInfoData
+                {
+                    PcName = "PRIVATE-PC",
+                    ProcessorName = "Test CPU",
+                    GraphicsCard = "Test GPU",
+                    OperatingSystem = "Test OS"
+                };
+                var diagnosticsSnapshot = new HardwareSnapshot
+                {
+                    CpuName = "Test CPU",
+                    GpuName = "Test GPU",
+                    CpuTemp = 50,
+                    GpuTemp = 51,
+                    CpuLoad = 20,
+                    GpuLoad = 10,
+                    GpuFanRpm = 900,
+                    RamUsedGb = 4,
+                    RamTotalGb = 8,
+                    RamUsagePercent = 50,
+                    StorageDrives = new List<DriveTelemetry>
+                    {
+                        new()
+                        {
+                            DriveLetters = "C:",
+                            SmartHealthPercent = 98,
+                            StatusText = "Good",
+                            SerialNumber = "SERIAL-SECRET",
+                            HardwareIdentifier = "PATH-SECRET"
+                        }
+                    }
+                };
+                var diagnosticsFans = new List<FanHealthStatus>
+                {
+                    new("fan:__diagnostics_test_fan__", "Diagnostics Test Fan", false, 1200,
+                        FanHealthState.Armed, null, DateTime.UtcNow, null)
+                };
+                string diagnostics = SystemInfoQueryService.Instance.GenerateDiagnosticsSnapshot(
+                    diagnosticsData, diagnosticsSnapshot, diagnosticsFans, false);
+                if (!diagnostics.Contains("CryoTray") ||
+                    !diagnostics.Contains("Test CPU") ||
+                    !diagnostics.Contains("Diagnostics Test Fan: 1200 RPM") ||
+                    !diagnostics.Contains("C: 98% (Good)") ||
+                    diagnostics.Contains("PRIVATE-PC") ||
+                    diagnostics.Contains("SERIAL-SECRET") ||
+                    diagnostics.Contains("PATH-SECRET"))
+                {
+                    throw new Exception("Diagnostics snapshot content or privacy mismatch.");
+                }
 
                 Console.WriteLine($"PASSED (PC: {info.PcName}, CPU: {info.ProcessorName}, RAM: {info.Memory}, GPU: {info.GraphicsCard})");
                 return true;
@@ -902,6 +953,15 @@ namespace CryoTray.Tests
                 }
 
                 _ = AutopilotService.IsFullscreen3DOrBorderlessActive(processes);
+
+                if (!AutopilotService.IsWhitelistedProcessName("Game.exe", new[] { "game" }) ||
+                    !AutopilotService.IsWhitelistedProcessName("Game.exe", new[] { "C:\\Games\\Game.exe" }) ||
+                    AutopilotService.IsWhitelistedProcessName("launcher.exe", new[] { "game" }) ||
+                    AutopilotService.IsWhitelistedProcessName("", new[] { "game" }))
+                {
+                    throw new Exception("Whitelisted foreground process matching failed.");
+                }
+
                 Console.WriteLine($"PASSED ({processes.Count} processes scanned)");
                 return true;
             }
@@ -1238,9 +1298,164 @@ namespace CryoTray.Tests
             }
         }
 
+        private static bool TestFanHealthWatch()
+        {
+            Console.Write("[TEST] Fan Health Watch Arming, Idle Guard & Resume Grace... ");
+            var settings = SettingsService.Instance.Current;
+            bool originalSetting = settings.FanHealthAlertsEnabled;
+            try
+            {
+                settings.FanHealthAlertsEnabled = true;
+                var start = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+                var service = new FanHealthService();
+                var alerts = new List<FanStoppedEvent>();
+                service.FanStopped += alerts.Add;
+
+                HardwareSnapshot Snapshot(int rpm, double cpuLoad, int? gpuRpm = null,
+                    double gpuLoad = 0, double gpuTemp = 40) => new()
+                {
+                    CpuLoad = cpuLoad,
+                    GpuLoad = gpuLoad,
+                    CpuTemp = cpuLoad >= 25 ? 70 : 50,
+                    GpuTemp = gpuTemp,
+                    GpuFanRpm = gpuRpm,
+                    Fans = new List<FanTelemetry> { new() { Name = "Chassis Fan", Rpm = rpm } }
+                };
+
+                // A header that never spins must never arm.
+                service.Observe(Snapshot(0, 80), start);
+                service.Observe(Snapshot(0, 80), start.AddMinutes(2));
+                if (alerts.Count != 0)
+                {
+                    throw new Exception("Unconnected fan header armed unexpectedly.");
+                }
+
+                var idleStatus = service.GetStatuses().First();
+                if (idleStatus.State != FanHealthState.IdleAtZero || idleStatus.Rpm != 0)
+                {
+                    throw new Exception("Unconnected fan header did not report the idle state.");
+                }
+
+                // Spin for a full minute, then stop under load.
+                for (int second = 0; second <= 60; second++)
+                {
+                    service.Observe(Snapshot(1000, 80), start.AddSeconds(second));
+                }
+
+                var armedStatus = service.GetStatuses().First();
+                if (armedStatus.State != FanHealthState.Armed || armedStatus.Rpm != 1000)
+                {
+                    throw new Exception("Armed fan did not report the armed state.");
+                }
+
+                service.Observe(Snapshot(0, 80), start.AddSeconds(61));
+                var stoppedStatus = service.GetStatuses().First();
+                if (stoppedStatus.State != FanHealthState.Stopped || stoppedStatus.Rpm != 0)
+                {
+                    throw new Exception("Stopped fan did not report the stopped state.");
+                }
+                service.Observe(Snapshot(0, 80), start.AddSeconds(90));
+                if (alerts.Count != 0)
+                {
+                    throw new Exception("Fan alert fired before 30 seconds.");
+                }
+
+                service.Observe(Snapshot(0, 80), start.AddSeconds(91));
+                if (alerts.Count != 1 ||
+                    alerts[0].FanName != "Chassis Fan" ||
+                    alerts[0].LastRpm != 1000 ||
+                    alerts[0].IsGpuFan)
+                {
+                    throw new Exception("Fan alert did not fire after the 30-second stop window.");
+                }
+
+                var alertedStatus = service.GetStatuses().First();
+                if (!alertedStatus.LastAlertUtc.HasValue)
+                {
+                    throw new Exception("Fan alert did not record its last alert time.");
+                }
+
+                // GPU fans use the GPU load and heat guard, not CPU demand.
+                var gpuService = new FanHealthService();
+                var gpuAlerts = new List<FanStoppedEvent>();
+                gpuService.FanStopped += gpuAlerts.Add;
+                for (int second = 0; second <= 60; second++)
+                {
+                    gpuService.Observe(
+                        Snapshot(0, 5, gpuRpm: 1200, gpuLoad: 80, gpuTemp: 70),
+                        start.AddSeconds(second));
+                }
+
+                gpuService.Observe(
+                    Snapshot(0, 5, gpuRpm: 0, gpuLoad: 80, gpuTemp: 70),
+                    start.AddSeconds(61));
+                gpuService.Observe(
+                    Snapshot(0, 5, gpuRpm: 0, gpuLoad: 80, gpuTemp: 70),
+                    start.AddSeconds(91));
+                if (gpuAlerts.Count != 1 ||
+                    !gpuAlerts[0].IsGpuFan ||
+                    gpuAlerts[0].FanKey != "gpu" ||
+                    gpuAlerts[0].LastRpm != 1200)
+                {
+                    throw new Exception("GPU fan health did not use GPU demand and the GPU fan sensor.");
+                }
+
+                var gpuStatus = gpuService.GetStatuses().First(status => status.IsGpuFan);
+                if (gpuStatus.State != FanHealthState.Stopped || gpuStatus.Rpm != 0)
+                {
+                    throw new Exception("GPU fan did not report its stopped status.");
+                }
+
+                // Idle fan curves are ignored even after they stop.
+                var idleService = new FanHealthService();
+                var idleAlerts = new List<FanStoppedEvent>();
+                idleService.FanStopped += idleAlerts.Add;
+                for (int second = 0; second <= 60; second++)
+                {
+                    idleService.Observe(Snapshot(1000, 5), start.AddSeconds(second));
+                }
+
+                idleService.Observe(Snapshot(0, 5), start.AddSeconds(61));
+                idleService.Observe(Snapshot(0, 5), start.AddSeconds(120));
+                if (idleAlerts.Count != 0)
+                {
+                    throw new Exception("Idle fan stop raised an alert.");
+                }
+
+                // Resume grace clears armed state and suppresses checks.
+                var resumeService = new FanHealthService();
+                var resumeAlerts = new List<FanStoppedEvent>();
+                resumeService.FanStopped += resumeAlerts.Add;
+                for (int second = 0; second <= 60; second++)
+                {
+                    resumeService.Observe(Snapshot(1000, 80), start.AddSeconds(second));
+                }
+
+                resumeService.Resume(start.AddSeconds(60));
+                resumeService.Observe(Snapshot(0, 80), start.AddSeconds(70));
+                resumeService.Observe(Snapshot(0, 80), start.AddSeconds(130));
+                if (resumeAlerts.Count != 0)
+                {
+                    throw new Exception("Resume grace failed to suppress fan checks.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.FanHealthAlertsEnabled = originalSetting;
+            }
+        }
+
         private static bool TestStressCoolingDelta()
         {
-            Console.Write("[TEST] Stress Test Cooling OFF vs ON Delta... ");
+            Console.Write("[TEST] Stress Test Cooling Delta, Throughput & FPS Impact... ");
             try
             {
                 var samples = new List<TelemetrySample>();
@@ -1250,20 +1465,28 @@ namespace CryoTray.Tests
                     {
                         CoolingModeActive = false,
                         CpuTemp = 75 + i,
-                        CpuPowerWatts = 107 + i
+                        CpuPowerWatts = 107 + i,
+                        StressIterationsPerSecond = 1000
                     });
                 }
 
-                // Trailing 5 OFF samples: temps 76..80 (avg 78), watts 108..112 (avg 110)
-                // Add transient cooling-on drop + 5 settled ON samples: temps 46..50 (avg 48), watts 33..37 (avg 35)
-                samples.Add(new TelemetrySample { CoolingModeActive = true, CpuTemp = 72, CpuPowerWatts = 60 });
+                // Trailing 5 OFF samples: temps 76..80 (avg 78), watts 108..112 (avg 110), 1000 iter/s
+                // Add transient cooling-on drop + 5 settled ON samples: temps 46..50 (avg 48), watts 33..37 (avg 35), 900 iter/s
+                samples.Add(new TelemetrySample
+                {
+                    CoolingModeActive = true,
+                    CpuTemp = 72,
+                    CpuPowerWatts = 60,
+                    StressIterationsPerSecond = 500
+                });
                 for (int i = 0; i < 5; i++)
                 {
                     samples.Add(new TelemetrySample
                     {
                         CoolingModeActive = true,
                         CpuTemp = 46 + i,
-                        CpuPowerWatts = 33 + i
+                        CpuPowerWatts = 33 + i,
+                        StressIterationsPerSecond = 900
                     });
                 }
 
@@ -1272,16 +1495,75 @@ namespace CryoTray.Tests
                     Math.Abs(cmpC.OffTemp - 78.0) > 0.01 ||
                     Math.Abs(cmpC.OnTemp - 48.0) > 0.01 ||
                     Math.Abs(cmpC.DeltaTemp - (-30.0)) > 0.01 ||
+                    Math.Abs(cmpC.OffIterationsPerSecond - 1000.0) > 0.01 ||
+                    Math.Abs(cmpC.OnIterationsPerSecond - 900.0) > 0.01 ||
+                    Math.Abs(cmpC.PerformanceRetainedPercent - 90.0) > 0.01 ||
                     Math.Abs(cmpC.DeltaWatts - (-75.0)) > 0.01)
                 {
                     throw new Exception(
-                        $"Celsius delta mismatch: off={cmpC.OffTemp}C/{cmpC.OffWatts}W, on={cmpC.OnTemp}C/{cmpC.OnWatts}W, dT={cmpC.DeltaTemp}, dW={cmpC.DeltaWatts}");
+                        $"Celsius delta mismatch: off={cmpC.OffTemp}C/{cmpC.OffWatts}W/{cmpC.OffIterationsPerSecond}i/s, on={cmpC.OnTemp}C/{cmpC.OnWatts}W/{cmpC.OnIterationsPerSecond}i/s, dT={cmpC.DeltaTemp}, dW={cmpC.DeltaWatts}, perf={cmpC.PerformanceRetainedPercent}%");
                 }
 
                 var cmpF = Views.StressTestWindow.ComputeCoolingComparison(samples, isFahrenheit: true);
                 if (Math.Abs(cmpF.DeltaTemp - (-54.0)) > 0.01)
                 {
                     throw new Exception($"Fahrenheit delta mismatch: expected -54 F, got {cmpF.DeltaTemp}");
+                }
+
+                var fps100 = Views.StressTestWindow.ComputeFpsImpact(84.0);
+                if (fps100.ProjectedFps != 84 || fps100.LostFps != 16)
+                {
+                    throw new Exception(
+                        $"FPS impact at 100 FPS mismatch: projected={fps100.ProjectedFps}, lost={fps100.LostFps}");
+                }
+
+                var fps144 = Views.StressTestWindow.ComputeFpsImpact(84.0, 144);
+                if (fps144.ProjectedFps != 121 || fps144.LostFps != 23)
+                {
+                    throw new Exception(
+                        $"FPS impact at 144 FPS mismatch: projected={fps144.ProjectedFps}, lost={fps144.LostFps}");
+                }
+
+                if (Views.StressTestWindow.FpsPresets.Length != 6 ||
+                    Views.StressTestWindow.NormalizeFpsReference(75) != 100 ||
+                    Views.StressTestWindow.NormalizeFpsReference(240) != 240)
+                {
+                    throw new Exception("FPS preset list or normalization mismatch.");
+                }
+
+                var fps240 = Views.StressTestWindow.ComputeFpsImpact(84.0, 240);
+                if (fps240.ProjectedFps != 202 || fps240.LostFps != 38)
+                {
+                    throw new Exception(
+                        $"FPS impact at 240 FPS mismatch: projected={fps240.ProjectedFps}, lost={fps240.LostFps}");
+                }
+
+                var presetSettings = new AppSettings { StressFpsReference = 165 };
+                string presetJson = System.Text.Json.JsonSerializer.Serialize(presetSettings);
+                var presetRoundTrip = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(presetJson);
+                if (presetRoundTrip?.StressFpsReference != 165)
+                {
+                    throw new Exception("Stress FPS preset did not persist through AppSettings JSON.");
+                }
+
+                var defaultSettings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}");
+                if (defaultSettings?.StressFpsReference != 100)
+                {
+                    throw new Exception("Stress FPS preset default is not 100.");
+                }
+
+                var fpsCapped = Views.StressTestWindow.ComputeFpsImpact(103.0);
+                if (fpsCapped.ProjectedFps != 100 || fpsCapped.LostFps != 0)
+                {
+                    throw new Exception(
+                        $"FPS impact cap mismatch: projected={fpsCapped.ProjectedFps}, lost={fpsCapped.LostFps}");
+                }
+
+                var fpsUnknown = Views.StressTestWindow.ComputeFpsImpact(double.NaN);
+                if (fpsUnknown.ProjectedFps != 0 || fpsUnknown.LostFps != 0)
+                {
+                    throw new Exception(
+                        $"FPS impact NaN mismatch: projected={fpsUnknown.ProjectedFps}, lost={fpsUnknown.LostFps}");
                 }
 
                 Console.WriteLine("PASSED");
@@ -1499,6 +1781,121 @@ namespace CryoTray.Tests
             }
         }
 
+        private static bool TestStorageHealthWatch()
+        {
+            Console.Write("[TEST] Storage Health Watch Transitions, Drops & Cooldown... ");
+            var settings = SettingsService.Instance.Current;
+            bool originalSetting = settings.StorageHealthAlertsEnabled;
+            try
+            {
+                settings.StorageHealthAlertsEnabled = true;
+                var start = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
+                HardwareSnapshot Snapshot(int? health) => new()
+                {
+                    StorageDrives = new List<DriveTelemetry>
+                    {
+                        new()
+                        {
+                            Index = 0,
+                            Model = "Test SSD",
+                            SmartHealthPercent = health,
+                            StatusText = HealthStatus(health),
+                            HardwareIdentifier = "storage-test"
+                        }
+                    }
+                };
+
+                var service = new StorageHealthAlertService();
+                var alerts = new List<StorageHealthAlert>();
+                service.AlertRaised += alerts.Add;
+
+                service.Observe(Snapshot(100), start);
+                if (alerts.Count != 0)
+                {
+                    throw new Exception("Healthy drive raised a storage health alert.");
+                }
+
+                service.Observe(Snapshot(65), start.AddMinutes(1));
+                if (alerts.Count != 1 ||
+                    alerts[0].HealthPercent != 65 ||
+                    alerts[0].PreviousPercent != 100 ||
+                    alerts[0].StatusText != "Worn")
+                {
+                    throw new Exception("Drive did not alert when entering the Worn state.");
+                }
+
+                service.Observe(Snapshot(64), start.AddMinutes(2));
+                if (alerts.Count != 1)
+                {
+                    throw new Exception("An unchanged warning state raised a duplicate alert.");
+                }
+
+                service.Observe(Snapshot(45), start.AddMinutes(12));
+                if (alerts.Count != 2 || alerts[1].StatusText != "Replace")
+                {
+                    throw new Exception("Drive did not alert when entering the Replace state.");
+                }
+
+                var dropService = new StorageHealthAlertService();
+                var dropAlerts = new List<StorageHealthAlert>();
+                dropService.AlertRaised += dropAlerts.Add;
+                dropService.Observe(Snapshot(100), start);
+                dropService.Observe(Snapshot(89), start.AddMinutes(1));
+                if (dropAlerts.Count != 1 ||
+                    dropAlerts[0].PreviousPercent != 100 ||
+                    dropAlerts[0].HealthPercent != 89)
+                {
+                    throw new Exception("A meaningful SMART health drop did not alert.");
+                }
+
+                dropService.Observe(Snapshot(88), start.AddMinutes(2));
+                dropService.Observe(Snapshot(78), start.AddMinutes(3));
+                if (dropAlerts.Count != 1)
+                {
+                    throw new Exception("A drop inside the cooldown raised a duplicate alert.");
+                }
+
+                dropService.Observe(Snapshot(67), start.AddMinutes(13));
+                if (dropAlerts.Count != 2)
+                {
+                    throw new Exception("A new meaningful drop after the cooldown did not alert.");
+                }
+
+                settings.StorageHealthAlertsEnabled = false;
+                var disabledService = new StorageHealthAlertService();
+                var disabledAlerts = new List<StorageHealthAlert>();
+                disabledService.AlertRaised += disabledAlerts.Add;
+                disabledService.Observe(Snapshot(100), start);
+                disabledService.Observe(Snapshot(45), start.AddMinutes(1));
+                if (disabledAlerts.Count != 0)
+                {
+                    throw new Exception("Storage health alerts were not disabled by the setting.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.StorageHealthAlertsEnabled = originalSetting;
+            }
+        }
+
+        private static string HealthStatus(int? percent)
+        {
+            if (!percent.HasValue) return "Unknown";
+            if (percent.Value >= 90) return "Good";
+            if (percent.Value >= 70) return "Fair";
+            if (percent.Value >= 50) return "Worn";
+            return "Replace";
+        }
+
         private static bool TestRamHotkeyAndSettingsPersistence()
         {
             Console.Write("[TEST] RAM Settings Persistence & Dual Hotkey IDs... ");
@@ -1506,6 +1903,7 @@ namespace CryoTray.Tests
             {
                 var sample = new AppSettings
                 {
+                    Theme = "System",
                     RamFreeWorkingSets = false,
                     RamClearStandby = true,
                     RamClearClipboard = true,
@@ -1516,7 +1914,19 @@ namespace CryoTray.Tests
                     AutoRamIntervalHours = 4,
                     UseRamHotkey = true,
                     RamHotkeyModifiers = "Ctrl+Alt",
-                    RamHotkeyKey = "M"
+                    RamHotkeyKey = "M",
+                    ShowFanSpeeds = false,
+                    FanHealthAlertsEnabled = false,
+                    ShowBatteryStatus = false,
+                    FanAliases = new Dictionary<string, string>
+                    {
+                        ["fan:Chassis Fan"] = "Top intake",
+                        ["gpu"] = "Aux fan"
+                    },
+                    StorageHealthAlertsEnabled = false,
+                    AutopilotForegroundOnly = true,
+                    CpuTrayBadgeMetric = "Load",
+                    GpuTrayBadgeMetric = "Ram"
                 };
 
                 string json = System.Text.Json.JsonSerializer.Serialize(sample);
@@ -1533,9 +1943,33 @@ namespace CryoTray.Tests
                     roundTrip.AutoRamIntervalHours != 4 ||
                     !roundTrip.UseRamHotkey ||
                     roundTrip.RamHotkeyModifiers != "Ctrl+Alt" ||
-                    roundTrip.RamHotkeyKey != "M")
+                    roundTrip.RamHotkeyKey != "M" ||
+                    roundTrip.ShowFanSpeeds ||
+                    roundTrip.FanHealthAlertsEnabled ||
+                    roundTrip.ShowBatteryStatus ||
+                    roundTrip.FanAliases["fan:Chassis Fan"] != "Top intake" ||
+                    roundTrip.FanAliases["gpu"] != "Aux fan" ||
+                    roundTrip.StorageHealthAlertsEnabled ||
+                    !roundTrip.AutopilotForegroundOnly ||
+                    roundTrip.CpuTrayBadgeMetric != "Load" ||
+                    roundTrip.GpuTrayBadgeMetric != "Ram" ||
+                    roundTrip.Theme != "System")
                 {
-                    throw new Exception("AppSettings RAM JSON round-trip mismatch.");
+                    throw new Exception("AppSettings health, tray metric, or Autopilot JSON round-trip mismatch.");
+                }
+
+                var defaults = new AppSettings();
+                if (defaults.CpuTrayBadgeMetric != "Temperature" ||
+                    defaults.GpuTrayBadgeMetric != "Temperature" ||
+                    !defaults.ShowBatteryStatus ||
+                    defaults.FanAliases.Count != 0 ||
+                    !defaults.StorageHealthAlertsEnabled ||
+                    defaults.Theme != "Dark" ||
+                    ThemeService.Normalize("Light") != "Light" ||
+                    ThemeService.Normalize("system") != "System" ||
+                    ThemeService.Normalize("unsupported") != "Dark")
+                {
+                    throw new Exception("Unexpected default health, tray metric, or theme settings.");
                 }
 
                 if (GlobalHotkeyService.CoolingHotkeyId == GlobalHotkeyService.RamOptimizeHotkeyId)
@@ -1786,6 +2220,24 @@ namespace CryoTray.Tests
                     {
                         throw new Exception($"Merged split background mismatch: top={topCorner}, bot={botCorner}");
                     }
+                }
+
+                if (TrayIconManager.ResolveBadgeValue(
+                        TrayIconManager.TrayBadgeMetric.Temperature, 50, 10, 20, false) != 50 ||
+                    TrayIconManager.ResolveBadgeValue(
+                        TrayIconManager.TrayBadgeMetric.Temperature, 50, 10, 20, true) != 122 ||
+                    TrayIconManager.ResolveBadgeValue(
+                        TrayIconManager.TrayBadgeMetric.Load, 50, 10, 20, false) != 10 ||
+                    TrayIconManager.ResolveBadgeValue(
+                        TrayIconManager.TrayBadgeMetric.Ram, 50, 10, 20, false) != 20 ||
+                    TrayIconManager.ResolveBadgeValue(
+                        TrayIconManager.TrayBadgeMetric.Load, double.NaN, 0, 20, false) != 0 ||
+                    TrayIconManager.ResolveBadgeValue(
+                        TrayIconManager.TrayBadgeMetric.Load, double.NaN, double.NaN, 20, false).HasValue ||
+                    TrayIconManager.NormalizeBadgeMetric("ram") != TrayIconManager.TrayBadgeMetric.Ram ||
+                    TrayIconManager.NormalizeBadgeMetric("bogus") != TrayIconManager.TrayBadgeMetric.Temperature)
+                {
+                    throw new Exception("Tray badge metric resolution mismatch.");
                 }
 
                 GC.Collect();
@@ -2055,7 +2507,13 @@ namespace CryoTray.Tests
                     GpuPowerWatts = 31,
                     GpuHotspotTemp = 59.0,
                     GpuVramTemp = 52.0,
-                    GpuFanRpm = 1150
+                    GpuFanRpm = 1150,
+                    Fans = new List<FanTelemetry>
+                    {
+                        new() { Name = "CPU Fan", Rpm = 1200 },
+                        new() { Name = "Chassis Fan #1", Rpm = 850 },
+                        new() { Name = "System Fan #1", Rpm = 0 }
+                    }
                 };
                 var cloned = HardwareMonitorService.CloneSnapshot(rich);
                 if (cloned.CpuVendor != rich.CpuVendor ||
@@ -2066,9 +2524,36 @@ namespace CryoTray.Tests
                     cloned.GpuPowerWatts != rich.GpuPowerWatts ||
                     cloned.GpuHotspotTemp != rich.GpuHotspotTemp ||
                     cloned.GpuVramTemp != rich.GpuVramTemp ||
-                    cloned.GpuFanRpm != rich.GpuFanRpm)
+                    cloned.GpuFanRpm != rich.GpuFanRpm ||
+                    cloned.Fans.Count != 3 ||
+                    cloned.Fans[0].Name != "CPU Fan" ||
+                    cloned.Fans[0].Rpm != 1200 ||
+                    cloned.Fans[1].Name != "Chassis Fan #1" ||
+                    cloned.Fans[1].Rpm != 850 ||
+                    cloned.Fans[2].Rpm != 0)
                 {
-                    throw new Exception("CloneSnapshot dropped CpuVendor or GPU telemetry fields.");
+                    throw new Exception("CloneSnapshot dropped CpuVendor, GPU telemetry, or fan telemetry fields.");
+                }
+
+                string fanText = SystemInfoQueryService.FormatFanSpeeds(rich.Fans);
+                if (!fanText.Contains("CPU Fan: 1200 RPM", StringComparison.Ordinal) ||
+                    !fanText.Contains("Chassis Fan #1: 850 RPM", StringComparison.Ordinal))
+                {
+                    throw new Exception($"FormatFanSpeeds unexpected output: '{fanText}'");
+                }
+
+                if (fanText.Contains("System Fan #1", StringComparison.Ordinal))
+                {
+                    throw new Exception("FormatFanSpeeds listed a stopped fan header.");
+                }
+
+                if (SystemInfoQueryService.FormatFanSpeeds(Array.Empty<FanTelemetry>()) != "--" ||
+                    SystemInfoQueryService.FormatFanSpeeds(new List<FanTelemetry>
+                    {
+                        new() { Name = "Idle Fan", Rpm = 0 }
+                    }) != "--")
+                {
+                    throw new Exception("FormatFanSpeeds should return -- when no fan is moving.");
                 }
 
                 var before = HardwareMonitorService.Instance.CurrentSnapshot;

@@ -58,13 +58,13 @@ namespace CryoTray.Views
         private DispatcherTimer? _ramFeedbackTimer;
         private bool _ramTooltipPinned;
 
-        private static readonly Brush SsdHealthGoodBrush = CreateFrozenBrush("#ABD068");
-        private static readonly Brush SsdHealthFairBrush = CreateFrozenBrush("#F3C765");
-        private static readonly Brush SsdHealthWarnBrush = CreateFrozenBrush("#FAAA9A");
-        private static readonly Brush RamFooterMutedBrush = CreateFrozenBrush("#A6A6A6");
-        private static readonly Brush RamFooterTextBrush = CreateFrozenBrush("#B8B8B8");
-        private static readonly Brush RamAccentBrush = CreateFrozenBrush("#29B6F6");
-        private static readonly Brush RamWarnBrush = CreateFrozenBrush("#F3C765");
+        private static Brush SsdHealthGoodBrush => ThemeService.GetBrush("SuccessTextBrush");
+        private static Brush SsdHealthFairBrush => ThemeService.GetBrush("WarningTextBrush");
+        private static Brush SsdHealthWarnBrush => ThemeService.GetBrush("DangerTextBrush");
+        private static Brush RamFooterMutedBrush => ThemeService.GetBrush("RamFooterMutedBrush");
+        private static Brush RamFooterTextBrush => ThemeService.GetBrush("RamFooterTextBrush");
+        private static Brush RamAccentBrush => ThemeService.GetBrush("RamAccentBrush");
+        private static Brush RamWarnBrush => ThemeService.GetBrush("WarningTextBrush");
 
         private static Brush CreateFrozenBrush(string hex)
         {
@@ -235,6 +235,7 @@ namespace CryoTray.Views
             ApplySettings();
             SettingsService.Instance.SettingsChanged += ApplySettings;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+            ThemeService.ThemeChanged += OnThemeChanged;
 
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingModeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
@@ -273,6 +274,7 @@ namespace CryoTray.Views
             CpuCoresPopup.Opened -= CpuCoresPopup_Opened;
             SettingsService.Instance.SettingsChanged -= ApplySettings;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            ThemeService.ThemeChanged -= OnThemeChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingModeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
             MemoryOptimizerService.Instance.OptimizingStateChanged -= OnRamOptimizingStateChanged;
@@ -443,18 +445,10 @@ namespace CryoTray.Views
             Top = workArea.Bottom - Height - 12;
         }
 
-        private static readonly Brush InactiveTitleIconBrush = CreateInactiveTitleIconBrush();
         private SettingsWindow? _settingsWindow;
         private SystemInfoWindow? _systemInfoWindow;
         private StressTestWindow? _stressTestWindow;
         private bool _isChildDialogOpen;
-
-        private static Brush CreateInactiveTitleIconBrush()
-        {
-            var brush = new SolidColorBrush(Color.FromRgb(0xC4, 0xC4, 0xC4));
-            brush.Freeze();
-            return brush;
-        }
 
         private void Window_Deactivated(object? sender, EventArgs e)
         {
@@ -505,7 +499,7 @@ namespace CryoTray.Views
             {
                 // Toggle Switch state: ON (Blue track, white thumb)
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
-                TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8"));
+                TogglePillBorder.Background = ThemeService.GetBrush("AccentBrush");
                 TxtToggleState.Text = LocalizationService.Get("Common_On");
                 TxtToggleState.Foreground = Brushes.White;
                 TxtToggleState.HorizontalAlignment = HorizontalAlignment.Left;
@@ -519,13 +513,13 @@ namespace CryoTray.Views
             {
                 // Toggle Switch state: OFF (Brown track, coral thumb)
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
-                TogglePillBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4A2A1E"));
+                TogglePillBorder.Background = ThemeService.GetBrush("ToggleOffTrackBrush");
                 TxtToggleState.Text = LocalizationService.Get("Common_Off");
-                TxtToggleState.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D9835B"));
+                TxtToggleState.Foreground = ThemeService.GetBrush("ToggleOffTextBrush");
                 TxtToggleState.HorizontalAlignment = HorizontalAlignment.Right;
                 TxtToggleState.Margin = new Thickness(0, 0, 7, 0);
 
-                ToggleThumb.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E68A57"));
+                ToggleThumb.Fill = ThemeService.GetBrush("ToggleOffThumbBrush");
                 ToggleThumb.HorizontalAlignment = HorizontalAlignment.Left;
                 ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
             }
@@ -822,7 +816,7 @@ namespace CryoTray.Views
                 empty.Children.Add(new TextBlock
                 {
                     Text = LocalizationService.Get("Main_StorageUnavailable"),
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#8A8A8A")),
+                    Foreground = ThemeService.GetBrush("TextMutedBrush"),
                     FontSize = 12,
                     VerticalAlignment = VerticalAlignment.Center
                 });
@@ -847,7 +841,7 @@ namespace CryoTray.Views
             SsdRowsContainer.Children.Add(new Rectangle
             {
                 Height = 1,
-                Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#333333")),
+                Fill = ThemeService.GetBrush("DividerBrush"),
                 Margin = new Thickness(0, 1, 0, 1)
             });
         }
@@ -877,7 +871,7 @@ namespace CryoTray.Views
             iconHost.Children.Add(new System.Windows.Shapes.Path
             {
                 Data = Geometry.Parse("M3,5 L23,5 L23,20 L3,20 Z M18,5 L18,20"),
-                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
+                Stroke = ThemeService.GetBrush("TextTitleBrush"),
                 StrokeThickness = 1.2,
                 Stretch = Stretch.Uniform,
                 Width = 20,
@@ -889,7 +883,7 @@ namespace CryoTray.Views
             var badgeText = new TextBlock
             {
                 Text = FormatSsdBadgeText(drive),
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
+                Foreground = ThemeService.GetBrush("TextTitleBrush"),
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -911,7 +905,7 @@ namespace CryoTray.Views
                 {
                     Width = 1,
                     Height = 4,
-                    Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#6A6A6A")),
+                    Fill = ThemeService.GetBrush("TextTertiaryBrush"),
                     Margin = new Thickness(0, line == 1 ? 1 : 0, 0, line == 1 ? 0 : 1)
                 });
             }
@@ -921,7 +915,7 @@ namespace CryoTray.Views
             var rowTitleText = new TextBlock
             {
                 Text = FormatSsdRowLabel(drive),
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
+                Foreground = ThemeService.GetBrush("TextTitleBrush"),
                 FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -944,7 +938,7 @@ namespace CryoTray.Views
 
             var tooltipTitle = new TextBlock
             {
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F0F0")),
+                Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
@@ -952,7 +946,7 @@ namespace CryoTray.Views
             };
             var tooltipHealth = new TextBlock
             {
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B8B8B8")),
+                Foreground = ThemeService.GetBrush("TextSecondaryBrush"),
                 FontSize = 11.5,
                 TextWrapping = TextWrapping.Wrap,
                 MaxWidth = 280,
@@ -1001,7 +995,7 @@ namespace CryoTray.Views
                 chartUnavailableText = new TextBlock
                 {
                     Text = "--",
-                    Foreground = CreateFrozenBrush("#9A9A9A"),
+                    Foreground = ThemeService.GetBrush("TextTertiaryBrush"),
                     FontSize = 10.5,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
@@ -1017,8 +1011,8 @@ namespace CryoTray.Views
                 {
                     Width = 238,
                     Height = 36,
-                    Background = CreateFrozenBrush("#121212"),
-                    BorderBrush = CreateFrozenBrush("#383838"),
+                    Background = ThemeService.GetBrush("InsetBackgroundBrush"),
+                    BorderBrush = ThemeService.GetBrush("BorderStrongBrush"),
                     BorderThickness = new Thickness(1),
                     HorizontalAlignment = HorizontalAlignment.Right,
                     VerticalAlignment = VerticalAlignment.Center,
@@ -1086,8 +1080,8 @@ namespace CryoTray.Views
 
                 valBorder = new Border
                 {
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#242424")),
-                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#303030")),
+                    Background = ThemeService.GetBrush("CardBackgroundBrush"),
+                    BorderBrush = ThemeService.GetBrush("BorderSubtleBrush"),
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(3),
                     Padding = new Thickness(12, 3, 12, 3),
@@ -1096,7 +1090,7 @@ namespace CryoTray.Views
 
                 txtVal = new TextBlock
                 {
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D8D8D8")),
+                    Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
                     FontSize = 12,
                     FontWeight = FontWeights.SemiBold
                 };
@@ -1106,7 +1100,7 @@ namespace CryoTray.Views
                 var unitBorder = new Border
                 {
                     Background = Brushes.Transparent,
-                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4A4A4A")),
+                    BorderBrush = ThemeService.GetBrush("InputBorderBrush"),
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(3),
                     Padding = new Thickness(7, 3, 7, 3)
@@ -1114,7 +1108,7 @@ namespace CryoTray.Views
 
                 txtUnit = new TextBlock
                 {
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9A9A9A")),
+                    Foreground = ThemeService.GetBrush("TextTertiaryBrush"),
                     FontSize = 11,
                     FontWeight = FontWeights.SemiBold
                 };
@@ -1281,7 +1275,7 @@ namespace CryoTray.Views
             canvas.Children.Add(new System.Windows.Shapes.Path
             {
                 Data = CreateSmoothLineGeometry(points),
-                Stroke = CreateFrozenBrush("#BDBDBD"),
+                Stroke = ThemeService.GetBrush("ChartLineBrush"),
                 StrokeThickness = 1.5,
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap = PenLineCap.Round,
@@ -1329,13 +1323,13 @@ namespace CryoTray.Views
             TxtSsdChartTooltipValue.Text = $"{Math.Round(displayTemp)}{unit}";
             TxtSsdChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
 
-            DrawChartHoverMarker(row.ChartHoverCanvas, x, y, height, (Color)ColorConverter.ConvertFromString("#BDBDBD"));
+            DrawChartHoverMarker(row.ChartHoverCanvas, x, y, height, ThemeService.GetColor("ChartLineBrush"));
             ShowChartTooltip(SsdChartTooltip, row.ChartCanvas, x, y, width);
         }
 
         private static void DrawInlineGridLines(Canvas canvas, double w, double h, int horizontalBands, int verticalBands, string strokeHex)
         {
-            Brush brush = CreateFrozenBrush(strokeHex);
+            Brush brush = ThemeService.GetBrush("ChartGridBrush");
             for (int i = 1; i < horizontalBands; i++)
             {
                 double y = (h / horizontalBands) * i;
@@ -1417,7 +1411,7 @@ namespace CryoTray.Views
                         X2 = w,
                         Y1 = y,
                         Y2 = y,
-                        Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#3A3A3A")),
+                        Stroke = ThemeService.GetBrush("ChartGridBrush"),
                         StrokeThickness = 1
                     });
                 }
@@ -1431,7 +1425,7 @@ namespace CryoTray.Views
                         X2 = x,
                         Y1 = 0,
                         Y2 = plotH,
-                        Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")),
+                        Stroke = ThemeService.GetBrush("ChartGridBrush"),
                         StrokeThickness = 1
                     });
                 }
@@ -1677,7 +1671,7 @@ namespace CryoTray.Views
                     X2 = x,
                     Y1 = 0,
                     Y2 = h,
-                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#343434")),
+                    Stroke = ThemeService.GetBrush("ChartGridBrush"),
                     StrokeThickness = 1
                 });
             }
@@ -1688,14 +1682,14 @@ namespace CryoTray.Views
                 X2 = w,
                 Y1 = h / 2,
                 Y2 = h / 2,
-                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#343434")),
+                Stroke = ThemeService.GetBrush("ChartGridBrush"),
                 StrokeThickness = 1
             });
 
             var line = new Polyline
             {
                 Points = linePoints,
-                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#7CB342")),
+                Stroke = ThemeService.GetBrush("GpuAccentBrush"),
                 StrokeThickness = 1.5
             };
             GpuChartCanvas.Children.Add(line);
@@ -1858,8 +1852,8 @@ namespace CryoTray.Views
             TxtCpuChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
 
             Color accent = sample.CoolingModeActive
-                ? (Color)ColorConverter.ConvertFromString("#4FC3F7")
-                : (Color)ColorConverter.ConvertFromString("#E5987E");
+                ? ThemeService.GetColor("CpuAccentBrush")
+                : ThemeService.GetColor("CoolingOffTextBrush");
 
             DrawChartHoverMarker(hoverCanvas, x, y, plotH, accent);
             ShowChartTooltip(CpuChartTooltip, targetCanvas, x, y, width);
@@ -1905,7 +1899,7 @@ namespace CryoTray.Views
                 x,
                 y,
                 height,
-                (Color)ColorConverter.ConvertFromString("#7CB342"));
+                ThemeService.GetColor("GpuAccentBrush"));
             ShowChartTooltip(GpuChartTooltip, GpuChartCanvas, x, y, width);
         }
 
@@ -1919,7 +1913,7 @@ namespace CryoTray.Views
                 X2 = x,
                 Y1 = 0,
                 Y2 = height,
-                Stroke = new SolidColorBrush(Color.FromRgb(165, 165, 165)),
+                Stroke = ThemeService.GetBrush("ChartHoverLineBrush"),
                 StrokeThickness = 1,
                 Opacity = 0.55
             });
@@ -2195,11 +2189,16 @@ namespace CryoTray.Views
             win.Activate();
         }
 
-        public void OpenSystemInfoDialog()
+        public void OpenSystemInfoDialog(string? highlightFanKey = null)
         {
             if (_systemInfoWindow != null)
             {
                 _systemInfoWindow.Activate();
+                if (!string.IsNullOrWhiteSpace(highlightFanKey))
+                {
+                    _systemInfoWindow.HighlightFan(highlightFanKey);
+                }
+
                 return;
             }
 
@@ -2211,6 +2210,10 @@ namespace CryoTray.Views
             UpdateTitleIconStates();
             win.Show();
             win.Activate();
+            if (!string.IsNullOrWhiteSpace(highlightFanKey))
+            {
+                win.HighlightFan(highlightFanKey);
+            }
         }
 
         private void ToggleSystemInfoDialog()
@@ -2262,7 +2265,7 @@ namespace CryoTray.Views
             }
             else
             {
-                icon.SetValue(property, InactiveTitleIconBrush);
+                icon.SetResourceReference(property, "IconBrush");
             }
         }
 
@@ -3018,6 +3021,17 @@ namespace CryoTray.Views
             ApplySettings();
             UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
             UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+        }
+
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _ssdRowSignature = null;
+                UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
+                UpdateTitleIconStates();
+                UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+            }));
         }
 
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
