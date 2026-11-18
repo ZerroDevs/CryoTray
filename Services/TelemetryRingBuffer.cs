@@ -53,7 +53,7 @@ namespace CryoTray.Services
             }
         }
 
-        public (double MinCpu, double AvgCpu, double MaxCpu) GetCpuStats()
+        public (double MinCpu, double AvgCpu, double MaxCpu) GetCpuStats(bool coolingOnly = false)
         {
             lock (_lock)
             {
@@ -62,20 +62,33 @@ namespace CryoTray.Services
                 double min = double.MaxValue;
                 double max = double.MinValue;
                 double sum = 0;
+                int matched = 0;
 
                 for (int i = 0; i < _count; i++)
                 {
-                    double t = _buffer[i].CpuTemp;
+                    TelemetrySample sample = _buffer[i];
+                    if (coolingOnly && !sample.CoolingModeActive)
+                    {
+                        continue;
+                    }
+
+                    double t = sample.CpuTemp;
+                    if (!double.IsFinite(t) || t <= 0)
+                    {
+                        continue;
+                    }
+
                     if (t < min) min = t;
                     if (t > max) max = t;
                     sum += t;
+                    matched++;
                 }
 
-                return (min, sum / _count, max);
+                return matched == 0 ? (0, 0, 0) : (min, sum / matched, max);
             }
         }
 
-        public (double MinGpu, double AvgGpu, double MaxGpu) GetGpuStats()
+        public (double MinGpu, double AvgGpu, double MaxGpu) GetGpuStats(bool coolingOnly = false)
         {
             lock (_lock)
             {
@@ -84,16 +97,29 @@ namespace CryoTray.Services
                 double min = double.MaxValue;
                 double max = double.MinValue;
                 double sum = 0;
+                int matched = 0;
 
                 for (int i = 0; i < _count; i++)
                 {
-                    double t = _buffer[i].GpuTemp;
+                    TelemetrySample sample = _buffer[i];
+                    if (coolingOnly && !sample.CoolingModeActive)
+                    {
+                        continue;
+                    }
+
+                    double t = sample.GpuTemp;
+                    if (!double.IsFinite(t) || t <= 0)
+                    {
+                        continue;
+                    }
+
                     if (t < min) min = t;
                     if (t > max) max = t;
                     sum += t;
+                    matched++;
                 }
 
-                return (min, sum / _count, max);
+                return matched == 0 ? (0, 0, 0) : (min, sum / matched, max);
             }
         }
     }

@@ -108,19 +108,42 @@ namespace CryoTray.Services
             {
                 var drives = new List<StorageInfoItem>();
                 var driveInfos = DriveInfo.GetDrives();
-                int driveIndex = 0;
-                using var driveSearcher = new ManagementObjectSearcher("SELECT Model, Size, Index, DeviceID FROM Win32_DiskDrive");
+                var consumedTelemetry = new HashSet<DriveTelemetry>();
+                using var driveSearcher = new ManagementObjectSearcher("SELECT Model, Size, Index, DeviceID, SerialNumber FROM Win32_DiskDrive");
                 using var driveResults = driveSearcher.Get();
                 foreach (ManagementObject drive in driveResults)
                 {
                     using var driveRow = drive;
-                    string model = drive["Model"]?.ToString()?.Trim() ?? "SSD";
+                    string rawModel = drive["Model"]?.ToString()?.Trim() ?? "";
+                    string rawSerial = drive["SerialNumber"]?.ToString()?.Trim() ?? "";
+                    int? diskIndex = int.TryParse(
+                        drive["Index"]?.ToString(),
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int parsedIndex)
+                        ? parsedIndex
+                        : null;
                     ulong sizeBytes = 0;
                     if (ulong.TryParse(drive["Size"]?.ToString(), out ulong sz)) sizeBytes = sz;
                     double sizeGb = Math.Round(sizeBytes / (1024.0 * 1024.0 * 1024.0), 2);
 
-                    string type = model.ToUpperInvariant().Contains("NVME") || model.ToUpperInvariant().Contains("SSD") ? "SSD" : "HDD";
-                    var driveTelemetry = telemetryDrives.Count > driveIndex ? telemetryDrives[driveIndex] : null;
+                    DriveTelemetry? driveTelemetry = MatchDriveTelemetry(
+                        rawModel,
+                        rawSerial,
+                        diskIndex,
+                        sizeGb,
+                        telemetryDrives,
+                        consumedTelemetry);
+
+                    string type = driveTelemetry?.IsSolidState switch
+                    {
+                        true => "SSD",
+                        false => "HDD",
+                        _ => rawModel.ToUpperInvariant().Contains("NVME") || rawModel.ToUpperInvariant().Contains("SSD")
+                            ? "SSD"
+                            : "HDD"
+                    };
+
                     int? health = driveTelemetry?.SmartHealthPercent;
                     string healthText = health.HasValue
                         ? LocalizationService.Format(
@@ -163,18 +186,21 @@ namespace CryoTray.Services
                     }
                     catch
                     {
-                        // Fallback
+                        // Fallback handled below using telemetry metadata when available.
+                    }
+
+                    if (string.IsNullOrEmpty(letters) &&
+                        !string.IsNullOrWhiteSpace(driveTelemetry?.DriveLetters))
+                    {
+                        letters = driveTelemetry.DriveLetters;
+                        lettersList.AddRange(letters.Split(',')
+                            .Select(letter => letter.Trim().TrimEnd(':'))
+                            .Where(letter => letter.Length > 0));
                     }
 
                     if (string.IsNullOrEmpty(letters))
                     {
-                        letters = drives.Count == 0 ? "C, Z" : "E";
-                    }
-
-                    if (lettersList.Count == 0)
-                    {
-                        lettersList.AddRange(letters.Split(',').Select(letter => letter.Trim())
-                            .Where(letter => letter.Length > 0));
+                        letters = LocalizationService.Get("Common_NotReported");
                     }
 
                     double freeGb = 0;
@@ -206,7 +232,6 @@ namespace CryoTray.Services
                             ? LocalizationService.Format("System_FreeSpace", $"{freeGb:0.00}")
                             : ""
                     });
-                    driveIndex++;
                 }
 
                 if (drives.Count > 0)
@@ -221,25 +246,32 @@ namespace CryoTray.Services
 
             if (info.StorageDevices.Count == 0 && telemetryDrives.Count > 0)
             {
-                info.StorageDevices = telemetryDrives.Select((drive, index) => new StorageInfoItem
+                info.StorageDevices = telemetryDrives.Select((drive, index) =>
                 {
-                    Header = LocalizationService.Get("System_StorageDevice"),
-                    Title = drive.SmartHealthPercent.HasValue
-                        ? LocalizationService.Format(
-                            "System_StorageTitle",
-                            "SSD",
-                            LocalizationService.Format(
-                                "System_HealthFormat",
-                                drive.SmartHealthPercent.Value,
-                                LocalizationService.Health(drive.StatusText)))
-                        : LocalizationService.Format(
-                            "System_StorageTitle",
-                            "SSD",
-                            LocalizationService.Get("Common_Unknown")),
-                    Subtitle = LocalizationService.Format(
-                        "System_StorageSubtitle",
-                        LocalizationService.Format("System_DriveFallback", index + 1),
-                        $"{drive.CapacityGb:0.00}")
+                    string type = drive.IsSolidState == false ? "HDD" : "SSD";
+                    string letters = !string.IsNullOrWhiteSpace(drive.DriveLetters)
+                        ? drive.DriveLetters
+                        : LocalizationService.Format("System_DriveFallback", index + 1);
+                    return new StorageInfoItem
+                    {
+                        Header = LocalizationService.Get("System_StorageDevice"),
+                        Title = drive.SmartHealthPercent.HasValue
+                            ? LocalizationService.Format(
+                                "System_StorageTitle",
+                                type,
+                                LocalizationService.Format(
+                                    "System_HealthFormat",
+                                    drive.SmartHealthPercent.Value,
+                                    LocalizationService.Health(drive.StatusText)))
+                            : LocalizationService.Format(
+                                "System_StorageTitle",
+                                type,
+                                LocalizationService.Get("Common_Unknown")),
+                        Subtitle = LocalizationService.Format(
+                            "System_StorageSubtitle",
+                            letters,
+                            $"{drive.CapacityGb:0.00}")
+                    };
                 }).ToList();
             }
 
@@ -271,7 +303,7 @@ namespace CryoTray.Services
             info.StartupSpeed = QueryBootTime();
 
             // 8. Temp Stats
-            var (min, avg, max) = HardwareMonitorService.Instance.RingBuffer.GetCpuStats();
+            var (min, avg, max) = HardwareMonitorService.Instance.RingBuffer.GetCpuStats(coolingOnly: true);
             if (min > 0 && max > 0)
             {
                 bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
@@ -281,6 +313,10 @@ namespace CryoTray.Services
                     Math.Round(isFahrenheit ? (min * 9 / 5) + 32 : min),
                     Math.Round(isFahrenheit ? (avg * 9 / 5) + 32 : avg),
                     Math.Round(isFahrenheit ? (max * 9 / 5) + 32 : max));
+            }
+            else if (HardwareMonitorService.Instance.RingBuffer.GetCpuStats(coolingOnly: false).MinCpu > 0)
+            {
+                info.TempStats = LocalizationService.Get("System_TempStatsNoCooling");
             }
             else
             {
@@ -307,6 +343,127 @@ namespace CryoTray.Services
                 uptime.Hours,
                 uptime.Minutes,
                 uptime.Seconds);
+        }
+
+        public static DriveTelemetry? MatchDriveTelemetry(
+            string? wmiModel,
+            string? wmiSerial,
+            int? wmiDiskIndex,
+            double wmiSizeGb,
+            IReadOnlyList<DriveTelemetry> candidates,
+            ISet<DriveTelemetry> consumed)
+        {
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            var available = candidates.Where(candidate => !consumed.Contains(candidate)).ToList();
+            if (available.Count == 0)
+            {
+                return null;
+            }
+
+            DriveTelemetry? matched = null;
+            string normSerial = NormalizeAlphaNumeric(wmiSerial);
+            if (!string.IsNullOrEmpty(normSerial))
+            {
+                matched = available.FirstOrDefault(candidate =>
+                {
+                    string candSerial = NormalizeAlphaNumeric(candidate.SerialNumber);
+                    return !string.IsNullOrEmpty(candSerial) &&
+                        string.Equals(candSerial, normSerial, StringComparison.Ordinal);
+                });
+
+                if (matched == null && normSerial.Length >= 6)
+                {
+                    matched = available.FirstOrDefault(candidate =>
+                    {
+                        string candSerial = NormalizeAlphaNumeric(candidate.SerialNumber);
+                        return candSerial.Length >= 6 &&
+                            (normSerial.Contains(candSerial, StringComparison.Ordinal) ||
+                             candSerial.Contains(normSerial, StringComparison.Ordinal));
+                    });
+                }
+            }
+
+            if (matched == null && wmiDiskIndex.HasValue)
+            {
+                matched = available.FirstOrDefault(candidate =>
+                    candidate.PhysicalDriveNumber == wmiDiskIndex.Value);
+            }
+
+            string normModel = NormalizeAlphaNumeric(wmiModel);
+            if (matched == null && !string.IsNullOrEmpty(normModel))
+            {
+                var exactModelMatches = available
+                    .Where(candidate => string.Equals(
+                        NormalizeAlphaNumeric(candidate.Model),
+                        normModel,
+                        StringComparison.Ordinal))
+                    .ToList();
+                if (exactModelMatches.Count > 0)
+                {
+                    matched = SelectClosestByCapacity(exactModelMatches, wmiSizeGb);
+                }
+
+                if (matched == null && normModel.Length >= 4)
+                {
+                    var partialMatches = available
+                        .Where(candidate =>
+                        {
+                            string candModel = NormalizeAlphaNumeric(candidate.Model);
+                            return candModel.Length >= 4 &&
+                                (normModel.Contains(candModel, StringComparison.Ordinal) ||
+                                 candModel.Contains(normModel, StringComparison.Ordinal));
+                        })
+                        .ToList();
+                    if (partialMatches.Count > 0)
+                    {
+                        matched = SelectClosestByCapacity(partialMatches, wmiSizeGb);
+                    }
+                }
+            }
+
+            if (matched != null)
+            {
+                consumed.Add(matched);
+            }
+
+            return matched;
+        }
+
+        private static DriveTelemetry SelectClosestByCapacity(IReadOnlyList<DriveTelemetry> matches, double targetGb)
+        {
+            if (matches.Count == 1 || targetGb <= 0)
+            {
+                return matches[0];
+            }
+
+            return matches
+                .OrderBy(candidate => candidate.CapacityGb > 0
+                    ? Math.Abs(candidate.CapacityGb - targetGb)
+                    : double.MaxValue)
+                .First();
+        }
+
+        private static string NormalizeAlphaNumeric(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "";
+            }
+
+            var sb = new StringBuilder(value.Length);
+            foreach (char ch in value)
+            {
+                if (char.IsLetterOrDigit(ch))
+                {
+                    sb.Append(char.ToUpperInvariant(ch));
+                }
+            }
+
+            return sb.ToString();
         }
 
         private string QueryBootTime()

@@ -50,6 +50,12 @@
     <sys:String x:Key="Main_ManageOverlayAutomation">إدارة التراكب</sys:String>
     <sys:String x:Key="Main_ManageAutopilotAutomation">إدارة الطيار الآلي</sys:String>
     <sys:String x:Key="Main_StorageUnavailable">مستشعرات التخزين غير متوفرة</sys:String>
+    <sys:String x:Key="Main_PawnIoMissing">تعذر العثور على تعريف PawnIO. مستشعرات حرارة المعالج غير متوفرة.</sys:String>
+    <sys:String x:Key="Main_PawnIoAction">تنزيل PawnIO</sys:String>
+    <sys:String x:Key="Main_PawnIoActionAutomation">تثبيت أو تنزيل تعريف PawnIO</sys:String>
+    <sys:String x:Key="Main_CpuSensorsUnavailable">مستشعرات حرارة المعالج غير متوفرة</sys:String>
+    <sys:String x:Key="Main_GpuSensorsUnavailable">مستشعرات حرارة الرسومات غير متوفرة</sys:String>
+    <sys:String x:Key="Main_CoreSensorsUnavailable">مستشعرات حرارة الأنوية غير متوفرة</sys:String>
     <sys:String x:Key="Main_SsdLabel">حرارة SSD</sys:String>
     <sys:String x:Key="Main_SsdHealth">حالة الصحة: {0}% ({1})</sys:String>
     <sys:String x:Key="Main_SsdHealthUnknown">حالة الصحة: غير متوفرة</sys:String>
@@ -141,6 +147,11 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_CpuAlertThreshold">حد تنبيه الحرارة المرتفعة</sys:String>
     <sys:String x:Key="Settings_StoragePrefs">تفضيلات قرص التخزين</sys:String>
     <sys:String x:Key="Settings_GpuPrefs">تفضيلات كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_PawnIoMissing">تعريف المستشعرات PawnIO غير مثبت. ثبّت PawnIO لقراءة حرارة المعالج واللوحة الأم.</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpu">كرت الرسومات الأساسي</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpuDesc">يحدد كرت الرسومات المستخدم في اللوحة والمخطط والتراكب وشارة شريط المهام والتنبيهات.</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpuAuto">تلقائي</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpuAutoNamed">تلقائي ({0})</sys:String>
     <sys:String x:Key="Settings_AboutTagline">أداة مراقبة عتاد وتبريد معالج من شريط المهام.</sys:String>
     <sys:String x:Key="Settings_AboutVersion">الإصدار {0}</sys:String>
     <sys:String x:Key="Settings_Author">تم الإنشاء بواسطة ZeroNuxi | ZerroDevs</sys:String>
@@ -206,6 +217,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="System_TempStats">حرارة الكمبيوتر مع
 تشغيل وضع التبريد</sys:String>
     <sys:String x:Key="System_TempStatsDetail">الأدنى / المتوسط / الأعلى</sys:String>
+    <sys:String x:Key="System_TempStatsNoCooling">لا توجد قراءات لوضع التبريد بعد</sys:String>
     <sys:String x:Key="System_Monitors">الشاشات</sys:String>
     <sys:String x:Key="System_Network">الشبكة</sys:String>
     <sys:String x:Key="System_SystemErrors">أخطاء النظام</sys:String>

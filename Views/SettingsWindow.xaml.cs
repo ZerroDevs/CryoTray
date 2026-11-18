@@ -50,6 +50,7 @@ namespace CryoTray.Views
             InitializeComponent();
             LocalizationService.Instance.ApplyWindow(this);
             Loaded += SettingsWindow_Loaded;
+            Activated += SettingsWindow_Activated;
             Closed += SettingsWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
         }
@@ -57,12 +58,18 @@ namespace CryoTray.Views
         private void SettingsWindow_Closed(object? sender, EventArgs e)
         {
             _isClosed = true;
+            Activated -= SettingsWindow_Activated;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
             _updateCancellation = null;
             Content = null;
             DataContext = null;
+        }
+
+        private void SettingsWindow_Activated(object? sender, EventArgs e)
+        {
+            RefreshPawnIoBanner();
         }
 
         private void SettingsWindow_Loaded(object sender, RoutedEventArgs e)
@@ -78,6 +85,7 @@ namespace CryoTray.Views
             }
 
             ApplyLocalizedText();
+            RefreshPawnIoBanner();
             RefreshRollbackUi();
             _isBinding = false;
         }
@@ -145,6 +153,7 @@ namespace CryoTray.Views
             SldCpuThreshold.Value = s.HighTempThresholdCpu;
             SldDiskThreshold.Value = s.HighTempThresholdDisk;
             SldGpuThreshold.Value = s.HighTempThresholdGpu;
+            LoadGpuOptions();
             UpdateThresholdLabels();
 
             SetUpdateState("Settings_UpdateDefault", "Settings_CheckUpdates");
@@ -161,8 +170,41 @@ namespace CryoTray.Views
         private void OnLanguageChanged()
         {
             LocalizationService.Instance.ApplyWindow(this);
+            RefreshGpuOptionsSafely();
             ApplyLocalizedText();
+            RefreshPawnIoBanner();
             RefreshRollbackUi();
+        }
+
+        private void RefreshGpuOptionsSafely()
+        {
+            bool previousBinding = _isBinding;
+            _isBinding = true;
+            try
+            {
+                LoadGpuOptions();
+            }
+            finally
+            {
+                _isBinding = previousBinding;
+            }
+        }
+
+        private void RefreshPawnIoBanner()
+        {
+            if (PawnIoSettingsBanner == null || _isClosed)
+            {
+                return;
+            }
+
+            PawnIoSettingsBanner.Visibility = HardwareMonitorService.IsPawnIoInstalled()
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        private void BtnInstallPawnIo_Click(object sender, RoutedEventArgs e)
+        {
+            HardwareMonitorService.InstallOrOpenPawnIo();
         }
 
         private void UpdateThresholdLabels()
@@ -460,7 +502,11 @@ namespace CryoTray.Views
             else if (TabView.IsChecked == true) PanelView.Visibility = Visibility.Visible;
             else if (TabCpu.IsChecked == true) PanelCpu.Visibility = Visibility.Visible;
             else if (TabDisk.IsChecked == true) PanelDisk.Visibility = Visibility.Visible;
-            else if (TabGpu.IsChecked == true) PanelGpu.Visibility = Visibility.Visible;
+            else if (TabGpu.IsChecked == true)
+            {
+                PanelGpu.Visibility = Visibility.Visible;
+                RefreshGpuOptionsSafely();
+            }
             else if (TabAutopilot.IsChecked == true)
             {
                 PanelAutopilot.Visibility = Visibility.Visible;
@@ -530,6 +576,7 @@ namespace CryoTray.Views
             s.HighTempThresholdCpu = (int)SldCpuThreshold.Value;
             s.HighTempThresholdDisk = (int)SldDiskThreshold.Value;
             s.HighTempThresholdGpu = (int)SldGpuThreshold.Value;
+            s.PreferredGpuIdentifier = CmbPrimaryGpu?.SelectedValue as string ?? "";
 
             SettingsService.Instance.Save();
 
@@ -559,6 +606,57 @@ namespace CryoTray.Views
         private void CmbNormalPowerPlan_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void CmbPrimaryGpu_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void LoadGpuOptions()
+        {
+            if (CmbPrimaryGpu == null)
+            {
+                return;
+            }
+
+            var currentSnapshot = HardwareMonitorService.Instance.CurrentSnapshot;
+            GpuTelemetry? autoGpu = HardwareMonitorService.SelectPrimaryGpu(currentSnapshot.Gpus, "");
+            string autoLabel = autoGpu != null && !string.IsNullOrWhiteSpace(autoGpu.Name)
+                ? LocalizationService.Format("Settings_PrimaryGpuAutoNamed", autoGpu.Name)
+                : LocalizationService.Get("Settings_PrimaryGpuAuto");
+
+            var choices = new List<PrimaryGpuChoice>
+            {
+                new()
+                {
+                    Identifier = "",
+                    DisplayName = autoLabel
+                }
+            };
+
+            foreach (var option in HardwareMonitorService.Instance.GetAvailableGpus())
+            {
+                choices.Add(new PrimaryGpuChoice
+                {
+                    Identifier = option.Identifier,
+                    DisplayName = option.DisplayName
+                });
+            }
+
+            CmbPrimaryGpu.ItemsSource = choices;
+
+            string savedIdentifier = SettingsService.Instance.Current.PreferredGpuIdentifier ?? "";
+            PrimaryGpuChoice? selected = choices.FirstOrDefault(choice =>
+                string.Equals(choice.Identifier, savedIdentifier, StringComparison.OrdinalIgnoreCase));
+            CmbPrimaryGpu.SelectedItem = selected ?? choices[0];
+        }
+
+        private sealed class PrimaryGpuChoice
+        {
+            public string Identifier { get; init; } = "";
+            public string DisplayName { get; init; } = "";
+            public override string ToString() => DisplayName;
         }
 
         private void LoadNormalPowerPlans()

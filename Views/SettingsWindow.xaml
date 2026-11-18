@@ -328,6 +328,9 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="FooterBorder" Property="Background" Value="#1C1C1C"/>
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="FooterBorder" Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -347,6 +350,7 @@
             SnapsToDevicePixels="True">
     <Grid Margin="24,14,20,26">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -422,8 +426,44 @@
             </WrapPanel>
         </Border>
 
+        <!-- Missing PawnIO Driver Notice -->
+        <Border x:Name="PawnIoSettingsBanner"
+                Grid.Row="2"
+                Background="#261A14"
+                BorderBrush="#7A462D"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="12,8"
+                Margin="0,0,0,14"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Text="{DynamicResource Settings_PawnIoMissing}"
+                           Foreground="#F2DFD5"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           Margin="0,0,12,0"/>
+                <Button x:Name="BtnSettingsInstallPawnIo"
+                        Grid.Column="1"
+                        Content="{DynamicResource Main_PawnIoAction}"
+                        Click="BtnInstallPawnIo_Click"
+                        Style="{StaticResource SettingsFooterButton}"
+                        Background="#2D2D2D"
+                        Foreground="#FFFFFF"
+                        BorderBrush="#5A5A5A"
+                        Padding="10,5"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="{DynamicResource Main_PawnIoActionAutomation}"/>
+            </Grid>
+        </Border>
+
         <!-- Content Area -->
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
             <StackPanel>
                 <!-- GENERAL TAB -->
                 <StackPanel x:Name="PanelGeneral">
@@ -599,6 +639,15 @@
                 <!-- GPU TAB -->
                 <StackPanel x:Name="PanelGpu" Visibility="Collapsed">
                     <TextBlock Text="{DynamicResource Settings_GpuPrefs}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
+                    <TextBlock Text="{DynamicResource Settings_PrimaryGpu}" Foreground="#E0E0E0" FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,4"/>
+                    <TextBlock Text="{DynamicResource Settings_PrimaryGpuDesc}" Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <ComboBox x:Name="CmbPrimaryGpu"
+                              DisplayMemberPath="DisplayName"
+                              SelectedValuePath="Identifier"
+                              AutomationProperties.Name="{DynamicResource Settings_PrimaryGpu}"
+                              Margin="0,0,0,16"
+                              SelectionChanged="CmbPrimaryGpu_SelectionChanged"/>
+                    <Rectangle Height="1" Fill="#262626" Margin="0,2,0,14"/>
                     <TextBlock Text="{DynamicResource Settings_CpuAlertThreshold}" Foreground="#888888" FontSize="12" Margin="0,0,0,6"/>
                     <Grid Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
@@ -759,7 +808,7 @@
         </ScrollViewer>
 
         <!-- Footer Buttons -->
-        <Grid Grid.Row="3" Margin="0,10,0,0">
+        <Grid Grid.Row="4" Margin="0,10,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                 <Button x:Name="BtnExport" Click="BtnExport_Click" Style="{StaticResource SettingsFooterButton}" Margin="0,0,8,0">
                     <StackPanel Orientation="Horizontal">

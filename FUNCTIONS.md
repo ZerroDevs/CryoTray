@@ -17,17 +17,24 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 
 - `CryoTray.Models.CoreTelemetry`: `Index`, `Name` (`CPU00`), `Temperature` (raw C), `DisplayTemp` (rounded C), `IsHottest`.
 - `CryoTray.Models.CoreReadout`: `Text`, `IsHottest`. UI-only popup item.
-- `CryoTray.Models.HardwareSnapshot`: includes `CpuTemp` (display max), `PeakCpuTemp` (raw peak), `MaxCoreTemp`, `CpuCoresTelemetry`.
-- `CryoTray.Models.DriveTelemetry`, `AppSettings`, `SystemInfoData`, `TelemetrySample`.
+- `CryoTray.Models.GpuTelemetry`, `GpuDeviceOption`: per-GPU sensor snapshot and UI dropdown option (`Identifier`, `Name`, `Vendor`, `IsDiscrete`, `DisplayName`).
+- `CryoTray.Models.HardwareSnapshot`: includes `CpuTemp` (`double.NaN` when unavailable), `PeakCpuTemp`, `MaxCoreTemp`, `CpuCoresTelemetry`, `Gpus`, `StorageDrives`, `PawnIoInstalled`.
+- `CryoTray.Models.DriveTelemetry`: includes `PhysicalDriveNumber`, `SerialNumber`, `HardwareIdentifier`, `IsSolidState`, `DriveLetters`, `SmartHealthPercent`, `Temperature` (`double.NaN` when unavailable).
+- `CryoTray.Models.AppSettings`, `SystemInfoData`, `TelemetrySample`.
 
 ## HardwareMonitorService
 
-- `ReadHardware()`: one poll tick. Updates CPU, motherboard, GPU, and storage nodes.
+- `IsPawnIoInstalled()`: checks `HKLM\SYSTEM\CurrentControlSet\Services\PawnIO` without throwing.
+- `InstallOrOpenPawnIo()`: runs bundled `PawnIO_setup.exe` when present or opens `https://pawnio.eu/`.
+- `IsDiscreteGpu(HardwareType, string?)`: classifies NVIDIA, non-APU AMD, and Intel Arc GPUs as discrete.
+- `SelectPrimaryGpu(IReadOnlyList<GpuTelemetry>, string?)`: resolves explicit `PreferredGpuIdentifier` or Auto (discrete GPU priority).
+- `GetAvailableGpus()`: thread-safe snapshot of detected GPU options for `SettingsWindow`.
+- `ReadHardware()`: one poll tick. Updates CPU, motherboard, per-GPU telemetry (`ReadGpuTelemetry`), and storage nodes (`CreateDriveTelemetry` + `ReadDriveMetadata`), reopens LHM if PawnIO becomes installed, and sets `double.NaN` when sensors are absent.
 - `ReadCpuRegistryInfo()`: reads the processor name and nominal MHz from the central processor registry key, avoiding WMI at startup.
 - `CleanCpuName(string)`: removes redundant core-count and Processor suffixes.
-- `ReadHardwareNamesFromLhm()`: fills CPU and GPU names and vendor from the opened LHM hardware list.
+- `ReadHardwareNamesFromLhm()`: fills CPU name from the opened LHM hardware list.
 - `CollectCpuSensors(IReadOnlyList<ISensor>, CpuSensorSet)`: filters invalid temperatures and classifies per-core, package, CCD, load, and clock sensors.
-- `ResolvePeak(CpuSensorSet, double?, double)`: hottest CCD Tdie, then Tctl/Tdie, then hottest CPU reading, then motherboard, then derived fallback.
+- `ResolvePeak(CpuSensorSet, double?)`: hottest CCD Tdie, then Tctl/Tdie, then hottest CPU reading, then motherboard, else `null`.
 - `ResolveFloor(double)`: `peak - 3.5`, clamped, so the bubble keeps a 3.5 C span.
 - `BuildCoreTemperatures(CpuSensorSet, double, int)`: Mode A direct sensors plus Mode B fill.
 - `BuildWeightedTemperatures(CpuSensorSet, double, double, int)`: 70 percent load plus 30 percent clock activity, min-max normalized, scaled between floor and peak.
@@ -36,6 +43,7 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 - `GetKindOrder(string)`: P-Core 0, E-Core 1, Core 2.
 - `UpsertCoreTemperature(...)`, `UpsertCoreValue(...)`: dedupe same core key, keep the higher value.
 - `Start()`, `Stop()`, `Dispose()`, `RingBuffer`, `CurrentSnapshot`, `TelemetryUpdated`.
+- `TelemetryRingBuffer.GetCpuStats(bool coolingOnly = false)` / `GetGpuStats(bool coolingOnly = false)`: compute min/avg/max over finite `> 0` samples, optionally scoped to `CoolingModeActive == true`.
 
 ## MainWindow popup
 
@@ -62,6 +70,8 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 - `MainWindow.SetupFanAnimation()`: starts the six-petal rotor at 3.5 s per turn; `UpdateTheme` changes it to 0.9 s when cooling is active.
 - `MainWindow.ApplyFanTheme(bool)`: sets the ON/OFF tile, rim, petal, and glow colors for the vector fan.
 - `MainWindow.UpdateTheme(bool isCooling, bool animate)`: applies the fan theme, updates the toggle colors and dashboard accent, and redraws the CPU chart.
+- `MainWindow.BtnCoolingToggle_Click(object, RoutedEventArgs)`: accessible `Button` handler for toggling Cooling Mode (`PowerPlanService.Instance.ToggleCoolingMode()`).
+- `MainWindow.BtnCpuTempCores_Click` / `GotKeyboardFocus` / `LostKeyboardFocus`: opens or closes `CpuCoresPopup` on click or keyboard focus cues.
 
 ## Diagnostics
 
@@ -77,8 +87,9 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 
 - `NativeMethods.EmptyWorkingSet(IntPtr)`: asks Windows to trim the process working set.
 - `SystemInfoQueryService.QuerySystemInfo()`: lazy WMI, EDID, boot, and BSOD read. Runs only when System Info opens; disposes each searcher, collection, and row.
-- `TrayIconManager.UpdateBadges(gpuTemp, cpuTemp, coolingModeActive)`: destroys previous icon handles.
-- `TrayIconManager.CreateBadgeIcon(int, Color)`: full-slot 32 px badge, 20 px two-digit Segoe UI Variable Display, 15 px for three digits.
+- `SystemInfoQueryService.MatchDriveTelemetry(...)`: matches WMI drives against LHM `DriveTelemetry` by normalized serial number, `PhysicalDriveNumber`, and model + capacity without positional fallback.
+- `TrayIconManager.UpdateBadges(gpuTemp, cpuTemp, coolingModeActive, force)`: renders numeric or `--` badges, skips identical frames via signature check, and destroys previous icon handles.
 - `MainWindow.DockSideBySide(Window)`: places companion windows beside the dashboard.
+- `SettingsWindow.RefreshGpuOptionsSafely()` / `LoadGpuOptions()` / `RefreshPawnIoBanner()` / `PrimaryGpuChoice.ToString()`: populates Primary GPU selector (with accessible display string) and missing-PawnIO notice.
 - `SystemInfoQueryService.FormatUptime(TimeSpan)`: `d h m s` text.
 - `SystemInfoQueryService.GenerateTextReport(SystemInfoData)`: save-to text report.

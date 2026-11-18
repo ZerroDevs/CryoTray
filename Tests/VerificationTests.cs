@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -6,6 +7,8 @@ using System.Drawing.Text;
 using System.Linq;
 using CryoTray.Models;
 using CryoTray.Services;
+using CryoTray.Tray;
+using LibreHardwareMonitor.Hardware;
 
 namespace CryoTray.Tests
 {
@@ -27,6 +30,11 @@ namespace CryoTray.Tests
             allPassed &= TestWindowsXamlInstantiation();
             allPassed &= TestPerCoreTemperaturePolling();
             allPassed &= TestTemperatureAlerts();
+            allPassed &= TestNoSyntheticFallbacksAndNaNSafety();
+            allPassed &= TestCoolingScopedCpuStats();
+            allPassed &= TestDriveTelemetryMatching();
+            allPassed &= TestMultiGpuSelection();
+            allPassed &= TestPawnIoDetection();
 
             Console.WriteLine("==================================================");
             if (allPassed)
@@ -328,49 +336,316 @@ namespace CryoTray.Tests
                 var hms = HardwareMonitorService.Instance;
                 hms.Start();
 
-                // Poll hardware directly
-                System.Threading.Thread.Sleep(300);
+                System.Threading.Thread.Sleep(400);
                 var snapshot = hms.CurrentSnapshot;
-                if (snapshot == null)
+                if (snapshot == null || snapshot.Timestamp == default)
                 {
-                    // If polling loop hasn't completed first tick, invoke ReadHardware via reflection or wait
                     System.Threading.Thread.Sleep(1200);
                     snapshot = hms.CurrentSnapshot;
                 }
 
                 if (snapshot == null) throw new Exception("CurrentSnapshot is null");
-                if (snapshot.CpuCoresTelemetry.Count < 2) throw new Exception($"Expected multiple CPU cores, got {snapshot.CpuCoresTelemetry.Count}");
 
-                // Validate zero-padded naming (CPU00, CPU01, etc.)
-                for (int i = 0; i < snapshot.CpuCoresTelemetry.Count; i++)
+                if (double.IsFinite(snapshot.PeakCpuTemp) && snapshot.PeakCpuTemp > 0)
                 {
-                    string expectedName = $"CPU{i:D2}";
-                    if (snapshot.CpuCoresTelemetry[i].Name != expectedName)
+                    if (snapshot.CpuCoresTelemetry.Count < 2)
                     {
-                        throw new Exception($"Core {i} name mismatch: expected {expectedName}, got {snapshot.CpuCoresTelemetry[i].Name}");
+                        throw new Exception($"Expected multiple CPU cores, got {snapshot.CpuCoresTelemetry.Count}");
                     }
+
+                    for (int i = 0; i < snapshot.CpuCoresTelemetry.Count; i++)
+                    {
+                        string expectedName = $"CPU{i:D2}";
+                        if (snapshot.CpuCoresTelemetry[i].Name != expectedName)
+                        {
+                            throw new Exception($"Core {i} name mismatch: expected {expectedName}, got {snapshot.CpuCoresTelemetry[i].Name}");
+                        }
+                    }
+
+                    int maxInt = (int)Math.Round(snapshot.CpuCoresTelemetry.Max(c => c.Temperature));
+                    if ((int)Math.Round(snapshot.MaxCoreTemp) != maxInt)
+                    {
+                        throw new Exception($"MaxCoreTemp mismatch: expected {maxInt}, got {snapshot.MaxCoreTemp}");
+                    }
+                    if ((int)Math.Round(snapshot.CpuTemp) != maxInt)
+                    {
+                        throw new Exception($"CpuTemp mismatch: expected {maxInt}, got {snapshot.CpuTemp}");
+                    }
+
+                    int hottestCount = snapshot.CpuCoresTelemetry.Count(c => c.IsHottest);
+                    if (hottestCount < 1) throw new Exception("No core marked as IsHottest");
+
+                    Console.WriteLine($"PASSED ({snapshot.CpuCoresTelemetry.Count} cores, Hottest: {maxInt}°C, {hottestCount} tied hottest)");
+                }
+                else
+                {
+                    if (!double.IsNaN(snapshot.CpuTemp) || snapshot.CpuCoresTelemetry.Count != 0)
+                    {
+                        throw new Exception("Unavailable CPU sensor produced non-NaN temperature or synthetic cores.");
+                    }
+
+                    Console.WriteLine("PASSED (CPU thermal sensors unavailable unelevated; returned NaN without synthetic fallback)");
                 }
 
-                // Validate MaxCoreTemp is highest integer and matches CpuTemp
-                int maxInt = (int)Math.Round(snapshot.CpuCoresTelemetry.Max(c => c.Temperature));
-                if ((int)Math.Round(snapshot.MaxCoreTemp) != maxInt)
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestNoSyntheticFallbacksAndNaNSafety()
+        {
+            Console.Write("[TEST] No Synthetic Fallbacks & NaN Safety... ");
+            try
+            {
+                var snapshot = new HardwareSnapshot();
+                if (!double.IsNaN(snapshot.CpuTemp) ||
+                    !double.IsNaN(snapshot.PeakCpuTemp) ||
+                    !double.IsNaN(snapshot.MaxCoreTemp) ||
+                    !double.IsNaN(snapshot.CpuGhz) ||
+                    !double.IsNaN(snapshot.CpuLoad) ||
+                    !double.IsNaN(snapshot.GpuTemp) ||
+                    !double.IsNaN(snapshot.GpuLoad))
                 {
-                    throw new Exception($"MaxCoreTemp mismatch: expected {maxInt}, got {snapshot.MaxCoreTemp}");
-                }
-                if ((int)Math.Round(snapshot.CpuTemp) != maxInt)
-                {
-                    throw new Exception($"CpuTemp mismatch: expected {maxInt}, got {snapshot.CpuTemp}");
+                    throw new Exception("Default HardwareSnapshot must use double.NaN for unavailable telemetry.");
                 }
 
-                // Validate hottest flag
-                int hottestCount = 0;
-                foreach (var c in snapshot.CpuCoresTelemetry)
+                if (!string.IsNullOrEmpty(snapshot.CpuName) || !string.IsNullOrEmpty(snapshot.GpuName))
                 {
-                    if (c.IsHottest) hottestCount++;
+                    throw new Exception("Default HardwareSnapshot must not contain hardcoded hardware names.");
                 }
-                if (hottestCount < 1) throw new Exception("No core marked as IsHottest");
 
-                Console.WriteLine($"PASSED ({snapshot.CpuCoresTelemetry.Count} cores, Hottest: {maxInt}°C, {hottestCount} tied hottest)");
+                using (var tray = new TrayIconManager())
+                {
+                    tray.UpdateBadges(double.NaN, double.NaN, false, true);
+                    tray.UpdateBadges(double.NaN, 42.0, true, true);
+                }
+
+                var alertService = new TemperatureAlertService();
+                int raised = 0;
+                alertService.AlertRaised += _ => raised++;
+                alertService.Observe(snapshot);
+                if (raised != 0)
+                {
+                    throw new Exception("Alerts must not fire for NaN telemetry.");
+                }
+
+                var partialCpu = new HardwareSnapshot
+                {
+                    MaxCoreTemp = double.NaN,
+                    PeakCpuTemp = 92
+                };
+                var settings = SettingsService.Instance.Current;
+                bool originalMute = settings.MuteTemperatureAlerts;
+                int originalCpu = settings.HighTempThresholdCpu;
+                try
+                {
+                    settings.MuteTemperatureAlerts = false;
+                    settings.HighTempThresholdCpu = 85;
+                    alertService.Observe(partialCpu);
+                }
+                finally
+                {
+                    settings.MuteTemperatureAlerts = originalMute;
+                    settings.HighTempThresholdCpu = originalCpu;
+                }
+
+                if (raised != 1)
+                {
+                    throw new Exception($"Expected alert when PeakCpuTemp is finite and MaxCoreTemp is NaN, got {raised}.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestCoolingScopedCpuStats()
+        {
+            Console.Write("[TEST] Cooling-Scoped CPU Temp Stats & NaN Filtering... ");
+            try
+            {
+                var rb = new TelemetryRingBuffer(16);
+                rb.AddSample(new TelemetrySample { CpuTemp = 70, CoolingModeActive = false });
+                rb.AddSample(new TelemetrySample { CpuTemp = double.NaN, CoolingModeActive = true });
+                rb.AddSample(new TelemetrySample { CpuTemp = 0, CoolingModeActive = true });
+                rb.AddSample(new TelemetrySample { CpuTemp = 50, CoolingModeActive = true });
+                rb.AddSample(new TelemetrySample { CpuTemp = 60, CoolingModeActive = true });
+
+                var allStats = rb.GetCpuStats(coolingOnly: false);
+                if (allStats.MinCpu != 50 || allStats.MaxCpu != 70 || Math.Abs(allStats.AvgCpu - 60) > 0.01)
+                {
+                    throw new Exception($"Unexpected all-sample stats: min={allStats.MinCpu}, avg={allStats.AvgCpu}, max={allStats.MaxCpu}");
+                }
+
+                var coolingStats = rb.GetCpuStats(coolingOnly: true);
+                if (coolingStats.MinCpu != 50 || coolingStats.MaxCpu != 60 || Math.Abs(coolingStats.AvgCpu - 55) > 0.01)
+                {
+                    throw new Exception($"Unexpected cooling-only stats: min={coolingStats.MinCpu}, avg={coolingStats.AvgCpu}, max={coolingStats.MaxCpu}");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestDriveTelemetryMatching()
+        {
+            Console.Write("[TEST] Storage Drive Matching (Serial / Physical Index / Model)... ");
+            try
+            {
+                var driveA = new DriveTelemetry
+                {
+                    Index = 0,
+                    Model = "Argo N512SSD",
+                    SerialNumber = "ARGO2212310000000093",
+                    PhysicalDriveNumber = 1,
+                    SmartHealthPercent = 94,
+                    CapacityGb = 476.9
+                };
+                var driveB = new DriveTelemetry
+                {
+                    Index = 1,
+                    Model = "Argo N512SSD",
+                    SerialNumber = "ARGO2212310000000094",
+                    PhysicalDriveNumber = 0,
+                    SmartHealthPercent = 99,
+                    CapacityGb = 476.9
+                };
+                var indexOnlyDrive = new DriveTelemetry
+                {
+                    Index = 2,
+                    Model = "Samsung SSD 980",
+                    SerialNumber = "",
+                    PhysicalDriveNumber = 3,
+                    SmartHealthPercent = 88,
+                    CapacityGb = 931.5
+                };
+                var modelOnlyDrive = new DriveTelemetry
+                {
+                    Index = 3,
+                    Model = "WDC WD10EZEX",
+                    SerialNumber = "",
+                    PhysicalDriveNumber = null,
+                    SmartHealthPercent = 100,
+                    CapacityGb = 931.5
+                };
+
+                var candidates = new[] { driveA, driveB, indexOnlyDrive, modelOnlyDrive };
+                var consumed = new HashSet<DriveTelemetry>();
+
+                var wmiDisk0 = SystemInfoQueryService.MatchDriveTelemetry(
+                    "Argo N512SSD", "ARGO2212310000000094_00000001.", 0, 476.9, candidates, consumed);
+                var wmiDisk1 = SystemInfoQueryService.MatchDriveTelemetry(
+                    "Argo N512SSD", "ARGO2212310000000093_00000001.", 1, 476.9, candidates, consumed);
+                var wmiDisk3 = SystemInfoQueryService.MatchDriveTelemetry(
+                    "Different Label", "", 3, 931.5, candidates, consumed);
+                var wmiModel = SystemInfoQueryService.MatchDriveTelemetry(
+                    "WDC WD10EZEX", "", 4, 931.5, candidates, consumed);
+                var wmiUnknown = SystemInfoQueryService.MatchDriveTelemetry(
+                    "Crucial P5 Plus", "OTHER9999", 5, 1000.0, candidates, consumed);
+
+                if (!ReferenceEquals(wmiDisk0, driveB) || !ReferenceEquals(wmiDisk1, driveA))
+                {
+                    throw new Exception("Identical-model drives did not match by serial number.");
+                }
+                if (!ReferenceEquals(wmiDisk3, indexOnlyDrive))
+                {
+                    throw new Exception("Drive did not match by physical drive number.");
+                }
+                if (!ReferenceEquals(wmiModel, modelOnlyDrive))
+                {
+                    throw new Exception("Drive did not match by model name.");
+                }
+                if (wmiUnknown != null)
+                {
+                    throw new Exception("Unmatched drive should return null rather than pairing by position.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestMultiGpuSelection()
+        {
+            Console.Write("[TEST] Multi-GPU Discrete Priority & Preference Selection... ");
+            try
+            {
+                var igpu = new GpuTelemetry
+                {
+                    Identifier = "/gpu-amd/0",
+                    Name = "AMD Radeon(TM) Graphics",
+                    Vendor = "AMD",
+                    IsDiscrete = HardwareMonitorService.IsDiscreteGpu(HardwareType.GpuAmd, "AMD Radeon(TM) Graphics"),
+                    Temperature = 39
+                };
+                var dgpu = new GpuTelemetry
+                {
+                    Identifier = "/gpu-nvidia/0",
+                    Name = "NVIDIA GeForce RTX 3060 Ti",
+                    Vendor = "Nvidia",
+                    IsDiscrete = HardwareMonitorService.IsDiscreteGpu(HardwareType.GpuNvidia, "NVIDIA GeForce RTX 3060 Ti"),
+                    Temperature = 45
+                };
+
+                if (igpu.IsDiscrete || !dgpu.IsDiscrete)
+                {
+                    throw new Exception("Discrete vs integrated GPU classification failed.");
+                }
+
+                var autoSelected = HardwareMonitorService.SelectPrimaryGpu(new[] { igpu, dgpu }, "");
+                if (!ReferenceEquals(autoSelected, dgpu))
+                {
+                    throw new Exception("Auto mode must prefer discrete GPU over integrated graphics.");
+                }
+
+                var explicitSelected = HardwareMonitorService.SelectPrimaryGpu(new[] { igpu, dgpu }, "/gpu-amd/0");
+                if (!ReferenceEquals(explicitSelected, igpu))
+                {
+                    throw new Exception("Explicit PreferredGpuIdentifier must select the chosen GPU.");
+                }
+
+                if (HardwareMonitorService.SelectPrimaryGpu(Array.Empty<GpuTelemetry>(), "") != null)
+                {
+                    throw new Exception("Empty GPU list must return null.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestPawnIoDetection()
+        {
+            Console.Write("[TEST] PawnIO Driver Registry Detection... ");
+            try
+            {
+                bool installed = HardwareMonitorService.IsPawnIoInstalled();
+                Console.WriteLine($"PASSED (PawnIO installed: {installed})");
                 return true;
             }
             catch (Exception ex)

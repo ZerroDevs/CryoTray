@@ -51,11 +51,11 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
                     <TextBlock Text="{DynamicResource Stress_CpuTemp}" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
-                    <TextBlock x:Name="TxtTestTemp" Text="37 °C" Foreground="#4FC3F7" FontSize="20" FontWeight="Bold" FlowDirection="LeftToRight"/>
+                    <TextBlock x:Name="TxtTestTemp" Text="-- °C" Foreground="#4FC3F7" FontSize="20" FontWeight="Bold" FlowDirection="LeftToRight"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
                     <TextBlock Text="{DynamicResource Stress_CpuSpeed}" Foreground="#888888" FontSize="10" FontWeight="Bold"/>
-                    <TextBlock x:Name="TxtTestSpeed" Text="3.66 GHz" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" FlowDirection="LeftToRight"/>
+                    <TextBlock x:Name="TxtTestSpeed" Text="-- GHz" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" FlowDirection="LeftToRight"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2">
                     <TextBlock Text="{DynamicResource Stress_Elapsed}" Foreground="#888888" FontSize="10" FontWeight="Bold"/>

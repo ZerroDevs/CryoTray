@@ -50,6 +50,12 @@
     <sys:String x:Key="Main_ManageOverlayAutomation">Manage overlay</sys:String>
     <sys:String x:Key="Main_ManageAutopilotAutomation">Manage autopilot</sys:String>
     <sys:String x:Key="Main_StorageUnavailable">Storage sensors unavailable</sys:String>
+    <sys:String x:Key="Main_PawnIoMissing">PawnIO driver not detected. CPU temperature sensors are unavailable.</sys:String>
+    <sys:String x:Key="Main_PawnIoAction">Get PawnIO</sys:String>
+    <sys:String x:Key="Main_PawnIoActionAutomation">Install or download PawnIO driver</sys:String>
+    <sys:String x:Key="Main_CpuSensorsUnavailable">CPU temperature sensors unavailable</sys:String>
+    <sys:String x:Key="Main_GpuSensorsUnavailable">GPU temperature sensors unavailable</sys:String>
+    <sys:String x:Key="Main_CoreSensorsUnavailable">Per-core temperature sensors unavailable</sys:String>
     <sys:String x:Key="Main_SsdLabel">SSD t°</sys:String>
     <sys:String x:Key="Main_SsdHealth">Health status: {0}% ({1})</sys:String>
     <sys:String x:Key="Main_SsdHealthUnknown">Health status: Not reported</sys:String>
@@ -141,6 +147,11 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_CpuAlertThreshold">High Temperature Alert Threshold</sys:String>
     <sys:String x:Key="Settings_StoragePrefs">Storage Drive Preferences</sys:String>
     <sys:String x:Key="Settings_GpuPrefs">GPU Preferences</sys:String>
+    <sys:String x:Key="Settings_PawnIoMissing">PawnIO sensor driver is not installed. Install PawnIO for CPU and motherboard temperatures.</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpu">Primary GPU</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpuDesc">Selects which GPU drives the dashboard, chart, overlay, tray badge, and alerts.</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpuAuto">Auto</sys:String>
+    <sys:String x:Key="Settings_PrimaryGpuAutoNamed">Auto ({0})</sys:String>
     <sys:String x:Key="Settings_AboutTagline">System tray hardware monitor and CPU cooling utility.</sys:String>
     <sys:String x:Key="Settings_AboutVersion">Version {0}</sys:String>
     <sys:String x:Key="Settings_Author">Created by ZeroNuxi | ZerroDevs</sys:String>
@@ -206,6 +217,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="System_TempStats">PC temperature with
 Cooling Mode on</sys:String>
     <sys:String x:Key="System_TempStatsDetail">min / average / max</sys:String>
+    <sys:String x:Key="System_TempStatsNoCooling">No Cooling Mode samples yet</sys:String>
     <sys:String x:Key="System_Monitors">Monitors</sys:String>
     <sys:String x:Key="System_Network">Network</sys:String>
     <sys:String x:Key="System_SystemErrors">System errors</sys:String>

@@ -1,9 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Management;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,26 +25,40 @@ namespace CryoTray.Services
             @"^CCD\s*\d+\s*\(Tdie\)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private static readonly Regex DiscreteAmdApuNameRegex = new(
+            @"^AMD Radeon(?:\(TM\))?\s+\d+M$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         private static HardwareMonitorService? _instance;
         public static HardwareMonitorService Instance => _instance ??= new HardwareMonitorService();
 
         private Computer? _computer;
         private readonly TelemetryRingBuffer _ringBuffer = new(3600);
         private readonly ProcessorPerformanceReader _processorPerformance = new();
+        private readonly Dictionary<IHardware, CachedDriveMetadata> _driveMetadata = new();
+        private readonly object _gpuListLock = new();
+        private List<GpuDeviceOption> _availableGpus = new();
         private CancellationTokenSource? _cts;
         private bool _isInitialized;
+        private bool _openedWithPawnIo;
 
         public TelemetryRingBuffer RingBuffer => _ringBuffer;
         public HardwareSnapshot CurrentSnapshot { get; private set; } = new();
 
         public event Action<HardwareSnapshot>? TelemetryUpdated;
 
-        private string _cpuName = "CPU";
-        private int _cpuCores = 1;
+        private string _cpuName = "";
+        private int _cpuCores;
         private double _cpuBaseGhz;
         private double _cpuMaxGhz;
-        private string _gpuName = "GPU";
-        private string _gpuVendor = "";
+
+        private sealed class CachedDriveMetadata
+        {
+            public int? PhysicalDriveNumber { get; init; }
+            public string SerialNumber { get; init; } = "";
+            public bool? IsSolidState { get; init; }
+            public string DriveLetters { get; init; } = "";
+        }
 
         private sealed class CpuSensorSet
         {
@@ -150,7 +167,116 @@ namespace CryoTray.Services
                 name = name.Substring(0, name.Length - "Processor".Length).Trim();
             }
 
-            return string.IsNullOrWhiteSpace(name) ? "CPU" : name;
+            return string.IsNullOrWhiteSpace(name) ? "" : name;
+        }
+
+        public static bool IsPawnIoInstalled()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                    @"SYSTEM\CurrentControlSet\Services\PawnIO");
+                return key != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static void InstallOrOpenPawnIo()
+        {
+            try
+            {
+                string[] candidates =
+                {
+                    Path.Combine(AppContext.BaseDirectory, "PawnIO_setup.exe"),
+                    Path.Combine(AppContext.BaseDirectory, "Resources", "PawnIO_setup.exe")
+                };
+
+                foreach (string path in candidates)
+                {
+                    if (File.Exists(path))
+                    {
+                        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                        return;
+                    }
+                }
+
+                Process.Start(new ProcessStartInfo("https://pawnio.eu/") { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"PawnIO launch error: {ex.Message}");
+            }
+        }
+
+        public static bool IsDiscreteGpu(HardwareType type, string? name)
+        {
+            if (type == HardwareType.GpuNvidia)
+            {
+                return true;
+            }
+
+            string trimmed = name?.Trim() ?? "";
+            if (type == HardwareType.GpuAmd)
+            {
+                if (trimmed.Equals("AMD Radeon(TM) Graphics", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.Equals("AMD Radeon Graphics", StringComparison.OrdinalIgnoreCase) ||
+                    DiscreteAmdApuNameRegex.IsMatch(trimmed))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+
+            if (type == HardwareType.GpuIntel)
+            {
+                return trimmed.Contains("Arc", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
+        }
+
+        public static GpuTelemetry? SelectPrimaryGpu(IReadOnlyList<GpuTelemetry> gpus, string? preferredIdentifier)
+        {
+            if (gpus.Count == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(preferredIdentifier))
+            {
+                string target = preferredIdentifier.Trim();
+                var byId = gpus.FirstOrDefault(gpu =>
+                    string.Equals(gpu.Identifier, target, StringComparison.OrdinalIgnoreCase));
+                if (byId != null)
+                {
+                    return byId;
+                }
+
+                var byName = gpus.FirstOrDefault(gpu =>
+                    string.Equals(gpu.Name, target, StringComparison.OrdinalIgnoreCase));
+                if (byName != null)
+                {
+                    return byName;
+                }
+            }
+
+            return gpus.FirstOrDefault(gpu =>
+                       gpu.IsDiscrete && double.IsFinite(gpu.Temperature) && gpu.Temperature > 0)
+                ?? gpus.FirstOrDefault(gpu => gpu.IsDiscrete)
+                ?? gpus.FirstOrDefault(gpu => double.IsFinite(gpu.Temperature) && gpu.Temperature > 0)
+                ?? gpus[0];
+        }
+
+        public IReadOnlyList<GpuDeviceOption> GetAvailableGpus()
+        {
+            lock (_gpuListLock)
+            {
+                return _availableGpus.ToList();
+            }
         }
 
         private void ReadHardwareNamesFromLhm()
@@ -166,19 +292,6 @@ namespace CryoTray.Services
                 {
                     _cpuName = CleanCpuName(hardware.Name);
                 }
-                else if (hardware.HardwareType == HardwareType.GpuNvidia ||
-                         hardware.HardwareType == HardwareType.GpuAmd ||
-                         hardware.HardwareType == HardwareType.GpuIntel)
-                {
-                    if (!string.IsNullOrWhiteSpace(hardware.Name))
-                    {
-                        _gpuName = hardware.Name;
-                    }
-
-                    _gpuVendor = hardware.HardwareType == HardwareType.GpuNvidia ? "Nvidia"
-                        : hardware.HardwareType == HardwareType.GpuAmd ? "AMD"
-                        : "Intel";
-                }
             }
         }
 
@@ -186,6 +299,8 @@ namespace CryoTray.Services
         {
             if (_isInitialized) return;
             _isInitialized = true;
+            _openedWithPawnIo = IsPawnIoInstalled();
+            SettingsService.Instance.SettingsChanged += OnSettingsChanged;
 
             try
             {
@@ -207,6 +322,47 @@ namespace CryoTray.Services
 
             _cts = new CancellationTokenSource();
             Task.Run(() => PollingLoop(_cts.Token));
+        }
+
+        private void OnSettingsChanged()
+        {
+            if (!_isInitialized)
+            {
+                return;
+            }
+
+            HardwareSnapshot current = CurrentSnapshot;
+            if (current.Gpus.Count == 0)
+            {
+                return;
+            }
+
+            var updated = new HardwareSnapshot
+            {
+                CpuName = current.CpuName,
+                CpuCores = current.CpuCores,
+                CpuTemp = current.CpuTemp,
+                PeakCpuTemp = current.PeakCpuTemp,
+                MaxCoreTemp = current.MaxCoreTemp,
+                CpuGhz = current.CpuGhz,
+                CpuBaseGhz = current.CpuBaseGhz,
+                CpuMaxGhz = current.CpuMaxGhz,
+                CpuLoad = current.CpuLoad,
+                CpuPackageWatts = current.CpuPackageWatts,
+                CpuCoresTelemetry = current.CpuCoresTelemetry,
+                Gpus = current.Gpus,
+                StorageDrives = current.StorageDrives,
+                PawnIoInstalled = current.PawnIoInstalled,
+                CoolingModeActive = current.CoolingModeActive,
+                Timestamp = current.Timestamp
+            };
+
+            GpuTelemetry? primary = SelectPrimaryGpu(
+                updated.Gpus,
+                SettingsService.Instance.Current.PreferredGpuIdentifier);
+            ApplyPrimaryGpu(updated, primary);
+            CurrentSnapshot = updated;
+            TelemetryUpdated?.Invoke(updated);
         }
 
         private async Task PollingLoop(CancellationToken token)
@@ -251,29 +407,37 @@ namespace CryoTray.Services
 
         private HardwareSnapshot ReadHardware()
         {
+            bool pawnIoInstalled = IsPawnIoInstalled();
+            if (pawnIoInstalled && !_openedWithPawnIo && _computer != null)
+            {
+                try
+                {
+                    _computer.Close();
+                    _computer.Open();
+                    _openedWithPawnIo = true;
+                    _driveMetadata.Clear();
+                    ReadHardwareNamesFromLhm();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"LibreHardwareMonitor reopen error: {ex.Message}");
+                }
+            }
+
             var snapshot = new HardwareSnapshot
             {
                 CpuName = _cpuName,
                 CpuCores = _cpuCores,
-                CpuBaseGhz = _cpuBaseGhz,
-                CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : _cpuBaseGhz,
-                GpuName = _gpuName,
-                GpuVendor = _gpuVendor,
+                CpuBaseGhz = _cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN,
+                CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : (_cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN),
+                PawnIoInstalled = pawnIoInstalled,
                 CoolingModeActive = PowerPlanService.Instance.IsCoolingModeActive,
                 Timestamp = DateTime.Now
             };
 
             var cpuSensors = new CpuSensorSet();
             double? motherboardCpuTemp = null;
-            double? gpuTemp = null;
-            double? gpuTempFallback = null;
-            double? gpuHotspotTemp = null;
-            double? gpuVramTemp = null;
-            int? gpuFanRpm = null;
-            double? gpuLoad = null;
-            double? gpuPower = null;
-            double? gpuPowerFallback = null;
-
+            var gpus = new List<GpuTelemetry>();
             var drives = new List<DriveTelemetry>();
             int driveIndex = 0;
 
@@ -316,76 +480,7 @@ namespace CryoTray.Services
                              hardware.HardwareType == HardwareType.GpuAmd ||
                              hardware.HardwareType == HardwareType.GpuIntel)
                     {
-                        foreach (var sensor in hardware.Sensors)
-                        {
-                            string sensorName = sensor.Name.ToLowerInvariant();
-                            if (sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue)
-                            {
-                                double value = sensor.Value.Value;
-                                if (value <= 0 || value >= 150 ||
-                                    double.IsNaN(value) || double.IsInfinity(value))
-                                {
-                                    continue;
-                                }
-
-                                if (sensorName.Contains("hot spot") || sensorName.Contains("hotspot"))
-                                {
-                                    gpuHotspotTemp ??= Math.Round(value, 1);
-                                }
-                                else if (sensorName.Contains("memory") || sensorName.Contains("vram"))
-                                {
-                                    gpuVramTemp ??= Math.Round(value, 1);
-                                }
-                                else if (sensorName.Contains("core"))
-                                {
-                                    gpuTemp ??= Math.Round(value, 1);
-                                }
-                                else
-                                {
-                                    gpuTempFallback ??= Math.Round(value, 1);
-                                }
-                            }
-                            else if (sensor.SensorType == SensorType.Load && sensor.Value.HasValue)
-                            {
-                                if (sensorName.Contains("core") || !gpuLoad.HasValue)
-                                {
-                                    gpuLoad = sensor.Value.Value;
-                                }
-                            }
-                            else if (sensor.SensorType == SensorType.Power && sensor.Value.HasValue)
-                            {
-                                double watts = sensor.Value.Value;
-                                if (watts <= 0 || double.IsNaN(watts) || double.IsInfinity(watts))
-                                {
-                                    continue;
-                                }
-
-                                bool preferred = sensorName.Contains("gpu power") ||
-                                    sensorName.Contains("package") ||
-                                    sensorName.Contains("board") ||
-                                    sensorName.Contains("total") ||
-                                    (sensorName.Contains("gpu") && !sensorName.Contains("memory"));
-
-                                if (preferred)
-                                {
-                                    gpuPower ??= watts;
-                                }
-                                else
-                                {
-                                    gpuPowerFallback = gpuPowerFallback.HasValue
-                                        ? Math.Max(gpuPowerFallback.Value, watts)
-                                        : watts;
-                                }
-                            }
-                            else if (sensor.SensorType == SensorType.Fan && sensor.Value.HasValue)
-                            {
-                                double rpm = sensor.Value.Value;
-                                if (rpm >= 0 && !double.IsNaN(rpm) && !double.IsInfinity(rpm))
-                                {
-                                    gpuFanRpm ??= (int)Math.Round(rpm);
-                                }
-                            }
-                        }
+                        gpus.Add(ReadGpuTelemetry(hardware));
                     }
                     else if (hardware.HardwareType == HardwareType.Storage)
                     {
@@ -399,55 +494,57 @@ namespace CryoTray.Services
                 .Concat(cpuSensors.Clocks.Select(c => (c.KindOrder, c.Index)))
                 .Distinct()
                 .Count();
-            if (_cpuCores <= 0)
+            if (_cpuCores <= 0 && detectedCores > 0)
             {
-                _cpuCores = Math.Max(1, detectedCores);
+                _cpuCores = detectedCores;
             }
 
             snapshot.CpuName = _cpuName;
             snapshot.CpuCores = _cpuCores;
 
-            double currentLoad = cpuSensors.TotalLoad
-                ?? (cpuSensors.Loads.Count > 0 ? cpuSensors.Loads.Max(l => l.Value) : 10.0);
-            currentLoad = Math.Round(Math.Clamp(currentLoad, 0, 100), 1);
-            snapshot.CpuLoad = currentLoad;
+            double? rawLoad = cpuSensors.TotalLoad
+                ?? (cpuSensors.Loads.Count > 0 ? cpuSensors.Loads.Average(l => l.Value) : null);
+            snapshot.CpuLoad = rawLoad.HasValue && double.IsFinite(rawLoad.Value)
+                ? Math.Round(Math.Clamp(rawLoad.Value, 0, 100), 1)
+                : double.NaN;
+
             double? packagePowerWatts = cpuSensors.PackagePowerWatts
                 ?? cpuSensors.CorePowerWatts;
             snapshot.CpuPackageWatts = packagePowerWatts.HasValue
                 ? (int)Math.Round(packagePowerWatts.Value)
                 : null;
 
-            // Fallback stays identical to the previous behavior when no CPU sensors are readable.
-            double fallbackPeak = Math.Round(36.0 + (currentLoad * 0.28) + (snapshot.CoolingModeActive ? -4.0 : 0.0), 1);
-            double peak = ResolvePeak(cpuSensors, motherboardCpuTemp, fallbackPeak);
-            if (peak <= 0)
+            double? peak = ResolvePeak(cpuSensors, motherboardCpuTemp);
+            if (peak.HasValue && double.IsFinite(peak.Value) && peak.Value > 0)
             {
-                peak = fallbackPeak;
+                double roundedPeak = Math.Round(peak.Value, 1);
+                int physicalCores = Math.Max(1, _cpuCores > 0 ? _cpuCores : Environment.ProcessorCount);
+                var cores = BuildCoreTemperatures(cpuSensors, roundedPeak, physicalCores);
+                int maxDisplayed = cores.Max(c => c.DisplayTemp);
+
+                foreach (var core in cores)
+                {
+                    core.IsHottest = core.DisplayTemp == maxDisplayed;
+                }
+
+                snapshot.PeakCpuTemp = roundedPeak;
+                snapshot.MaxCoreTemp = maxDisplayed;
+                snapshot.CpuTemp = maxDisplayed;
+                snapshot.CpuCoresTelemetry = cores;
             }
-            peak = Math.Round(peak, 1);
-
-            int physicalCores = Math.Max(1, _cpuCores);
-
-            var cores = BuildCoreTemperatures(cpuSensors, peak, physicalCores);
-            int maxDisplayed = cores.Max(c => c.DisplayTemp);
-
-            foreach (var core in cores)
+            else
             {
-                core.IsHottest = core.DisplayTemp == maxDisplayed;
+                snapshot.PeakCpuTemp = double.NaN;
+                snapshot.MaxCoreTemp = double.NaN;
+                snapshot.CpuTemp = double.NaN;
+                snapshot.CpuCoresTelemetry = new List<CoreTelemetry>();
             }
-
-            snapshot.PeakCpuTemp = peak;
-            snapshot.MaxCoreTemp = maxDisplayed;
-            snapshot.CpuTemp = maxDisplayed;
-            snapshot.CpuCoresTelemetry = cores;
 
             var clockValues = cpuSensors.Clocks
                 .Select(c => c.Value)
-                .Where(value => value > 100)
+                .Where(value => double.IsFinite(value) && value > 100)
                 .ToList();
-            double currentClock = clockValues.Count > 0
-                ? clockValues.Average()
-                : _cpuBaseGhz * 1000.0;
+            double? currentClock = clockValues.Count > 0 ? clockValues.Average() : null;
 
             if (_processorPerformance.TryRead(out double performancePercent) &&
                 performancePercent > 0 &&
@@ -461,32 +558,330 @@ namespace CryoTray.Services
                 }
             }
 
-            if (_cpuBaseGhz <= 0 && currentClock > 0)
+            if (_cpuBaseGhz <= 0 && currentClock.HasValue && currentClock.Value > 0)
             {
-                _cpuBaseGhz = Math.Round(currentClock / 1000.0, 2);
+                _cpuBaseGhz = Math.Round(currentClock.Value / 1000.0, 2);
             }
-            snapshot.CpuBaseGhz = _cpuBaseGhz;
-            snapshot.CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : _cpuBaseGhz;
-            snapshot.CpuGhz = Math.Round(currentClock / 1000.0, 2);
 
-            double? effectiveGpuTemp = gpuTemp ?? gpuTempFallback;
-            snapshot.GpuTemp = (effectiveGpuTemp.HasValue && effectiveGpuTemp.Value > 0)
-                ? Math.Round(effectiveGpuTemp.Value, 1)
-                : 47.0;
-            snapshot.GpuLoad = gpuLoad.HasValue ? Math.Round(gpuLoad.Value, 1) : 12.0;
-            double? effectiveGpuPower = gpuPower ?? gpuPowerFallback;
-            snapshot.GpuPowerWatts = effectiveGpuPower.HasValue
-                ? (int)Math.Round(effectiveGpuPower.Value)
-                : null;
-            snapshot.GpuHotspotTemp = gpuHotspotTemp;
-            snapshot.GpuVramTemp = gpuVramTemp;
-            snapshot.GpuFanRpm = gpuFanRpm;
+            snapshot.CpuBaseGhz = _cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN;
+            snapshot.CpuMaxGhz = _cpuMaxGhz > 0
+                ? _cpuMaxGhz
+                : (_cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN);
+            snapshot.CpuGhz = currentClock.HasValue && double.IsFinite(currentClock.Value) && currentClock.Value > 0
+                ? Math.Round(currentClock.Value / 1000.0, 2)
+                : double.NaN;
+
+            snapshot.Gpus = gpus;
+            UpdateAvailableGpus(gpus);
+            GpuTelemetry? primaryGpu = SelectPrimaryGpu(
+                gpus,
+                SettingsService.Instance.Current.PreferredGpuIdentifier);
+            ApplyPrimaryGpu(snapshot, primaryGpu);
 
             snapshot.StorageDrives = drives;
             return snapshot;
         }
 
-        private static DriveTelemetry CreateDriveTelemetry(IHardware hardware, int index)
+        private void UpdateAvailableGpus(IReadOnlyList<GpuTelemetry> gpus)
+        {
+            var duplicateCounts = gpus
+                .GroupBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+            var options = new List<GpuDeviceOption>(gpus.Count);
+            foreach (var gpu in gpus)
+            {
+                string displayName = !string.IsNullOrWhiteSpace(gpu.Name)
+                    ? gpu.Name
+                    : gpu.Identifier;
+                if (!string.IsNullOrWhiteSpace(gpu.Name) &&
+                    duplicateCounts.TryGetValue(gpu.Name, out int count) &&
+                    count > 1 &&
+                    !string.IsNullOrWhiteSpace(gpu.Identifier))
+                {
+                    displayName = $"{gpu.Name} ({gpu.Identifier})";
+                }
+
+                options.Add(new GpuDeviceOption
+                {
+                    Identifier = gpu.Identifier,
+                    Name = gpu.Name,
+                    Vendor = gpu.Vendor,
+                    IsDiscrete = gpu.IsDiscrete,
+                    DisplayName = displayName
+                });
+            }
+
+            lock (_gpuListLock)
+            {
+                _availableGpus = options;
+            }
+        }
+
+        private static void ApplyPrimaryGpu(HardwareSnapshot snapshot, GpuTelemetry? primary)
+        {
+            if (primary == null)
+            {
+                snapshot.GpuName = "";
+                snapshot.GpuVendor = "";
+                snapshot.GpuTemp = double.NaN;
+                snapshot.GpuLoad = double.NaN;
+                snapshot.GpuPowerWatts = null;
+                snapshot.GpuHotspotTemp = null;
+                snapshot.GpuVramTemp = null;
+                snapshot.GpuFanRpm = null;
+                return;
+            }
+
+            snapshot.GpuName = primary.Name;
+            snapshot.GpuVendor = primary.Vendor;
+            snapshot.GpuTemp = primary.Temperature;
+            snapshot.GpuLoad = primary.Load;
+            snapshot.GpuPowerWatts = primary.PowerWatts;
+            snapshot.GpuHotspotTemp = primary.HotspotTemp;
+            snapshot.GpuVramTemp = primary.VramTemp;
+            snapshot.GpuFanRpm = primary.FanRpm;
+        }
+
+        private static GpuTelemetry ReadGpuTelemetry(IHardware hardware)
+        {
+            string vendor = hardware.HardwareType == HardwareType.GpuNvidia ? "Nvidia"
+                : hardware.HardwareType == HardwareType.GpuAmd ? "AMD"
+                : "Intel";
+            string name = hardware.Name?.Trim() ?? "";
+
+            double? gpuTemp = null;
+            double? gpuTempFallback = null;
+            double? gpuHotspotTemp = null;
+            double? gpuVramTemp = null;
+            int? gpuFanRpm = null;
+            double? gpuLoad = null;
+            double? gpuPower = null;
+            double? gpuPowerFallback = null;
+
+            void CollectSensors(IReadOnlyList<ISensor> sensors)
+            {
+                foreach (var sensor in sensors)
+                {
+                    if (!sensor.Value.HasValue)
+                    {
+                        continue;
+                    }
+
+                    string sensorName = sensor.Name.ToLowerInvariant();
+                    if (sensor.SensorType == SensorType.Temperature)
+                    {
+                        double value = sensor.Value.Value;
+                        if (value <= 0 || value >= 150 || !double.IsFinite(value))
+                        {
+                            continue;
+                        }
+
+                        if (sensorName.Contains("hot spot") || sensorName.Contains("hotspot"))
+                        {
+                            gpuHotspotTemp ??= Math.Round(value, 1);
+                        }
+                        else if (sensorName.Contains("memory") || sensorName.Contains("vram"))
+                        {
+                            gpuVramTemp ??= Math.Round(value, 1);
+                        }
+                        else if (sensorName.Contains("core"))
+                        {
+                            gpuTemp ??= Math.Round(value, 1);
+                        }
+                        else
+                        {
+                            gpuTempFallback ??= Math.Round(value, 1);
+                        }
+                    }
+                    else if (sensor.SensorType == SensorType.Load)
+                    {
+                        double value = sensor.Value.Value;
+                        if (double.IsFinite(value) && (sensorName.Contains("core") || !gpuLoad.HasValue))
+                        {
+                            gpuLoad = value;
+                        }
+                    }
+                    else if (sensor.SensorType == SensorType.Power)
+                    {
+                        double watts = sensor.Value.Value;
+                        if (watts <= 0 || !double.IsFinite(watts))
+                        {
+                            continue;
+                        }
+
+                        bool preferred = sensorName.Contains("gpu power") ||
+                            sensorName.Contains("package") ||
+                            sensorName.Contains("board") ||
+                            sensorName.Contains("total") ||
+                            (sensorName.Contains("gpu") && !sensorName.Contains("memory"));
+
+                        if (preferred)
+                        {
+                            gpuPower ??= watts;
+                        }
+                        else
+                        {
+                            gpuPowerFallback = gpuPowerFallback.HasValue
+                                ? Math.Max(gpuPowerFallback.Value, watts)
+                                : watts;
+                        }
+                    }
+                    else if (sensor.SensorType == SensorType.Fan)
+                    {
+                        double rpm = sensor.Value.Value;
+                        if (rpm >= 0 && double.IsFinite(rpm))
+                        {
+                            gpuFanRpm ??= (int)Math.Round(rpm);
+                        }
+                    }
+                }
+            }
+
+            CollectSensors(hardware.Sensors);
+            foreach (var sub in hardware.SubHardware)
+            {
+                sub.Update();
+                CollectSensors(sub.Sensors);
+            }
+
+            double? effectiveTemp = gpuTemp ?? gpuTempFallback;
+            double? effectivePower = gpuPower ?? gpuPowerFallback;
+
+            return new GpuTelemetry
+            {
+                Identifier = hardware.Identifier.ToString(),
+                Name = name,
+                Vendor = vendor,
+                IsDiscrete = IsDiscreteGpu(hardware.HardwareType, name),
+                Temperature = effectiveTemp.HasValue && effectiveTemp.Value > 0
+                    ? Math.Round(effectiveTemp.Value, 1)
+                    : double.NaN,
+                Load = gpuLoad.HasValue && double.IsFinite(gpuLoad.Value)
+                    ? Math.Round(gpuLoad.Value, 1)
+                    : double.NaN,
+                PowerWatts = effectivePower.HasValue ? (int)Math.Round(effectivePower.Value) : null,
+                HotspotTemp = gpuHotspotTemp,
+                VramTemp = gpuVramTemp,
+                FanRpm = gpuFanRpm
+            };
+        }
+
+        private CachedDriveMetadata ReadDriveMetadata(IHardware hardware)
+        {
+            if (_driveMetadata.TryGetValue(hardware, out var cached))
+            {
+                return cached;
+            }
+
+            int? driveNumber = null;
+            string serial = "";
+            bool? isSolidState = null;
+            string driveLetters = "";
+
+            try
+            {
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                object? storage = hardware.GetType().GetProperty("Storage", flags)?.GetValue(hardware);
+                object?[] targets = storage != null ? new[] { storage, hardware } : new object?[] { hardware };
+
+                foreach (object? target in targets)
+                {
+                    if (target == null)
+                    {
+                        continue;
+                    }
+
+                    var type = target.GetType();
+
+                    if (!driveNumber.HasValue)
+                    {
+                        object? rawNum = type.GetProperty("DriveNumber", flags)?.GetValue(target);
+                        if (rawNum != null)
+                        {
+                            try
+                            {
+                                int num = Convert.ToInt32(rawNum, CultureInfo.InvariantCulture);
+                                if (num >= 0)
+                                {
+                                    driveNumber = num;
+                                }
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(serial))
+                    {
+                        string? rawSerial = type.GetProperty("SerialNumber", flags)?.GetValue(target)?.ToString()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(rawSerial))
+                        {
+                            serial = rawSerial;
+                        }
+                    }
+
+                    if (!isSolidState.HasValue)
+                    {
+                        if (type.GetProperty("IsSSD", flags)?.GetValue(target) is bool isSsd)
+                        {
+                            isSolidState = isSsd;
+                        }
+                        else if (type.GetProperty("IsNVMe", flags)?.GetValue(target) is bool isNvme && isNvme)
+                        {
+                            isSolidState = true;
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(driveLetters) &&
+                        type.GetProperty("Partitions", flags)?.GetValue(target) is IEnumerable partitions)
+                    {
+                        var letters = new List<string>();
+                        foreach (object? partition in partitions)
+                        {
+                            if (partition == null)
+                            {
+                                continue;
+                            }
+
+                            object? rawLetter = partition.GetType()
+                                .GetProperty("DriveLetter", flags)
+                                ?.GetValue(partition);
+                            string letter = rawLetter?.ToString()?.Trim().TrimEnd(':') ?? "";
+                            if (letter.Length == 1 && char.IsLetter(letter[0]))
+                            {
+                                string upper = letter.ToUpperInvariant();
+                                if (!letters.Contains(upper, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    letters.Add(upper);
+                                }
+                            }
+                        }
+
+                        if (letters.Count > 0)
+                        {
+                            driveLetters = string.Join(", ", letters);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            cached = new CachedDriveMetadata
+            {
+                PhysicalDriveNumber = driveNumber,
+                SerialNumber = serial,
+                IsSolidState = isSolidState,
+                DriveLetters = driveLetters
+            };
+            _driveMetadata[hardware] = cached;
+            return cached;
+        }
+
+        private DriveTelemetry CreateDriveTelemetry(IHardware hardware, int index)
         {
             double? compositeTemp = null;
             double? firstTemp = null;
@@ -531,6 +926,7 @@ namespace CryoTray.Services
 
             int? healthPercent = lifePercent
                 ?? (percentageUsed.HasValue ? 100 - percentageUsed.Value : null);
+            CachedDriveMetadata metadata = ReadDriveMetadata(hardware);
 
             return new DriveTelemetry
             {
@@ -539,7 +935,12 @@ namespace CryoTray.Services
                 Temperature = compositeTemp ?? firstTemp ?? double.NaN,
                 SmartHealthPercent = healthPercent,
                 StatusText = DescribeDriveHealth(healthPercent),
-                CapacityGb = totalSpace.HasValue ? Math.Round(totalSpace.Value, 1) : 0
+                DriveLetters = metadata.DriveLetters,
+                CapacityGb = totalSpace.HasValue ? Math.Round(totalSpace.Value, 1) : 0,
+                PhysicalDriveNumber = metadata.PhysicalDriveNumber,
+                SerialNumber = metadata.SerialNumber,
+                HardwareIdentifier = hardware.Identifier.ToString(),
+                IsSolidState = metadata.IsSolidState
             };
         }
 
@@ -717,10 +1118,10 @@ namespace CryoTray.Services
             values.Add((kindOrder, index, value));
         }
 
-        private static double ResolvePeak(CpuSensorSet set, double? motherboardCpuTemp, double fallbackPeak)
+        private static double? ResolvePeak(CpuSensorSet set, double? motherboardCpuTemp)
         {
             // AMD's Tctl/Tdie carries a control offset; the CCD diode matches the core
-            // temperature Camomile displays.
+            // temperature displayed in CryoTray.
             if (set.CcdTdieTemps.Count > 0)
             {
                 return set.CcdTdieTemps.Max();
@@ -736,12 +1137,7 @@ namespace CryoTray.Services
                 return set.AllTemps.Max();
             }
 
-            if (motherboardCpuTemp.HasValue)
-            {
-                return motherboardCpuTemp.Value;
-            }
-
-            return fallbackPeak;
+            return motherboardCpuTemp;
         }
 
         private static double ResolveFloor(double peak)
@@ -898,7 +1294,10 @@ namespace CryoTray.Services
 
         public void Stop()
         {
+            SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
             _cts?.Cancel();
+            _cts?.Dispose();
+            _cts = null;
             try
             {
                 _computer?.Close();
@@ -907,6 +1306,9 @@ namespace CryoTray.Services
             {
                 // Ignore
             }
+            _computer = null;
+            _driveMetadata.Clear();
+            _openedWithPawnIo = false;
             _isInitialized = false;
         }
 

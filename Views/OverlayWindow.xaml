@@ -53,7 +53,7 @@
                                        FontSize="11"
                                        FontWeight="SemiBold"/>
                             <TextBlock x:Name="TxtCpuTemp"
-                                       Text="37°C"
+                                       Text="--°C"
                                        Foreground="#4FC3F7"
                                        FontSize="12"
                                        FontWeight="Bold"
@@ -62,18 +62,18 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,1,0,0">
                             <TextBlock x:Name="TxtCpuLoad"
-                                       Text="12%"
+                                       Text="--%"
                                        Foreground="#A8A8A8"
                                        FontSize="9.5"
                                        ToolTip="{DynamicResource Settings_OverlayCpuLoad}"/>
                             <TextBlock x:Name="TxtCpuPower"
-                                       Text="35W"
+                                       Text="--W"
                                        Foreground="#A8A8A8"
                                        FontSize="9.5"
                                        Margin="6,0,0,0"
                                        ToolTip="{DynamicResource Settings_OverlayCpuPower}"/>
                             <TextBlock x:Name="TxtCpuClock"
-                                       Text="3.66G"
+                                       Text="--G"
                                        Foreground="#A8A8A8"
                                        FontSize="9.5"
                                        Margin="6,0,0,0"
@@ -90,7 +90,7 @@
                                        FontSize="11"
                                        FontWeight="SemiBold"/>
                             <TextBlock x:Name="TxtGpuTemp"
-                                       Text="47°C"
+                                       Text="--°C"
                                        Foreground="#7CB342"
                                        FontSize="12"
                                        FontWeight="Bold"
@@ -99,12 +99,12 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,1,0,0">
                             <TextBlock x:Name="TxtGpuLoad"
-                                       Text="15%"
+                                       Text="--%"
                                        Foreground="#A8A8A8"
                                        FontSize="9.5"
                                        ToolTip="{DynamicResource Settings_OverlayGpuLoad}"/>
                             <TextBlock x:Name="TxtGpuPower"
-                                       Text="63W"
+                                       Text="--W"
                                        Foreground="#A8A8A8"
                                        FontSize="9.5"
                                        Margin="6,0,0,0"

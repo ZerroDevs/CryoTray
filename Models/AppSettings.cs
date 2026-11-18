@@ -35,6 +35,7 @@ namespace CryoTray.Models
         public bool ShowGpuHotspot { get; set; } = true;
         public bool ShowGpuVram { get; set; } = true;
         public bool ShowGpuFan { get; set; } = true;
+        public string PreferredGpuIdentifier { get; set; } = "";
 
         public double? WindowLeft { get; set; }
         public double? WindowTop { get; set; }

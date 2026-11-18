@@ -42,8 +42,8 @@ namespace CryoTray.Tray
         private Action? _notificationAction;
         private NotifyIcon? _notificationIcon;
         private DateTime _notificationHoldUntilUtc;
-        private double _lastGpuTemp;
-        private double _lastCpuTemp;
+        private double _lastGpuTemp = double.NaN;
+        private double _lastCpuTemp = double.NaN;
         private bool _lastCoolingModeActive;
         private string _lastBadgeSignature = "";
         private bool _disposed;
@@ -117,7 +117,7 @@ namespace CryoTray.Tray
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
 
             ApplyLanguage();
-            UpdateBadges(52, 37, false);
+            UpdateBadges(double.NaN, double.NaN, PowerPlanService.Instance.IsCoolingModeActive, true);
         }
 
         private static GraphicsPath CreateRoundedPath()
@@ -155,10 +155,7 @@ namespace CryoTray.Tray
             _itemSettings.Text = LocalizationService.Get("Tray_Settings");
             _itemExit.Text = LocalizationService.Get("Tray_Exit");
 
-            if (_lastGpuTemp > 0 || _lastCpuTemp > 0)
-            {
-                UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true);
-            }
+            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true);
         }
 
         public void ShowNotification(string title, string message, Action? onClick = null,
@@ -252,15 +249,19 @@ namespace CryoTray.Tray
             }
 
             bool isFahrenheit = settings.TemperatureUnit == "Fahrenheit";
-            double displayGpuTemp = isFahrenheit ? (gpuTemp * 9 / 5) + 32 : gpuTemp;
-            double displayCpuTemp = isFahrenheit ? (cpuTemp * 9 / 5) + 32 : cpuTemp;
             string unit = isFahrenheit ? "°F" : "°C";
-            int gpuInt = (int)Math.Round(displayGpuTemp);
-            int cpuInt = (int)Math.Round(displayCpuTemp);
+            int? gpuInt = double.IsFinite(gpuTemp) && gpuTemp > 0
+                ? (int)Math.Round(isFahrenheit ? (gpuTemp * 9 / 5) + 32 : gpuTemp)
+                : null;
+            int? cpuInt = double.IsFinite(cpuTemp) && cpuTemp > 0
+                ? (int)Math.Round(isFahrenheit ? (cpuTemp * 9 / 5) + 32 : cpuTemp)
+                : null;
+            string gpuText = gpuInt.HasValue ? gpuInt.Value.ToString(CultureInfo.InvariantCulture) : "--";
+            string cpuText = cpuInt.HasValue ? cpuInt.Value.ToString(CultureInfo.InvariantCulture) : "--";
             string signature = string.Format(
                 CultureInfo.InvariantCulture,
                 "{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}",
-                gpuInt, cpuInt, coolingModeActive, settings.MergeTrayIcons,
+                gpuText, cpuText, coolingModeActive, settings.MergeTrayIcons,
                 settings.ShowGpuBadge, settings.ShowCpuBadge, isFahrenheit, holdCpu, holdGpu);
 
             _lastGpuTemp = gpuTemp;
@@ -287,7 +288,7 @@ namespace CryoTray.Tray
                         coolingModeActive ? MergedCpuOn : MergedCpuOff);
                     ReplaceCpuIcon();
                     _cpuIcon.Text = LocalizationService.Format(
-                        "Tray_MergedTooltip", cpuInt, unit, gpuInt);
+                        "Tray_MergedTooltip", cpuText, unit, gpuText);
                 }
                 else
                 {
@@ -304,7 +305,7 @@ namespace CryoTray.Tray
             {
                 DrawSingleBadge(gpuInt, GpuGreen);
                 ReplaceGpuIcon();
-                _gpuIcon.Text = LocalizationService.Format("Tray_GpuTooltip", gpuInt, unit);
+                _gpuIcon.Text = LocalizationService.Format("Tray_GpuTooltip", gpuText, unit);
             }
             else
             {
@@ -318,7 +319,7 @@ namespace CryoTray.Tray
                 string coolingText = LocalizationService.Get(
                     coolingModeActive ? "Common_On" : "Common_Off");
                 _cpuIcon.Text = LocalizationService.Format(
-                    "Tray_CpuTooltip", cpuInt, unit, coolingText);
+                    "Tray_CpuTooltip", cpuText, unit, coolingText);
             }
             else
             {
@@ -327,7 +328,7 @@ namespace CryoTray.Tray
             }
         }
 
-        private void DrawSingleBadge(int temp, Color background)
+        private void DrawSingleBadge(int? temp, Color background)
         {
             PrepareCanvas();
             _backgroundBrush.Color = background;
@@ -336,7 +337,7 @@ namespace CryoTray.Tray
                 new RectangleF(0, 2, IconSize, IconSize - 2));
         }
 
-        private void DrawMergedBadge(int cpuTemp, int gpuTemp, Color cpuBackground)
+        private void DrawMergedBadge(int? cpuTemp, int? gpuTemp, Color cpuBackground)
         {
             PrepareCanvas();
             _iconGraphics.SetClip(_roundedPath);
@@ -362,19 +363,26 @@ namespace CryoTray.Tray
             _iconGraphics.Clear(Color.Transparent);
         }
 
-        private Font GetSingleDigitFont(int temp)
+        private Font GetSingleDigitFont(int? temp)
         {
-            if (temp >= 100)
+            if (!temp.HasValue)
+            {
+                return _doubleDigitFont;
+            }
+
+            if (temp.Value >= 100 || temp.Value <= -10)
             {
                 return _tripleDigitFont;
             }
 
-            return temp >= 10 ? _doubleDigitFont : _singleDigitFont;
+            return temp.Value >= 10 || temp.Value < 0 ? _doubleDigitFont : _singleDigitFont;
         }
 
-        private void DrawTemperature(int temp, Font font, RectangleF bounds)
+        private void DrawTemperature(int? temp, Font font, RectangleF bounds)
         {
-            string text = temp.ToString(CultureInfo.InvariantCulture);
+            string text = temp.HasValue
+                ? temp.Value.ToString(CultureInfo.InvariantCulture)
+                : "--";
             _iconGraphics.DrawString(text, font, _textBrush, bounds, _centerFormat);
         }
 

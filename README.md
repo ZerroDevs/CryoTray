@@ -273,7 +273,7 @@ Settings opens as a modeless companion window and includes seven tabs: General, 
 
 ### Disk and GPU
 
-The Disk tab sets the storage alert threshold, from 40 °C to 85 °C. The GPU tab sets the graphics alert threshold, from 50 °C to 95 °C. A drive without a valid temperature sensor is skipped for alerts.
+The Disk tab sets the storage alert threshold, from 40 °C to 85 °C. The GPU tab lets you choose the Primary GPU (defaulting to Auto, which prioritizes discrete graphics) and sets the graphics alert threshold, from 50 °C to 95 °C. Sensors that are missing or blocked by an uninstalled PawnIO driver display `--` or an unavailable notice instead of synthetic fallback values, and drives without a valid temperature sensor are skipped for alerts.
 
 ### Autopilot
 

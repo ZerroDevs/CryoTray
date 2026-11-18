@@ -36,6 +36,7 @@ namespace CryoTray.Views
 
             ClampToWorkArea();
             ApplyMetricVisibility(s);
+            UpdateTelemetry(HardwareMonitorService.Instance.CurrentSnapshot);
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
         }
@@ -68,25 +69,46 @@ namespace CryoTray.Views
             {
                 var s = SettingsService.Instance.Current;
                 bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
-
-                double cpuT = isFahrenheit ? (snapshot.CpuTemp * 9 / 5 + 32) : snapshot.CpuTemp;
-                double gpuT = isFahrenheit ? (snapshot.GpuTemp * 9 / 5 + 32) : snapshot.GpuTemp;
                 string unit = isFahrenheit ? "°F" : "°C";
 
                 ApplyMetricVisibility(s);
 
-                TxtCpuTemp.Text = $"{Math.Round(cpuT)}{unit}";
+                if (double.IsFinite(snapshot.CpuTemp) && snapshot.CpuTemp > 0)
+                {
+                    double cpuT = isFahrenheit ? (snapshot.CpuTemp * 9 / 5 + 32) : snapshot.CpuTemp;
+                    TxtCpuTemp.Text = $"{Math.Round(cpuT)}{unit}";
+                }
+                else
+                {
+                    TxtCpuTemp.Text = $"--{unit}";
+                }
+
                 TxtCpuTemp.Foreground = snapshot.CoolingModeActive
                     ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E9FDB"))
                     : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D9835B"));
-                TxtCpuLoad.Text = $"{Math.Round(snapshot.CpuLoad)}%";
+                TxtCpuLoad.Text = double.IsFinite(snapshot.CpuLoad) && snapshot.CpuLoad >= 0
+                    ? $"{Math.Round(snapshot.CpuLoad)}%"
+                    : "--%";
                 TxtCpuPower.Text = snapshot.CpuPackageWatts.HasValue
                     ? $"{snapshot.CpuPackageWatts.Value}W"
                     : "--W";
-                TxtCpuClock.Text = $"{snapshot.CpuGhz:0.00}G";
+                TxtCpuClock.Text = double.IsFinite(snapshot.CpuGhz) && snapshot.CpuGhz > 0
+                    ? $"{snapshot.CpuGhz:0.00}G"
+                    : "--G";
 
-                TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
-                TxtGpuLoad.Text = $"{Math.Round(snapshot.GpuLoad)}%";
+                if (double.IsFinite(snapshot.GpuTemp) && snapshot.GpuTemp > 0)
+                {
+                    double gpuT = isFahrenheit ? (snapshot.GpuTemp * 9 / 5 + 32) : snapshot.GpuTemp;
+                    TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
+                }
+                else
+                {
+                    TxtGpuTemp.Text = $"--{unit}";
+                }
+
+                TxtGpuLoad.Text = double.IsFinite(snapshot.GpuLoad) && snapshot.GpuLoad >= 0
+                    ? $"{Math.Round(snapshot.GpuLoad)}%"
+                    : "--%";
                 TxtGpuPower.Text = snapshot.GpuPowerWatts.HasValue
                     ? $"{snapshot.GpuPowerWatts.Value}W"
                     : "--W";

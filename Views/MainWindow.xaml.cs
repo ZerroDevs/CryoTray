@@ -285,6 +285,10 @@ namespace CryoTray.Views
             {
                 height -= GpuHealthRow.Height;
             }
+            if (PawnIoBanner.Visibility == Visibility.Visible)
+            {
+                height += PawnIoBanner.Height;
+            }
 
             if (Math.Abs(Height - height) < 0.1)
             {
@@ -453,8 +457,9 @@ namespace CryoTray.Views
             bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
             string unit = isFahrenheit ? "°F" : "°C";
 
-            double cpuT = isFahrenheit ? (snapshot.CpuTemp * 9 / 5 + 32) : snapshot.CpuTemp;
-            double gpuT = isFahrenheit ? (snapshot.GpuTemp * 9 / 5 + 32) : snapshot.GpuTemp;
+            PawnIoBanner.Visibility = snapshot.PawnIoInstalled
+                ? Visibility.Collapsed
+                : Visibility.Visible;
 
             // Hero Card
             TxtCpuModel.Text = string.IsNullOrWhiteSpace(snapshot.CpuName)
@@ -463,11 +468,25 @@ namespace CryoTray.Views
             TxtCpuCores.Text = snapshot.CpuCores > 0
                 ? LocalizationService.Format("Main_CpuProcessor", snapshot.CpuCores)
                 : string.Empty;
-            TxtHeroTemp.Text = $"{Math.Round(cpuT)}";
+            if (double.IsFinite(snapshot.CpuTemp) && snapshot.CpuTemp > 0)
+            {
+                double cpuT = isFahrenheit ? (snapshot.CpuTemp * 9 / 5 + 32) : snapshot.CpuTemp;
+                TxtHeroTemp.Text = $"{Math.Round(cpuT)}";
+            }
+            else
+            {
+                TxtHeroTemp.Text = "--";
+            }
             TxtHeroUnit.Text = unit;
 
             // CPU Speed
-            TxtCpuClockRatio.Text = $"{snapshot.CpuGhz:0.00} / {snapshot.CpuMaxGhz:0.00}";
+            string clockNow = double.IsFinite(snapshot.CpuGhz) && snapshot.CpuGhz > 0
+                ? $"{snapshot.CpuGhz:0.00}"
+                : "--";
+            string clockMax = double.IsFinite(snapshot.CpuMaxGhz) && snapshot.CpuMaxGhz > 0
+                ? $"{snapshot.CpuMaxGhz:0.00}"
+                : "--";
+            TxtCpuClockRatio.Text = $"{clockNow} / {clockMax}";
             TxtCpuPackageWatts.Text = snapshot.CpuPackageWatts.HasValue
                 ? $"{snapshot.CpuPackageWatts.Value}W"
                 : "--W";
@@ -475,7 +494,15 @@ namespace CryoTray.Views
 
             // GPU Row
             TxtGpuLabel.Text = LocalizationService.Get("Main_GpuLabel");
-            TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
+            if (double.IsFinite(snapshot.GpuTemp) && snapshot.GpuTemp > 0)
+            {
+                double gpuT = isFahrenheit ? (snapshot.GpuTemp * 9 / 5 + 32) : snapshot.GpuTemp;
+                TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
+            }
+            else
+            {
+                TxtGpuTemp.Text = $"--{unit}";
+            }
             TxtGpuPower.Text = snapshot.GpuPowerWatts.HasValue
                 ? $"{snapshot.GpuPowerWatts.Value}W"
                 : "--W";
@@ -505,6 +532,7 @@ namespace CryoTray.Views
                 ? $"{snapshot.GpuFanRpm.Value} {LocalizationService.Get("Main_RpmUnit")}"
                 : "--";
             ApplyTelemetryVisibility(s);
+            UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
 
             // SSD Rows
             RenderSsdRows(snapshot.StorageDrives, isFahrenheit, unit);
@@ -790,13 +818,22 @@ namespace CryoTray.Views
                 CpuChartCanvas.Children.Add(vline);
             }
 
-            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples);
+            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples)
+                .Where(sample => double.IsFinite(sample.CpuTemp) && sample.CpuTemp > 0)
+                .ToList();
             _cpuChartSamples = samples;
             if (samples.Count < 2)
             {
                 CpuChartTooltip.IsOpen = false;
+                var current = HardwareMonitorService.Instance.CurrentSnapshot;
+                bool cpuUnavailable = !(double.IsFinite(current.CpuTemp) && current.CpuTemp > 0);
+                TxtCpuChartUnavailable.Visibility = cpuUnavailable
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
                 return;
             }
+
+            TxtCpuChartUnavailable.Visibility = Visibility.Collapsed;
 
             double minT = 25;
             double maxT = 90;
@@ -952,13 +989,22 @@ namespace CryoTray.Views
             double h = GpuChartCanvas.ActualHeight;
             if (w <= 0 || h <= 0) return;
 
-            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples);
+            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples)
+                .Where(sample => double.IsFinite(sample.GpuTemp) && sample.GpuTemp > 0)
+                .ToList();
             _gpuChartSamples = samples;
             if (samples.Count < 2)
             {
                 GpuChartTooltip.IsOpen = false;
+                var current = HardwareMonitorService.Instance.CurrentSnapshot;
+                bool gpuUnavailable = !(double.IsFinite(current.GpuTemp) && current.GpuTemp > 0);
+                TxtGpuChartUnavailable.Visibility = gpuUnavailable
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
                 return;
             }
+
+            TxtGpuChartUnavailable.Visibility = Visibility.Collapsed;
 
             double minT = 30;
             double maxT = 90;
@@ -1106,6 +1152,11 @@ namespace CryoTray.Views
             var sample = _cpuChartSamples[index];
             double x = index * stepX;
             double temperature = sample.CpuTemp;
+            if (!double.IsFinite(temperature) || temperature <= 0)
+            {
+                CpuChartTooltip.IsOpen = false;
+                return;
+            }
             double normalized = Math.Clamp((temperature - 25) / (90 - 25), 0, 1);
             double y = plotH - (normalized * (plotH - 16) + 8);
 
@@ -1145,6 +1196,11 @@ namespace CryoTray.Views
             var sample = _gpuChartSamples[index];
             double x = index * stepX;
             double temperature = sample.GpuTemp;
+            if (!double.IsFinite(temperature) || temperature <= 0)
+            {
+                GpuChartTooltip.IsOpen = false;
+                return;
+            }
             double normalized = Math.Clamp((temperature - 30) / (90 - 30), 0, 1);
             double y = height - (normalized * (height - 8) + 4);
 
@@ -1221,7 +1277,7 @@ namespace CryoTray.Views
             GpuChartHoverCanvas.Children.Clear();
         }
 
-        private void ToggleSwitch_Click(object sender, MouseButtonEventArgs e)
+        private void BtnCoolingToggle_Click(object sender, RoutedEventArgs e)
         {
             PowerPlanService.Instance.ToggleCoolingMode();
         }
@@ -1493,6 +1549,11 @@ namespace CryoTray.Views
             }
         }
 
+        private void BtnInstallPawnIo_Click(object sender, RoutedEventArgs e)
+        {
+            HardwareMonitorService.InstallOrOpenPawnIo();
+        }
+
         private void CpuTempHoverZone_MouseEnter(object sender, MouseEventArgs e)
         {
             UpdateCpuCoreItems(HardwareMonitorService.Instance.CurrentSnapshot);
@@ -1504,6 +1565,34 @@ namespace CryoTray.Views
             CpuCoresPopup.IsOpen = false;
         }
 
+        private void BtnCpuTempCores_Click(object sender, RoutedEventArgs e)
+        {
+            if (CpuCoresPopup.IsOpen)
+            {
+                CpuCoresPopup.IsOpen = false;
+                return;
+            }
+
+            UpdateCpuCoreItems(HardwareMonitorService.Instance.CurrentSnapshot);
+            CpuCoresPopup.IsOpen = true;
+        }
+
+        private void BtnCpuTempCores_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (!ShowKeyboardFocusCues)
+            {
+                return;
+            }
+
+            UpdateCpuCoreItems(HardwareMonitorService.Instance.CurrentSnapshot);
+            CpuCoresPopup.IsOpen = true;
+        }
+
+        private void BtnCpuTempCores_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            CpuCoresPopup.IsOpen = false;
+        }
+
         private void UpdateCpuCoreItems(HardwareSnapshot snapshot)
         {
             TxtCpuPackagePowerPopup.Text = FormatPackagePower(snapshot.CpuPackageWatts);
@@ -1511,8 +1600,13 @@ namespace CryoTray.Views
             var cores = snapshot.CpuCoresTelemetry;
             if (cores.Count == 0)
             {
+                CoreItems.Clear();
+                TxtCpuCoresUnavailable.Visibility = Visibility.Visible;
+                PositionCorePopup();
                 return;
             }
+
+            TxtCpuCoresUnavailable.Visibility = Visibility.Collapsed;
 
             var s = SettingsService.Instance.Current;
             bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";

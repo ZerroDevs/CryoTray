@@ -45,7 +45,7 @@ namespace CryoTray.Services
                 return;
             }
 
-            double cpuTemperature = Math.Max(snapshot.MaxCoreTemp, snapshot.PeakCpuTemp);
+            double cpuTemperature = SelectMaxFinitePositive(snapshot.MaxCoreTemp, snapshot.PeakCpuTemp);
             Evaluate(
                 "cpu",
                 cpuTemperature,
@@ -92,6 +92,23 @@ namespace CryoTray.Services
         public void Reset()
         {
             _states.Clear();
+        }
+
+        private static double SelectMaxFinitePositive(double first, double second)
+        {
+            bool firstValid = double.IsFinite(first) && first > 0;
+            bool secondValid = double.IsFinite(second) && second > 0;
+            if (firstValid && secondValid)
+            {
+                return Math.Max(first, second);
+            }
+
+            if (firstValid)
+            {
+                return first;
+            }
+
+            return secondValid ? second : double.NaN;
         }
 
         private void Evaluate(string key, double temperature, int threshold, Func<TemperatureAlert> alertFactory)

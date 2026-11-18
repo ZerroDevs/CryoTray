@@ -26,39 +26,32 @@
 
 ## Completed this turn
 
-- Installed PawnIO 2.2.0, the driver LibreHardwareMonitor 0.9.6 needs for low-level sensor access.
-- Elevated dump now reads real values: `Core (Tctl/Tdie)` 43 C and `CCD1 (Tdie)` 40 C, plus live clocks.
-- Peak now prefers the hottest CCD Tdie, then Tctl/Tdie. The previous `AllTemps.Max()` would show 43 C where Camomile shows 40 C.
-- Floor is now `peak - 3.5` so the popup keeps a 3.5 C span instead of flattening when peak is a CCD reading.
-
-- Refactored `Services/HardwareMonitorService.cs` for universal CPU sensor discovery and per-core mapping.
-- Added `PeakCpuTemp` to `HardwareSnapshot` and `DisplayTemp` to `CoreTelemetry`.
-- Added `Models/CoreReadout.cs` for hover popup binding.
-- Replaced the code-built `UniformGrid` popup with a bound `ItemsControl` in `Views/MainWindow.xaml`.
-- Added dynamic 4/6 column layout, underline binding for hottest cores, and monitor-aware popup positioning.
-- Corrected peak selection to use the hottest valid CPU reading and added the 3.5 C floor guard band after live readings came out about 4 C below Camomile.
+- Removed synthetic fallback telemetry across `HardwareSnapshot`, `HardwareMonitorService`, `TrayIconManager`, `MainWindow`, `OverlayWindow`, and `StressTestWindow`: unavailable sensors now stay `double.NaN` / `null` and render `--` or inline unavailable messages instead of invented CPU/GPU numbers.
+- Removed hardcoded `"C, Z"` / `"E"` drive-letter fallback in `Services/SystemInfoQueryService.cs`; WMI partition mapping now falls back only to LHM `DriveLetters` metadata or `Common_NotReported`.
+- Fixed multi-GPU sensor mixing by isolating per-GPU collection (`ReadGpuTelemetry`), classifying discrete vs integrated GPUs (`IsDiscreteGpu`, `SelectPrimaryGpu`), persisting `AppSettings.PreferredGpuIdentifier`, and adding the Primary GPU selector in `SettingsWindow` (`Settings > GPU`).
+- Replaced positional index pairing in `SystemInfoQueryService` with `MatchDriveTelemetry(...)` matching by normalized `SerialNumber`, `PhysicalDriveNumber`, and `Model` (tie-broken by capacity), backed by reflection metadata from LHM storage objects (`DriveNumber`, `SerialNumber`, `IsSSD`, `Partitions`).
+- Added runtime PawnIO driver detection (`IsPawnIoInstalled` / `InstallOrOpenPawnIo`), automatic LHM reopen once PawnIO becomes installed, and actionable missing-driver banners (`PawnIoBanner` in `MainWindow`, `PawnIoSettingsBanner` in `SettingsWindow`).
+- Scoped `TelemetryRingBuffer.GetCpuStats(bool coolingOnly)` so `SystemInfoQueryService` reports Cooling Mode temperatures only (`System_TempStatsNoCooling` when only non-cooling samples exist) and filters non-finite/non-positive readings.
+- Updated `Tests/VerificationTests.cs` (13 checks total) and `README.md`.
+- Upgraded `Views/MainWindow.xaml` and `Views/MainWindow.xaml.cs` so the Cooling Mode switch (`BtnCoolingToggle`) and hero CPU temperature (`BtnCpuTempCores`) use zero-chrome keyboard-accessible `Button` controls with `AutomationPeer` support; added `PrimaryGpuChoice.ToString()` in `Views/SettingsWindow.xaml.cs`.
+- Ran live UI verification (`dotnet bin\Release\net8.0-windows\CryoTray.dll`) inside the agent's isolated `exebox` desktop using `UIAutomation` patterns and Win32 `PrintWindow(..., 2)`, capturing and visually inspecting `verify-01-dashboard-initial.png` through `verify-04-settings-gpu-selector.png` (`MainWindow` Cooling OFF/ON, `CpuCoresPopup`, `SettingsWindow > GPU > CmbPrimaryGpu`).
+- Verified compilation of all edits including `PrimaryGpuChoice.ToString()` via `dotnet build CryoTray.csproj -c Release -t:Rebuild -p:UseSharedCompilation=false` (0 warnings, 0 errors), producing `bin\Release\net8.0-windows\CryoTray.exe` (388,096 B) and `bin\Release\net8.0-windows\CryoTray.dll` (1,113,600 B, `FileVersion 0.0.100`).
+- Ran `dotnet .\bin\Release\net8.0-windows\CryoTray.dll /test` after final build: all 13/13 checks passed and restored `Balanced` power scheme (`381b4222-f694-41f0-9685-ff5bb260df2e`), with 0 running `CryoTray` processes.
 
 ## Current status
 
-- Added `CryoTray.exe /dump`: writes every CPU temperature and clock sensor (name, type, value, min, max, identifier) to `cpu-sensors.txt` in the project root.
-- The dump uses `Elevated: True/False` in its header so an unelevated run is obvious. Sensor values are 0 when LHM cannot access the hardware.
-- `dotnet build -c Release` passes with 0 warnings and 0 errors after the CCD peak change.
-- Output: `bin/Release/net8.0-windows/CryoTray.exe`.
-- PawnIO is a machine-level dependency: without it, all CPU sensors return 0 and the synthetic fallback takes over.
-- The old running instance (PID 16300) is closed, so the normal `bin/Release` output is writable again.
-- `dotnet build -c Release` passes with 0 warnings and 0 errors after the fan and timeframe changes.
-- The rebuilt app loaded the new fan geometry and selector strip without a XAML exception. The final visual check is still pending.
+- `dotnet build CryoTray.csproj -c Release -t:Rebuild -p:UseSharedCompilation=false` passes with 0 warnings and 0 errors.
+- `dotnet .\bin\Release\net8.0-windows\CryoTray.dll /test` passes 13/13 checks.
+- Latest binary ready at `bin\Release\net8.0-windows\CryoTray.exe` (`Start-Process .\bin\Release\net8.0-windows\CryoTray.exe`).
+- Live GUI verification completed for `MainWindow` Cooling OFF/ON, `CpuCoresPopup`, and `SettingsWindow > GPU > CmbPrimaryGpu` (`verify-01` to `verify-04`); `scratch\ui_verify.ps1` is ready for optional capture of `OverlayWindow`, `SystemInfoWindow`, `StressTestWindow`, and Arabic RTL (`verify-05` to `verify-08`).
 
 ## Environment
 
-- WPF, .NET 8 (`net8.0-windows`), x64.
-- LibreHardwareMonitorLib 0.9.6, System.Management 10.0.2.
-- Windows, per-monitor DPI aware, administrator manifest.
+- WPF, .NET 8 (`net8.0-windows`), x64, Windows 10/11, per-monitor DPI aware, administrator manifest.
+- `LibreHardwareMonitorLib` 0.9.6, `System.Management` 10.0.2, PawnIO 2.x (`HKLM\SYSTEM\CurrentControlSet\Services\PawnIO`).
 
 ## Next steps
 
-- Launch `bin\Release\net8.0-windows\CryoTray.exe` elevated and check the layered fan, its glow pulse, the selector strip, and both charts switching together.
-- Open and close the dashboard from the tray, toggle Overlay on and off, and open Settings and System Info once to verify the lazy window lifecycle.
-- Hover the hero temperature to confirm the popup layout on the target machine.
-- Run `CryoTray.exe /test` if a hardware-level regression check is needed.
-- Review dual-socket behavior if that hardware ever becomes a target. Current core keys are not namespaced per socket.
+- Run `Start-Process .\bin\Release\net8.0-windows\CryoTray.exe` on desktop (with UAC prompt) to inspect elevated CPU thermal diodes and drive telemetry live.
+- Optionally run `scratch\ui_verify.ps1` when no CryoTray instance is running to capture `verify-05` to `verify-08`.
+- Address remaining enhancement groups on request (e.g., wiring `OverlayClickThrough` and `ExcludedDrives`, WCAG AA contrast fixes on `#2B88D8` / hero gradients).

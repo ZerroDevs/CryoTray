@@ -42,6 +42,7 @@ namespace CryoTray.Views
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetry;
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingChanged;
             UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
+            ApplyTelemetrySnapshot(HardwareMonitorService.Instance.CurrentSnapshot);
         }
 
         private void StressTestWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -67,22 +68,35 @@ namespace CryoTray.Views
 
         private void OnTelemetry(HardwareSnapshot snapshot)
         {
-            Dispatcher.Invoke(() =>
+            Dispatcher.Invoke(() => ApplyTelemetrySnapshot(snapshot));
+        }
+
+        private void ApplyTelemetrySnapshot(HardwareSnapshot snapshot)
+        {
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            string unit = isFahrenheit ? "°F" : "°C";
+            bool hasTemp = double.IsFinite(snapshot.CpuTemp) && snapshot.CpuTemp > 0;
+            if (hasTemp)
             {
-                bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
                 double displayTemperature = isFahrenheit
                     ? (snapshot.CpuTemp * 9 / 5) + 32
                     : snapshot.CpuTemp;
-                string unit = isFahrenheit ? "°F" : "°C";
                 TxtTestTemp.Text = $"{Math.Round(displayTemperature)} {unit}";
-                TxtTestSpeed.Text = $"{snapshot.CpuGhz:0.00} GHz";
+            }
+            else
+            {
+                TxtTestTemp.Text = $"-- {unit}";
+            }
 
-                if (_isRunning)
-                {
-                    _testTemps.Add(snapshot.CpuTemp);
-                    DrawChart();
-                }
-            });
+            TxtTestSpeed.Text = double.IsFinite(snapshot.CpuGhz) && snapshot.CpuGhz > 0
+                ? $"{snapshot.CpuGhz:0.00} GHz"
+                : "-- GHz";
+
+            if (_isRunning && hasTemp)
+            {
+                _testTemps.Add(snapshot.CpuTemp);
+                DrawChart();
+            }
         }
 
         private void DrawChart()
