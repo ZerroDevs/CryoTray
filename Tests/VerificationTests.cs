@@ -4,7 +4,13 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
 using CryoTray.Models;
 using CryoTray.Services;
 using CryoTray.Tray;
@@ -35,6 +41,28 @@ namespace CryoTray.Tests
             allPassed &= TestDriveTelemetryMatching();
             allPassed &= TestMultiGpuSelection();
             allPassed &= TestPawnIoDetection();
+            allPassed &= TestOverlayClickThroughFlag();
+            allPassed &= TestDriveExclusionFiltering();
+            allPassed &= TestCustomHotkeyRecorderAndRegister();
+            allPassed &= TestAutopilotToolhelpAndFullscreenScan();
+            allPassed &= TestSecondLaunchActivationSignal();
+            allPassed &= TestRamTelemetryAndCsvExport();
+            allPassed &= TestPowerPlanUninstallCleanup();
+            allPassed &= TestStartupTaskXmlAndSync();
+            allPassed &= TestSsdRowFormatting();
+            allPassed &= TestTimedCoolingPause();
+            allPassed &= TestStressCoolingDelta();
+            allPassed &= TestMemoryBreakdownTelemetry();
+            allPassed &= TestDynamicByteFormatting();
+            allPassed &= TestCpuIdleGetSystemTimesMath();
+            allPassed &= TestMemoryOptimizerEngineAndFallback();
+            allPassed &= TestRamHotkeyAndSettingsPersistence();
+            allPassed &= TestRamTooltipHoverLifecycle();
+            allPassed &= TestTrayContextMenuDarkRendering();
+            allPassed &= TestCustomFrameColorsAndSettingsPersistence();
+            allPassed &= TestTrayBadgeBlackAndWhiteDigits();
+            allPassed &= TestCpuClockBaseSmallGraphAndDriveSamples();
+            allPassed &= TestZeroHardcodedHardwareInfoAndCloneIntegrity();
 
             Console.WriteLine("==================================================");
             if (allPassed)
@@ -307,10 +335,19 @@ namespace CryoTray.Tests
                     var siw = new Views.SystemInfoWindow();
                     var stw = new Views.StressTestWindow();
                     var ow = new Views.OverlayWindow();
+                    mw.Close();
+                    sw.Close();
+                    siw.Close();
+                    stw.Close();
+                    _ = ow;
                 }
                 catch (Exception ex)
                 {
                     caughtEx = ex;
+                }
+                finally
+                {
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
                 }
             });
 
@@ -646,6 +683,1409 @@ namespace CryoTray.Tests
             {
                 bool installed = HardwareMonitorService.IsPawnIoInstalled();
                 Console.WriteLine($"PASSED (PawnIO installed: {installed})");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestOverlayClickThroughFlag()
+        {
+            Console.Write("[TEST] Overlay Click-Through WS_EX_TRANSPARENT... ");
+            var settings = SettingsService.Instance.Current;
+            bool originalClickThrough = settings.OverlayClickThrough;
+            double? origLeft = settings.OverlayLeft;
+            double? origTop = settings.OverlayTop;
+
+            Views.OverlayWindow? overlay = null;
+            try
+            {
+                settings.OverlayClickThrough = true;
+                overlay = new Views.OverlayWindow
+                {
+                    Left = -3200,
+                    Top = -3200,
+                    ShowActivated = false
+                };
+                overlay.Show();
+                IntPtr hwnd = new WindowInteropHelper(overlay).Handle;
+                if (hwnd == IntPtr.Zero)
+                {
+                    throw new Exception("Overlay HWND was not created.");
+                }
+
+                int exStyleOn = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+                if ((exStyleOn & NativeMethods.WS_EX_TRANSPARENT) == 0)
+                {
+                    throw new Exception("WS_EX_TRANSPARENT was not set when OverlayClickThrough is enabled.");
+                }
+
+                overlay.ApplyClickThrough(false);
+                int exStyleOff = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+                if ((exStyleOff & NativeMethods.WS_EX_TRANSPARENT) != 0)
+                {
+                    throw new Exception("WS_EX_TRANSPARENT was not cleared when click-through disabled.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.OverlayClickThrough = originalClickThrough;
+                try { overlay?.Close(); } catch { }
+                settings.OverlayLeft = origLeft;
+                settings.OverlayTop = origTop;
+            }
+        }
+
+        private static bool TestDriveExclusionFiltering()
+        {
+            Console.Write("[TEST] Per-Drive Exclusion Key & Alert Filtering... ");
+            var settings = SettingsService.Instance.Current;
+            var origExcluded = new List<string>(settings.ExcludedDrives ?? new List<string>());
+            bool origMute = settings.MuteTemperatureAlerts;
+            int origDiskThreshold = settings.HighTempThresholdDisk;
+
+            try
+            {
+                var hiddenDrive = new DriveTelemetry
+                {
+                    Index = 0,
+                    Model = "External Backup HDD",
+                    SerialNumber = "USB-998877",
+                    Temperature = 88
+                };
+                var activeDrive = new DriveTelemetry
+                {
+                    Index = 1,
+                    Model = "Primary NVMe",
+                    SerialNumber = "NVME-112233",
+                    Temperature = 88
+                };
+
+                string hiddenKey = HardwareMonitorService.GetDriveExclusionKey(hiddenDrive);
+                string activeKey = HardwareMonitorService.GetDriveExclusionKey(activeDrive);
+                if (hiddenKey != "serial:USB-998877" || activeKey != "serial:NVME-112233")
+                {
+                    throw new Exception($"Unexpected drive exclusion keys: {hiddenKey}, {activeKey}");
+                }
+
+                settings.ExcludedDrives = new List<string> { hiddenKey };
+                if (!HardwareMonitorService.IsDriveExcluded(hiddenDrive, settings.ExcludedDrives) ||
+                    HardwareMonitorService.IsDriveExcluded(activeDrive, settings.ExcludedDrives))
+                {
+                    throw new Exception("IsDriveExcluded filter mismatch.");
+                }
+
+                var alertService = new TemperatureAlertService();
+                var alertedModels = new List<string>();
+                alertService.AlertRaised += alert =>
+                {
+                    if (alert.Component == TemperatureAlertComponent.Drive && alert.DriveName != null)
+                    {
+                        alertedModels.Add(alert.DriveName);
+                    }
+                };
+
+                settings.MuteTemperatureAlerts = false;
+                settings.HighTempThresholdDisk = 60;
+                alertService.Observe(new HardwareSnapshot
+                {
+                    StorageDrives = new List<DriveTelemetry> { hiddenDrive, activeDrive }
+                });
+
+                if (alertedModels.Count != 1 || alertedModels[0] != "Primary NVMe")
+                {
+                    throw new Exception($"Expected only Primary NVMe alert, got [{string.Join(", ", alertedModels)}]");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.ExcludedDrives = origExcluded;
+                settings.MuteTemperatureAlerts = origMute;
+                settings.HighTempThresholdDisk = origDiskThreshold;
+            }
+        }
+
+        private static bool TestCustomHotkeyRecorderAndRegister()
+        {
+            Console.Write("[TEST] Custom Hotkey Recorder & Registration... ");
+            HwndSource? source = null;
+            var hotkeyService = new GlobalHotkeyService();
+            try
+            {
+                if (!GlobalHotkeyService.TryCaptureShortcut(Key.F9, Key.None, ModifierKeys.Control | ModifierKeys.Alt, out string mods1, out string key1) ||
+                    mods1 != "Ctrl+Alt" || key1 != "F9")
+                {
+                    throw new Exception("Failed capturing Ctrl+Alt+F9.");
+                }
+
+                if (!GlobalHotkeyService.TryCaptureShortcut(Key.System, Key.D1, ModifierKeys.Alt | ModifierKeys.Shift, out string mods2, out string key2) ||
+                    mods2 != "Alt+Shift" || key2 != "D1" ||
+                    GlobalHotkeyService.FormatShortcutDisplay(mods2, key2) != "Alt + Shift + 1")
+                {
+                    throw new Exception("Failed capturing/formatting Alt+Shift+1.");
+                }
+
+                if (!GlobalHotkeyService.TryCaptureShortcut(Key.F10, Key.None, ModifierKeys.None, out string mods3, out string key3) ||
+                    mods3 != "" || key3 != "F10")
+                {
+                    throw new Exception("Failed capturing standalone F10.");
+                }
+
+                if (GlobalHotkeyService.TryCaptureShortcut(Key.A, Key.None, ModifierKeys.None, out _, out _))
+                {
+                    throw new Exception("Bare letter A without modifiers must be rejected.");
+                }
+
+                var p = new HwndSourceParameters("CryoTrayHotkeyTest") { Width = 0, Height = 0, ParentWindow = new IntPtr(-3) };
+                source = new HwndSource(p);
+                bool registered = hotkeyService.Register(source.Handle, "Ctrl+Alt+Shift", "F11");
+                if (!registered || !hotkeyService.IsRegistered)
+                {
+                    throw new Exception("Failed RegisterHotKey for Ctrl+Alt+Shift+F11.");
+                }
+
+                hotkeyService.Unregister();
+                if (hotkeyService.IsRegistered)
+                {
+                    throw new Exception("IsRegistered stayed true after Unregister.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                hotkeyService.Unregister();
+                source?.Dispose();
+            }
+        }
+
+        private static bool TestAutopilotToolhelpAndFullscreenScan()
+        {
+            Console.Write("[TEST] Autopilot Toolhelp32 & Fullscreen Detection... ");
+            try
+            {
+                var processes = AutopilotService.EnumerateProcessesByPidToolhelp32();
+                if (processes.Count == 0)
+                {
+                    throw new Exception("Toolhelp32 returned zero processes.");
+                }
+
+                if (processes.ContainsKey((uint)Environment.ProcessId))
+                {
+                    throw new Exception("Toolhelp32 should exclude the current CryoTray process ID.");
+                }
+
+                _ = AutopilotService.IsFullscreen3DOrBorderlessActive(processes);
+                Console.WriteLine($"PASSED ({processes.Count} processes scanned)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestSecondLaunchActivationSignal()
+        {
+            Console.Write("[TEST] Second-Launch Activation EventWaitHandle... ");
+            string testEventName = $"CryoTray-Test-Activate-{Guid.NewGuid():N}";
+            try
+            {
+                using var waitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, testEventName);
+                Task.Run(() => App.TrySignalExistingInstance(testEventName)).Wait(2000);
+                if (!waitEvent.WaitOne(1500))
+                {
+                    throw new Exception("Activation signal was not received.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestRamTelemetryAndCsvExport()
+        {
+            Console.Write("[TEST] GlobalMemoryStatusEx RAM & TelemetryCsvService... ");
+            string tempCsv = Path.Combine(Path.GetTempPath(), $"cryotray_test_{Guid.NewGuid():N}.csv");
+            try
+            {
+                if (!HardwareMonitorService.TryReadMemoryMetrics(out double usedGb, out double totalGb, out double usagePct))
+                {
+                    throw new Exception("GlobalMemoryStatusEx failed.");
+                }
+
+                if (totalGb <= 0 || usedGb < 0 || usedGb > totalGb || usagePct < 0 || usagePct > 100)
+                {
+                    throw new Exception($"Invalid RAM values: used={usedGb}, total={totalGb}, pct={usagePct}");
+                }
+
+                var samples = new List<TelemetrySample>
+                {
+                    new()
+                    {
+                        Timestamp = new DateTime(2026, 11, 18, 12, 0, 0),
+                        CoolingModeActive = true,
+                        CpuTemp = double.NaN,
+                        CpuGhz = 3.85,
+                        CpuLoad = 18.2,
+                        GpuTemp = 48.0,
+                        GpuLoad = 12.0,
+                        GpuPowerWatts = 31,
+                        RamUsedGb = usedGb,
+                        RamUsagePercent = usagePct
+                    },
+                    new()
+                    {
+                        Timestamp = new DateTime(2026, 11, 18, 12, 0, 1),
+                        CoolingModeActive = false,
+                        CpuTemp = 62.5,
+                        CpuGhz = 4.55,
+                        CpuLoad = 75.0,
+                        CpuPowerWatts = 105,
+                        GpuTemp = 65.0,
+                        GpuLoad = 88.0,
+                        GpuPowerWatts = 195,
+                        RamUsedGb = usedGb,
+                        RamUsagePercent = usagePct
+                    }
+                };
+
+                TelemetryCsvService.ExportSamples(samples, tempCsv);
+                string[] lines = File.ReadAllLines(tempCsv);
+                if (lines.Length != 3 || !lines[0].StartsWith("Timestamp,CoolingMode,CpuTempC", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected CSV structure (lines={lines.Length}).");
+                }
+
+                if (string.Join("\n", lines).Contains("NaN", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception("CSV output must never contain literal NaN.");
+                }
+
+                Console.WriteLine($"PASSED ({usedGb:0.00}/{totalGb:0.00} GB, {usagePct:0.0}%)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try { if (File.Exists(tempCsv)) File.Delete(tempCsv); } catch { }
+            }
+        }
+
+        private static bool TestPowerPlanUninstallCleanup()
+        {
+            Console.Write("[TEST] PowerPlanService Uninstall Cleanup... ");
+            var pps = PowerPlanService.Instance;
+            Guid originalActive = pps.GetActiveSchemeGuid();
+            try
+            {
+                pps.EnsureCryoTrayCoolingScheme();
+                pps.CleanupForUninstall();
+
+                var remaining = pps.GetInstalledSchemes()
+                    .Where(s => s.Name.Equals(PowerPlanService.CryoTrayCoolingSchemeName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (remaining.Count != 0)
+                {
+                    throw new Exception($"Expected 0 CryoTray Cooling schemes after cleanup, found {remaining.Count}.");
+                }
+
+                Guid recreated = pps.EnsureCryoTrayCoolingScheme();
+                if (recreated == Guid.Empty)
+                {
+                    throw new Exception("Failed to recreate CryoTray Cooling scheme after cleanup check.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                Guid restore = originalActive;
+                if (pps.GetInstalledSchemes().All(s => s.Guid != restore))
+                {
+                    restore = pps.GetNormalPowerPlanGuid();
+                }
+
+                NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref restore);
+                pps.SyncCoolingStateFromSystem();
+            }
+        }
+
+        private static bool TestStartupTaskXmlAndSync()
+        {
+            Console.Write("[TEST] StartupTaskService XML, Battery Flags & Live Sync... ");
+            string testTaskName = $"CryoTray-Test-{Guid.NewGuid():N}";
+            try
+            {
+                string xml = StartupTaskService.BuildTaskXml(
+                    @"C:\Program Files\CryoTray\CryoTray.exe",
+                    @"C:\Program Files\CryoTray",
+                    @"DESKTOP\User");
+
+                string[] requiredNodes =
+                {
+                    "<LogonType>InteractiveToken</LogonType>",
+                    "<RunLevel>HighestAvailable</RunLevel>",
+                    "<Delay>PT5S</Delay>",
+                    "<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>",
+                    "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>",
+                    "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>",
+                    "<Arguments>/autostart</Arguments>",
+                    "<WorkingDirectory>C:\\Program Files\\CryoTray</WorkingDirectory>"
+                };
+
+                foreach (string node in requiredNodes)
+                {
+                    if (!xml.Contains(node, StringComparison.Ordinal))
+                    {
+                        throw new Exception($"Task XML missing required node: {node}");
+                    }
+                }
+
+                if (StartupTaskService.IsCurrentProcessElevated())
+                {
+                    string expectedExe = StartupTaskService.ResolveExecutablePath();
+                    if (!File.Exists(expectedExe))
+                    {
+                        throw new Exception($"Expected executable missing at {expectedExe}");
+                    }
+
+                    if (!StartupTaskService.TrySetStartupForTask(testTaskName, true, out string? createErr))
+                    {
+                        throw new Exception($"Elevated task registration failed: {createErr}");
+                    }
+
+                    var state = StartupTaskService.QueryStateForTask(testTaskName);
+                    if (!state.Exists ||
+                        !string.Equals(state.CommandPath, expectedExe, StringComparison.OrdinalIgnoreCase) ||
+                        !(state.Arguments ?? "").Contains(StartupTaskService.AutostartArg, StringComparison.OrdinalIgnoreCase) ||
+                        !state.AllowsBattery)
+                    {
+                        throw new Exception(
+                            $"Unexpected queried task state: exists={state.Exists}, cmd={state.CommandPath}, args={state.Arguments}, battery={state.AllowsBattery}");
+                    }
+
+                    if (!StartupTaskService.TrySetStartupForTask(testTaskName, false, out string? deleteErr))
+                    {
+                        throw new Exception($"Elevated task cleanup failed: {deleteErr}");
+                    }
+
+                    if (StartupTaskService.QueryStateForTask(testTaskName).Exists)
+                    {
+                        throw new Exception("Test scheduled task still exists after deletion.");
+                    }
+
+                    Console.WriteLine("PASSED (Task 1.2 XML & live elevated schtasks round-trip verified)");
+                }
+                else
+                {
+                    Console.WriteLine("PASSED (Task 1.2 XML verified; live schtasks requires elevation)");
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                StartupTaskService.TrySetStartupForTask(testTaskName, false, out _);
+            }
+        }
+
+        private static bool TestSsdRowFormatting()
+        {
+            Console.Write("[TEST] Dashboard SSD Drive Letter & Fallback Formatting... ");
+            try
+            {
+                var driveC = new DriveTelemetry { Index = 0, DriveLetters = "C" };
+                var driveMulti = new DriveTelemetry { Index = 1, DriveLetters = "D:, E" };
+                var driveUnmounted = new DriveTelemetry { Index = 2, DriveLetters = "" };
+
+                string badgeC = Views.MainWindow.FormatSsdBadgeText(driveC);
+                string labelC = Views.MainWindow.FormatSsdRowLabel(driveC);
+                if (badgeC != "C" || labelC != "SSD (C:)")
+                {
+                    throw new Exception($"Single drive mismatch: badge='{badgeC}', label='{labelC}'");
+                }
+
+                string badgeMulti = Views.MainWindow.FormatSsdBadgeText(driveMulti);
+                string labelMulti = Views.MainWindow.FormatSsdRowLabel(driveMulti);
+                if (badgeMulti != "D" || labelMulti != "SSD (D:, E:)")
+                {
+                    throw new Exception($"Multi drive mismatch: badge='{badgeMulti}', label='{labelMulti}'");
+                }
+
+                string badgeNone = Views.MainWindow.FormatSsdBadgeText(driveUnmounted);
+                string labelNone = Views.MainWindow.FormatSsdRowLabel(driveUnmounted);
+                if (badgeNone != "3" || labelNone != "SSD 3")
+                {
+                    throw new Exception($"Unmounted drive mismatch: badge='{badgeNone}', label='{labelNone}'");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestTimedCoolingPause()
+        {
+            Console.Write("[TEST] Timed Cooling Pause & Resume... ");
+            var pps = PowerPlanService.Instance;
+            Guid originalActive = pps.GetActiveSchemeGuid();
+            var app = System.Windows.Application.Current as App;
+            if (app == null)
+            {
+                Console.WriteLine("FAILED: App.Current is null.");
+                return false;
+            }
+
+            try
+            {
+                pps.EnsureCryoTrayCoolingScheme();
+                pps.SetCoolingMode(true);
+                if (!pps.IsCoolingModeActive)
+                {
+                    throw new Exception("Failed to activate Cooling Mode before pause.");
+                }
+
+                app.PauseCoolingFor(TimeSpan.FromMinutes(15));
+                if (!app.IsCoolingPausedByTimer || !app.CoolingPausedUntilUtc.HasValue)
+                {
+                    throw new Exception("PauseCoolingFor did not arm timed pause.");
+                }
+
+                if (pps.IsCoolingModeActive)
+                {
+                    throw new Exception("PauseCoolingFor did not turn Cooling Mode off.");
+                }
+
+                app.CancelCoolingPause(resumeCooling: false);
+                if (app.IsCoolingPausedByTimer || pps.IsCoolingModeActive)
+                {
+                    throw new Exception("CancelCoolingPause(resumeCooling: false) left timer active or changed scheme.");
+                }
+
+                app.PauseCoolingFor(TimeSpan.FromMinutes(30));
+                app.CancelCoolingPause(resumeCooling: true, forceResume: true);
+                if (app.IsCoolingPausedByTimer || !pps.IsCoolingModeActive)
+                {
+                    throw new Exception("CancelCoolingPause(resumeCooling: true) failed to resume Cooling Mode.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                app.CancelCoolingPause(resumeCooling: false);
+                NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref originalActive);
+                pps.SyncCoolingStateFromSystem();
+            }
+        }
+
+        private static bool TestStressCoolingDelta()
+        {
+            Console.Write("[TEST] Stress Test Cooling OFF vs ON Delta... ");
+            try
+            {
+                var samples = new List<TelemetrySample>();
+                for (int i = 0; i < 6; i++)
+                {
+                    samples.Add(new TelemetrySample
+                    {
+                        CoolingModeActive = false,
+                        CpuTemp = 75 + i,
+                        CpuPowerWatts = 107 + i
+                    });
+                }
+
+                // Trailing 5 OFF samples: temps 76..80 (avg 78), watts 108..112 (avg 110)
+                // Add transient cooling-on drop + 5 settled ON samples: temps 46..50 (avg 48), watts 33..37 (avg 35)
+                samples.Add(new TelemetrySample { CoolingModeActive = true, CpuTemp = 72, CpuPowerWatts = 60 });
+                for (int i = 0; i < 5; i++)
+                {
+                    samples.Add(new TelemetrySample
+                    {
+                        CoolingModeActive = true,
+                        CpuTemp = 46 + i,
+                        CpuPowerWatts = 33 + i
+                    });
+                }
+
+                var cmpC = Views.StressTestWindow.ComputeCoolingComparison(samples, isFahrenheit: false);
+                if (!cmpC.HasOffPhase || !cmpC.HasOnPhase ||
+                    Math.Abs(cmpC.OffTemp - 78.0) > 0.01 ||
+                    Math.Abs(cmpC.OnTemp - 48.0) > 0.01 ||
+                    Math.Abs(cmpC.DeltaTemp - (-30.0)) > 0.01 ||
+                    Math.Abs(cmpC.DeltaWatts - (-75.0)) > 0.01)
+                {
+                    throw new Exception(
+                        $"Celsius delta mismatch: off={cmpC.OffTemp}C/{cmpC.OffWatts}W, on={cmpC.OnTemp}C/{cmpC.OnWatts}W, dT={cmpC.DeltaTemp}, dW={cmpC.DeltaWatts}");
+                }
+
+                var cmpF = Views.StressTestWindow.ComputeCoolingComparison(samples, isFahrenheit: true);
+                if (Math.Abs(cmpF.DeltaTemp - (-54.0)) > 0.01)
+                {
+                    throw new Exception($"Fahrenheit delta mismatch: expected -54 F, got {cmpF.DeltaTemp}");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestMemoryBreakdownTelemetry()
+        {
+            Console.Write("[TEST] Kernel MemoryBreakdown Telemetry... ");
+            try
+            {
+                if (!MemoryTelemetryService.TryReadBreakdown(out var breakdown))
+                {
+                    throw new Exception("TryReadBreakdown returned false.");
+                }
+
+                if (breakdown.TotalUsableBytes == 0 || breakdown.InstalledBytes < breakdown.TotalUsableBytes)
+                {
+                    throw new Exception(
+                        $"Invalid capacity values: installed={breakdown.InstalledBytes}, usable={breakdown.TotalUsableBytes}");
+                }
+
+                if (breakdown.HardwareReservedBytes != breakdown.InstalledBytes - breakdown.TotalUsableBytes)
+                {
+                    throw new Exception("HardwareReservedBytes mismatch.");
+                }
+
+                if (breakdown.InUseBytes + breakdown.AvailableBytes != breakdown.TotalUsableBytes)
+                {
+                    throw new Exception("InUse + Available does not equal TotalUsableBytes.");
+                }
+
+                if (StartupTaskService.IsCurrentProcessElevated())
+                {
+                    if (!breakdown.HasPageListBreakdown || (breakdown.StandbyBytes + breakdown.FreeBytes) == 0)
+                    {
+                        throw new Exception("Expected live NT page list breakdown when elevated.");
+                    }
+
+                    if (breakdown.CachedBytes != breakdown.StandbyBytes + breakdown.ModifiedBytes)
+                    {
+                        throw new Exception("CachedBytes must equal StandbyBytes + ModifiedBytes.");
+                    }
+                }
+
+                Console.WriteLine(
+                    $"PASSED (Installed={MemoryTelemetryService.FormatBytes(breakdown.InstalledBytes)}, InUse={MemoryTelemetryService.FormatBytes(breakdown.InUseBytes)}, Standby={MemoryTelemetryService.FormatBytes(breakdown.StandbyBytes)}, Free={MemoryTelemetryService.FormatBytes(breakdown.FreeBytes)})");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestDynamicByteFormatting()
+        {
+            Console.Write("[TEST] MemoryTelemetryService Dynamic GB/MB Formatting... ");
+            try
+            {
+                string zero = MemoryTelemetryService.FormatBytes(0);
+                string small = MemoryTelemetryService.FormatBytes((ulong)(5.25 * 1024 * 1024));
+                string medium = MemoryTelemetryService.FormatBytes((ulong)(412.5 * 1024 * 1024));
+                string oneGb = MemoryTelemetryService.FormatBytes(1024UL * 1024UL * 1024UL);
+                string sixteenGb = MemoryTelemetryService.FormatBytes(16UL * 1024UL * 1024UL * 1024UL);
+
+                if (zero != "0.0 MB" ||
+                    small != "5.25 MB" ||
+                    medium != "412.5 MB" ||
+                    oneGb != "1.00 GB" ||
+                    sixteenGb != "16.00 GB")
+                {
+                    throw new Exception(
+                        $"Formatting mismatch: zero='{zero}', small='{small}', medium='{medium}', oneGb='{oneGb}', sixteenGb='{sixteenGb}'");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestCpuIdleGetSystemTimesMath()
+        {
+            Console.Write("[TEST] GetSystemTimes CPU Idle Guard... ");
+            try
+            {
+                double full = MemoryTelemetryService.ComputeCpuUsagePercent(0, 100, 0, 0, 200, 100);
+                double zero = MemoryTelemetryService.ComputeCpuUsagePercent(0, 100, 0, 100, 200, 0);
+                double five = MemoryTelemetryService.ComputeCpuUsagePercent(0, 0, 0, 95, 95, 5);
+                double same = MemoryTelemetryService.ComputeCpuUsagePercent(10, 20, 30, 10, 20, 30);
+
+                if (Math.Abs(full - 100.0) > 0.01 ||
+                    Math.Abs(zero - 0.0) > 0.01 ||
+                    Math.Abs(five - 5.0) > 0.01 ||
+                    Math.Abs(same - 0.0) > 0.01)
+                {
+                    throw new Exception($"Math mismatch: full={full}, zero={zero}, five={five}, same={same}");
+                }
+
+                double? live = MemoryTelemetryService.MeasureCpuUsageAsync(TimeSpan.FromMilliseconds(120)).GetAwaiter().GetResult();
+                if (!live.HasValue || !double.IsFinite(live.Value) || live.Value < 0.0 || live.Value > 100.0)
+                {
+                    throw new Exception($"Invalid live GetSystemTimes reading: {live}");
+                }
+
+                Console.WriteLine($"PASSED (Live CPU={live.Value:0.0}%)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestMemoryOptimizerEngineAndFallback()
+        {
+            Console.Write("[TEST] MemoryOptimizerService Commands & Elevation Fallback... ");
+            var settings = SettingsService.Instance.Current;
+            bool origWorking = settings.RamFreeWorkingSets;
+            bool origStandby = settings.RamClearStandby;
+            bool origClip = settings.RamClearClipboard;
+            bool origNotify = settings.RamShowNotification;
+
+            try
+            {
+                var privFail = MemoryOptimizerService.ExecuteKernelCommands(
+                    true,
+                    true,
+                    _ => (NativeMethods.STATUS_PRIVILEGE_NOT_HELD, -1));
+                if (privFail.Succeeded || !privFail.RequiresElevation ||
+                    privFail.LastNtStatus != NativeMethods.STATUS_PRIVILEGE_NOT_HELD)
+                {
+                    throw new Exception("Expected clean RequiresElevation fallback on STATUS_PRIVILEGE_NOT_HELD.");
+                }
+
+                var noScope = MemoryOptimizerService.ExecuteKernelCommands(
+                    false,
+                    false,
+                    _ => throw new Exception("No kernel commands should run when scope is empty."));
+                if (noScope.Succeeded || noScope.RequiresElevation)
+                {
+                    throw new Exception("Unexpected status on empty cleaning scope.");
+                }
+
+                var sentCmds = new List<int>();
+                var mockAll = MemoryOptimizerService.ExecuteKernelCommands(
+                    true,
+                    true,
+                    cmd =>
+                    {
+                        sentCmds.Add(cmd);
+                        return (0, 0);
+                    });
+                if (!mockAll.Succeeded ||
+                    !sentCmds.SequenceEqual(new[]
+                    {
+                        NativeMethods.MemoryEmptyWorkingSets,
+                        NativeMethods.MemoryFlushModifiedList,
+                        NativeMethods.MemoryPurgeStandbyList
+                    }))
+                {
+                    throw new Exception("Command sequence mismatch for WorkingSets+Standby.");
+                }
+
+                if (StartupTaskService.IsCurrentProcessElevated())
+                {
+                    settings.RamFreeWorkingSets = true;
+                    settings.RamClearStandby = true;
+                    settings.RamClearClipboard = false;
+                    settings.RamShowNotification = false;
+
+                    var liveResult = MemoryOptimizerService.Instance
+                        .OptimizeAsync(MemoryOptimizationTrigger.Manual)
+                        .GetAwaiter()
+                        .GetResult();
+                    if (liveResult == null || !liveResult.Succeeded || liveResult.RequiresElevation)
+                    {
+                        throw new Exception($"Elevated memory optimization failed: status={liveResult?.LastNtStatus}");
+                    }
+
+                    Console.WriteLine(
+                        $"PASSED (Fallback OK, Live Freed={MemoryTelemetryService.FormatBytes(liveResult.FreedBytes)})");
+                }
+                else
+                {
+                    Console.WriteLine("PASSED (Fallback & command sequence verified; live cleanup requires elevation)");
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.RamFreeWorkingSets = origWorking;
+                settings.RamClearStandby = origStandby;
+                settings.RamClearClipboard = origClip;
+                settings.RamShowNotification = origNotify;
+            }
+        }
+
+        private static bool TestRamHotkeyAndSettingsPersistence()
+        {
+            Console.Write("[TEST] RAM Settings Persistence & Dual Hotkey IDs... ");
+            try
+            {
+                var sample = new AppSettings
+                {
+                    RamFreeWorkingSets = false,
+                    RamClearStandby = true,
+                    RamClearClipboard = true,
+                    RamShowNotification = false,
+                    AutoRamOptimizeEnabled = true,
+                    AutoRamThresholdPercent = 30,
+                    AutoRamCpuIdleOnly = false,
+                    AutoRamIntervalHours = 4,
+                    UseRamHotkey = true,
+                    RamHotkeyModifiers = "Ctrl+Alt",
+                    RamHotkeyKey = "M"
+                };
+
+                string json = System.Text.Json.JsonSerializer.Serialize(sample);
+                var roundTrip = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json)
+                    ?? throw new Exception("Deserialized AppSettings is null.");
+
+                if (roundTrip.RamFreeWorkingSets ||
+                    !roundTrip.RamClearStandby ||
+                    !roundTrip.RamClearClipboard ||
+                    roundTrip.RamShowNotification ||
+                    !roundTrip.AutoRamOptimizeEnabled ||
+                    roundTrip.AutoRamThresholdPercent != 30 ||
+                    roundTrip.AutoRamCpuIdleOnly ||
+                    roundTrip.AutoRamIntervalHours != 4 ||
+                    !roundTrip.UseRamHotkey ||
+                    roundTrip.RamHotkeyModifiers != "Ctrl+Alt" ||
+                    roundTrip.RamHotkeyKey != "M")
+                {
+                    throw new Exception("AppSettings RAM JSON round-trip mismatch.");
+                }
+
+                if (GlobalHotkeyService.CoolingHotkeyId == GlobalHotkeyService.RamOptimizeHotkeyId)
+                {
+                    throw new Exception("Cooling and RAM hotkey IDs must be distinct.");
+                }
+
+                string display = GlobalHotkeyService.FormatShortcutDisplay(roundTrip.RamHotkeyModifiers, roundTrip.RamHotkeyKey);
+                if (display != "Ctrl + Alt + M")
+                {
+                    throw new Exception($"Unexpected shortcut format: '{display}'");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestRamTooltipHoverLifecycle()
+        {
+            Console.Write("[TEST] RAM Breakdown Tooltip Hover & Pin Lifecycle... ");
+            Exception? caughtEx = null;
+
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    var mw = new Views.MainWindow();
+                    mw.ExerciseRamTooltipLifecycleForTest();
+                    mw.Close();
+                }
+                catch (System.Reflection.TargetInvocationException ex)
+                {
+                    caughtEx = ex.InnerException ?? ex;
+                }
+                catch (Exception ex)
+                {
+                    caughtEx = ex;
+                }
+                finally
+                {
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                }
+            });
+
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+
+            if (caughtEx != null)
+            {
+                Console.WriteLine($"FAILED: {caughtEx.Message}");
+                return false;
+            }
+
+            Console.WriteLine("PASSED");
+            return true;
+        }
+
+        private static bool TestTrayContextMenuDarkRendering()
+        {
+            Console.Write("[TEST] Tray ContextMenu Dark Owner-Drawn Rendering... ");
+            Bitmap? mainBmp = null;
+            Bitmap? subBmp = null;
+            Bitmap? arMain = null;
+            Bitmap? arSub = null;
+            try
+            {
+                using var tray = new TrayIconManager();
+                (mainBmp, subBmp) = tray.RenderContextMenusForTest(selectFirstItem: true, overlayChecked: true);
+
+                AssertDarkGutterAndHover(mainBmp, rtl: false, "MainMenu-LTR");
+                AssertDarkGutterAndHover(subBmp, rtl: false, "SubMenu-LTR");
+                AssertSteelBlueCheckboxSide(mainBmp, rtl: false, "MainMenu-LTR");
+
+                LocalizationService.Instance.Apply("العربية");
+                if (!LocalizationService.Instance.IsArabic)
+                {
+                    throw new Exception("LocalizationService failed to enter Arabic mode.");
+                }
+
+                tray.ApplyLanguage();
+                (arMain, arSub) = tray.RenderContextMenusForTest(selectFirstItem: true, overlayChecked: true);
+                AssertDarkGutterAndHover(arMain, rtl: true, "MainMenu-RTL");
+                AssertDarkGutterAndHover(arSub, rtl: true, "SubMenu-RTL");
+                AssertSteelBlueCheckboxSide(arMain, rtl: true, "MainMenu-RTL");
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                mainBmp?.Dispose();
+                subBmp?.Dispose();
+                arMain?.Dispose();
+                arSub?.Dispose();
+                try
+                {
+                    LocalizationService.Instance.Apply("English");
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void AssertSteelBlueCheckboxSide(Bitmap bmp, bool rtl, string label)
+        {
+            int xStart = rtl ? 8 : Math.Max(1, bmp.Width - 32);
+            int xEnd = rtl ? Math.Min(bmp.Width - 2, 32) : bmp.Width - 8;
+            for (int x = xStart; x < xEnd; x++)
+            {
+                for (int y = 4; y < bmp.Height - 4; y++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (c.B > 200 && c.G > 140 && c.R < 80)
+                    {
+                        return;
+                    }
+                }
+            }
+
+            throw new Exception($"{label} checked Click-Through Overlay checkbox lacked Steel Blue (#29B6F6) border pixels on {(rtl ? "left" : "right")} trailing edge.");
+        }
+
+        private static void AssertDarkGutterAndHover(Bitmap bmp, bool rtl, string label)
+        {
+            int xStart = rtl ? Math.Max(1, bmp.Width - 11) : 2;
+            int xEnd = rtl ? bmp.Width - 3 : Math.Min(bmp.Width - 2, 10);
+            for (int x = xStart; x <= xEnd; x++)
+            {
+                for (int y = 2; y <= bmp.Height - 3; y++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (c.R > 75 || c.G > 75 || c.B > 75)
+                    {
+                        throw new Exception($"{label} bright/white/blue pixel at ({x},{y}): {c}");
+                    }
+                }
+            }
+
+            int hoverProbeX = rtl ? bmp.Width - 9 : 8;
+            Color hover = bmp.GetPixel(hoverProbeX, 10);
+            if (hover.R != 45 || hover.G != 45 || hover.B != 45)
+            {
+                throw new Exception($"{label} hovered pill at ({hoverProbeX},10) was {hover}, expected #2D2D2D (45,45,45).");
+            }
+        }
+
+        private static bool TestCustomFrameColorsAndSettingsPersistence()
+        {
+            Console.Write("[TEST] Custom Frame Colors & Wave 5 Settings Persistence... ");
+            try
+            {
+                var customOff = App.ResolveFrameColor("#FF9061", App.DefaultCoolingOffFrameColor);
+                if (customOff.R != 0xFF || customOff.G != 0x90 || customOff.B != 0x61)
+                {
+                    throw new Exception($"Unexpected parsed color: {customOff}");
+                }
+
+                var fallbackOn = App.ResolveFrameColor("not-a-color", App.DefaultCoolingOnFrameColor);
+                if (App.NormalizeHexColor(fallbackOn) != App.DefaultCoolingOnFrameColor)
+                {
+                    throw new Exception($"Invalid hex did not fall back to default: {App.NormalizeHexColor(fallbackOn)}");
+                }
+
+                var sample = new AppSettings
+                {
+                    CoolingOnFrameColor = "#2D94EF",
+                    CoolingOffFrameColor = "#FF9061",
+                    CpuTrayWhiteDigits = true,
+                    GpuTrayWhiteDigits = true,
+                    ShowCpuClock = false,
+                    ShowCpuBaseSpeed = false,
+                    ShowCpuGraph = true,
+                    CpuGraphSmall = true,
+                    CpuGraphTimeframeMinutes = 10,
+                    ShowDiskTemp = false,
+                    DiskGraphDrives = new List<string> { "drive-0", "drive-1" },
+                    DiskGraphTimeframes = new Dictionary<string, int>
+                    {
+                        ["drive-0"] = 5,
+                        ["drive-1"] = 30
+                    }
+                };
+
+                string json = System.Text.Json.JsonSerializer.Serialize(sample);
+                var loaded = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json)
+                    ?? throw new Exception("Deserialized AppSettings is null.");
+
+                if (loaded.CoolingOnFrameColor != "#2D94EF" ||
+                    loaded.CoolingOffFrameColor != "#FF9061" ||
+                    !loaded.CpuTrayWhiteDigits ||
+                    !loaded.GpuTrayWhiteDigits ||
+                    loaded.ShowCpuClock ||
+                    loaded.ShowCpuBaseSpeed ||
+                    !loaded.ShowCpuGraph ||
+                    !loaded.CpuGraphSmall ||
+                    loaded.CpuGraphTimeframeMinutes != 10 ||
+                    loaded.ShowDiskTemp ||
+                    loaded.DiskGraphDrives.Count != 2 ||
+                    !loaded.DiskGraphTimeframes.TryGetValue("drive-1", out int d1Tf) ||
+                    d1Tf != 30)
+                {
+                    throw new Exception("Wave 5 settings JSON round-trip mismatch.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestTrayBadgeBlackAndWhiteDigits()
+        {
+            Console.Write("[TEST] Tray Badges Black vs White Digits & Handle Stability... ");
+            try
+            {
+                IntPtr hProcess = Process.GetCurrentProcess().Handle;
+                using var tray = new TrayIconManager();
+
+                using (var cpuBlack = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: false, whiteDigits: false))
+                using (var cpuWhite = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: true, whiteDigits: true))
+                using (var gpuWhite = tray.RenderSingleBadgeForTest(48, isCpu: false, coolingModeActive: false, whiteDigits: true))
+                using (var mergedMixed = tray.RenderMergedBadgeForTest(53, 48, coolingModeActive: false, cpuWhiteDigits: true, gpuWhiteDigits: false))
+                {
+                    AssertHasDarkAndBg(cpuBlack, minBgR: 220, expectDarkInk: true, label: "CpuBlackOff");
+                    AssertHasWhiteAndBg(cpuWhite, minBgB: 150, label: "CpuWhiteOn");
+                    AssertHasWhiteAndBg(gpuWhite, minBgG: 110, label: "GpuWhite");
+
+                    Color topCorner = mergedMixed.GetPixel(16, 2);
+                    Color botCorner = mergedMixed.GetPixel(16, 29);
+                    if (topCorner.R < 170 || botCorner.G < 150)
+                    {
+                        throw new Exception($"Merged split background mismatch: top={topCorner}, bot={botCorner}");
+                    }
+                }
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                uint gdiBefore = NativeMethods.GetGuiResources(hProcess, 0);
+                for (int i = 0; i < 200; i++)
+                {
+                    using var b = tray.RenderSingleBadgeForTest(50 + (i % 10), isCpu: (i % 2 == 0), coolingModeActive: (i % 3 == 0), whiteDigits: (i % 2 == 1));
+                }
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                uint gdiAfter = NativeMethods.GetGuiResources(hProcess, 0);
+                if ((int)(gdiAfter - gdiBefore) > 5)
+                {
+                    throw new Exception($"GDI leak during tray badge renders: before={gdiBefore}, after={gdiAfter}");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static void AssertHasDarkAndBg(Bitmap bmp, int minBgR, bool expectDarkInk, string label)
+        {
+            bool foundDark = false;
+            bool foundWhite = false;
+            Color bg = bmp.GetPixel(1, 1);
+            if (bg.R < minBgR)
+            {
+                throw new Exception($"{label} background corner too dark: {bg}");
+            }
+
+            for (int x = 4; x < bmp.Width - 4; x++)
+            {
+                for (int y = 4; y < bmp.Height - 4; y++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (c.R < 65 && c.G < 65 && c.B < 65) foundDark = true;
+                    if (c.R > 235 && c.G > 235 && c.B > 235) foundWhite = true;
+                }
+            }
+
+            if (expectDarkInk && !foundDark)
+            {
+                throw new Exception($"{label} expected dark digits but found none.");
+            }
+            if (!expectDarkInk && !foundWhite)
+            {
+                throw new Exception($"{label} expected white digits but found none.");
+            }
+        }
+
+        private static void AssertHasWhiteAndBg(Bitmap bmp, int minBgB = 0, int minBgG = 0, string label = "")
+        {
+            Color bg = bmp.GetPixel(1, 1);
+            if (bg.B < minBgB || bg.G < minBgG)
+            {
+                throw new Exception($"{label} background corner mismatch: {bg}");
+            }
+
+            for (int x = 4; x < bmp.Width - 4; x++)
+            {
+                for (int y = 4; y < bmp.Height - 4; y++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (c.R > 235 && c.G > 235 && c.B > 235)
+                    {
+                        return;
+                    }
+                }
+            }
+
+            throw new Exception($"{label} expected white digits but found none.");
+        }
+
+        private static bool TestCpuClockBaseSmallGraphAndDriveSamples()
+        {
+            Console.Write("[TEST] CPU Base Speed, Small/Large Graph & Drive Sample History... ");
+            var s = SettingsService.Instance.Current;
+            bool origShowClock = s.ShowCpuClock;
+            bool origShowBase = s.ShowCpuBaseSpeed;
+            bool origShowGraph = s.ShowCpuGraph;
+            bool origSmall = s.CpuGraphSmall;
+            bool origShowDisk = s.ShowDiskTemp;
+
+            try
+            {
+                var snap = new HardwareSnapshot
+                {
+                    CpuTemp = 54,
+                    GpuTemp = 48,
+                    CpuGhz = 4.45,
+                    CpuBaseGhz = 3.80,
+                    CpuMaxGhz = 4.85,
+                    StorageDrives = new List<DriveTelemetry>
+                    {
+                        new() { Index = 0, Model = "NVMe One", HardwareIdentifier = "nvme-0", DriveLetters = "C", Temperature = 42 },
+                        new() { Index = 1, Model = "NVMe Two", HardwareIdentifier = "nvme-1", DriveLetters = "E", Temperature = double.NaN }
+                    }
+                };
+                var sample = TelemetrySample.FromSnapshot(snap);
+                if (!sample.TryGetDriveTemp("ID:NVME-0", out double d0) || Math.Abs(d0 - 42) > 0.01)
+                {
+                    throw new Exception($"Expected TryGetDriveTemp('ID:NVME-0')=42, got {d0}");
+                }
+                if (sample.TryGetDriveTemp("id:nvme-1", out _))
+                {
+                    throw new Exception("TryGetDriveTemp should return false for NaN drive temp.");
+                }
+
+                string withBase = Views.MainWindow.FormatCpuClockReadout(4.45, 3.80, 4.85, showBaseSpeed: true);
+                string noBase = Views.MainWindow.FormatCpuClockReadout(4.45, 3.80, 4.85, showBaseSpeed: false);
+                if (withBase != "4.45 / 3.80" || noBase != "4.45")
+                {
+                    throw new Exception($"Unexpected CPU clock format: withBase='{withBase}', noBase='{noBase}'");
+                }
+
+                string amdLabel = Views.MainWindow.FormatCpuSmallRowLabel("AMD Ryzen 7 5800X");
+                string intelLabel = Views.MainWindow.FormatCpuSmallRowLabel("Intel Core i7-13700K");
+                if (amdLabel != "CPU (AMD)" || intelLabel != "CPU (Intel)")
+                {
+                    throw new Exception($"Unexpected CPU small row labels: '{amdLabel}', '{intelLabel}'");
+                }
+
+                Exception? staEx = null;
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        var mw = new Views.MainWindow();
+
+                        s.ShowCpuClock = true;
+                        s.ShowCpuGraph = true;
+                        s.CpuGraphSmall = false;
+                        s.ShowDiskTemp = true;
+                        mw.ApplySettings();
+                        double largeHeight = mw.Height;
+
+                        s.CpuGraphSmall = true;
+                        mw.ApplySettings();
+                        double smallHeight = mw.Height;
+                        if (smallHeight >= largeHeight)
+                        {
+                            throw new Exception($"Expected small graph height < large ({smallHeight} >= {largeHeight}).");
+                        }
+
+                        s.ShowCpuGraph = false;
+                        s.ShowCpuClock = false;
+                        s.ShowDiskTemp = false;
+                        mw.ApplySettings();
+                        if (mw.Height >= smallHeight)
+                        {
+                            throw new Exception($"Expected collapsed rows height < small ({mw.Height} >= {smallHeight}).");
+                        }
+
+                        mw.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                thread.Join();
+
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                s.ShowCpuClock = origShowClock;
+                s.ShowCpuBaseSpeed = origShowBase;
+                s.ShowCpuGraph = origShowGraph;
+                s.CpuGraphSmall = origSmall;
+                s.ShowDiskTemp = origShowDisk;
+            }
+        }
+
+        private static bool TestZeroHardcodedHardwareInfoAndCloneIntegrity()
+        {
+            Console.Write("[TEST] Zero Hardcoded Hardware & Snapshot Clone Integrity... ");
+            try
+            {
+                string ryzen24 = HardwareMonitorService.CleanCpuName("AMD Ryzen 9 7950X 24-Core Processor");
+                if (ryzen24 != "AMD Ryzen 9 7950X")
+                {
+                    throw new Exception($"CleanCpuName mismatch: '{ryzen24}'");
+                }
+
+                string tr96 = HardwareMonitorService.CleanCpuName("AMD Threadripper PRO 7995WX 96-Cores");
+                if (!tr96.Contains("7995WX", StringComparison.Ordinal))
+                {
+                    throw new Exception($"CleanCpuName altered Threadripper model: '{tr96}'");
+                }
+
+                string intelName = HardwareMonitorService.CleanCpuName("Intel(R) Core(TM) i9-14900K");
+                if (intelName != "Intel(R) Core(TM) i9-14900K")
+                {
+                    throw new Exception($"CleanCpuName altered Intel model: '{intelName}'");
+                }
+
+                if (HardwareMonitorService.ResolveCpuVendor("GenuineIntel", "0000 Engineering Sample") != "Intel" ||
+                    HardwareMonitorService.ResolveCpuVendor("AuthenticAMD", "Unknown") != "AMD" ||
+                    HardwareMonitorService.ResolveCpuVendor(null, "Snapdragon X Elite - X1E80100") != "Qualcomm" ||
+                    HardwareMonitorService.ResolveCpuVendor("", "") != "")
+                {
+                    throw new Exception("ResolveCpuVendor returned unexpected vendor mapping.");
+                }
+
+                if (HardwareMonitorService.ResolveGpuVendor(HardwareType.GpuNvidia, "Device") != "Nvidia" ||
+                    HardwareMonitorService.ResolveGpuVendor(HardwareType.GpuAmd, "Device") != "AMD" ||
+                    HardwareMonitorService.ResolveGpuVendor(HardwareType.GpuIntel, "Device") != "Intel" ||
+                    HardwareMonitorService.ResolveGpuVendor(HardwareType.Motherboard, "Unknown Display") != "")
+                {
+                    throw new Exception("ResolveGpuVendor returned unexpected vendor mapping.");
+                }
+
+                if (Views.MainWindow.FormatCpuSmallRowLabel("Snapdragon X Elite", "Qualcomm") != "CPU (Qualcomm)" ||
+                    Views.MainWindow.FormatCpuSmallRowLabel("", "") != "CPU")
+                {
+                    throw new Exception("FormatCpuSmallRowLabel failed dynamic vendor formatting.");
+                }
+
+                if (Views.MainWindow.CompactGpuName("Intel(R) UHD Graphics 770") != "UHD Graphics 770" ||
+                    Views.MainWindow.CompactGpuName("NVIDIA GeForce RTX 4080") != "GeForce RTX 4080")
+                {
+                    throw new Exception("CompactGpuName failed vendor prefix stripping.");
+                }
+
+                string gpuSummary = SystemInfoQueryService.SelectGraphicsCardSummary(
+                    new[] { "Parsec Virtual Display Adapter", "Intel(R) UHD Graphics 770", "NVIDIA GeForce RTX 4070" },
+                    "NVIDIA GeForce RTX 4070");
+                if (gpuSummary != "NVIDIA GeForce RTX 4070, Intel(R) UHD Graphics 770")
+                {
+                    throw new Exception($"SelectGraphicsCardSummary unexpected result: '{gpuSummary}'");
+                }
+
+                var rich = new HardwareSnapshot
+                {
+                    CpuName = "Test CPU",
+                    CpuVendor = "Qualcomm",
+                    GpuName = "NVIDIA GeForce RTX 4070",
+                    GpuVendor = "Nvidia",
+                    GpuTemp = 47.0,
+                    GpuLoad = 18.5,
+                    GpuPowerWatts = 31,
+                    GpuHotspotTemp = 59.0,
+                    GpuVramTemp = 52.0,
+                    GpuFanRpm = 1150
+                };
+                var cloned = HardwareMonitorService.CloneSnapshot(rich);
+                if (cloned.CpuVendor != rich.CpuVendor ||
+                    cloned.GpuName != rich.GpuName ||
+                    cloned.GpuVendor != rich.GpuVendor ||
+                    Math.Abs(cloned.GpuTemp - rich.GpuTemp) > 0.01 ||
+                    Math.Abs(cloned.GpuLoad - rich.GpuLoad) > 0.01 ||
+                    cloned.GpuPowerWatts != rich.GpuPowerWatts ||
+                    cloned.GpuHotspotTemp != rich.GpuHotspotTemp ||
+                    cloned.GpuVramTemp != rich.GpuVramTemp ||
+                    cloned.GpuFanRpm != rich.GpuFanRpm)
+                {
+                    throw new Exception("CloneSnapshot dropped CpuVendor or GPU telemetry fields.");
+                }
+
+                var before = HardwareMonitorService.Instance.CurrentSnapshot;
+                string beforeGpuName = before.GpuName;
+                string beforeGpuVendor = before.GpuVendor;
+                double beforeGpuTemp = before.GpuTemp;
+                string beforeCpuVendor = before.CpuVendor;
+                HardwareMonitorService.Instance.RefreshMemorySnapshotNow();
+                var after = HardwareMonitorService.Instance.CurrentSnapshot;
+                if (after.CpuVendor != beforeCpuVendor ||
+                    after.GpuName != beforeGpuName ||
+                    after.GpuVendor != beforeGpuVendor ||
+                    (!double.IsNaN(beforeGpuTemp) && Math.Abs(after.GpuTemp - beforeGpuTemp) > 0.01))
+                {
+                    throw new Exception("RefreshMemorySnapshotNow dropped CPU vendor or GPU telemetry.");
+                }
+
+                Console.WriteLine("PASSED");
                 return true;
             }
             catch (Exception ex)

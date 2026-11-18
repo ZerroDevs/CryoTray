@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,6 +30,14 @@ namespace CryoTray.Services
             @"^AMD Radeon(?:\(TM\))?\s+\d+M$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private static readonly Regex CpuCoreSuffixRegex = new(
+            @"\b\d+-Core\s+Processor\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex MultiSpaceRegex = new(
+            @"\s{2,}",
+            RegexOptions.Compiled);
+
         private static HardwareMonitorService? _instance;
         public static HardwareMonitorService Instance => _instance ??= new HardwareMonitorService();
 
@@ -48,6 +57,7 @@ namespace CryoTray.Services
         public event Action<HardwareSnapshot>? TelemetryUpdated;
 
         private string _cpuName = "";
+        private string _cpuVendor = "";
         private int _cpuCores;
         private double _cpuBaseGhz;
         private double _cpuMaxGhz;
@@ -84,13 +94,19 @@ namespace CryoTray.Services
             try
             {
                 using var searcher = new ManagementObjectSearcher(
-                    "SELECT NumberOfCores, MaxClockSpeed FROM Win32_Processor");
+                    "SELECT NumberOfCores, MaxClockSpeed, Manufacturer FROM Win32_Processor");
                 foreach (ManagementObject processor in searcher.Get())
                 {
                     using (processor)
                     {
                         int cores = Convert.ToInt32(processor["NumberOfCores"]);
                         int maxMhz = Convert.ToInt32(processor["MaxClockSpeed"]);
+                        string? manufacturer = processor["Manufacturer"]?.ToString()?.Trim();
+                        if (string.IsNullOrWhiteSpace(_cpuVendor))
+                        {
+                            _cpuVendor = ResolveCpuVendor(manufacturer, _cpuName);
+                        }
+
                         if (cores > 0)
                         {
                             _cpuCores = cores;
@@ -132,10 +148,13 @@ namespace CryoTray.Services
                 }
 
                 string rawName = key.GetValue("ProcessorNameString")?.ToString()?.Trim() ?? "";
+                string rawVendor = key.GetValue("VendorIdentifier")?.ToString()?.Trim() ?? "";
                 if (!string.IsNullOrWhiteSpace(rawName))
                 {
                     _cpuName = CleanCpuName(rawName);
                 }
+
+                _cpuVendor = ResolveCpuVendor(rawVendor, _cpuName);
 
                 if (key.GetValue("~MHz") is int mhz && mhz > 0)
                 {
@@ -153,21 +172,164 @@ namespace CryoTray.Services
             }
         }
 
-        private static string CleanCpuName(string rawName)
+        internal static string CleanCpuName(string? rawName)
         {
-            string name = rawName.Trim();
-            name = name.Replace("8-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                       .Replace("6-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                       .Replace("12-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                       .Replace("16-Core Processor", "", StringComparison.OrdinalIgnoreCase)
-                       .Trim();
+            if (string.IsNullOrWhiteSpace(rawName))
+            {
+                return "";
+            }
 
+            string name = CpuCoreSuffixRegex.Replace(rawName.Trim(), "").Trim();
             if (name.EndsWith("Processor", StringComparison.OrdinalIgnoreCase))
             {
                 name = name.Substring(0, name.Length - "Processor".Length).Trim();
             }
 
+            name = MultiSpaceRegex.Replace(name, " ").Trim();
             return string.IsNullOrWhiteSpace(name) ? "" : name;
+        }
+
+        public static string ResolveCpuVendor(string? vendorIdentifier, string? cpuName)
+        {
+            if (!string.IsNullOrWhiteSpace(vendorIdentifier))
+            {
+                string id = vendorIdentifier.Trim();
+                if (id.Contains("AuthenticAMD", StringComparison.OrdinalIgnoreCase) ||
+                    id.Contains("AMD", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "AMD";
+                }
+                if (id.Contains("GenuineIntel", StringComparison.OrdinalIgnoreCase) ||
+                    id.Contains("Intel", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Intel";
+                }
+                if (id.Contains("Qualcomm", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Qualcomm";
+                }
+                if (id.Contains("Apple", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Apple";
+                }
+                if (id.Contains("ARM", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "ARM";
+                }
+                if (id.Contains("CentaurHauls", StringComparison.OrdinalIgnoreCase) ||
+                    id.Contains("VIA", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "VIA";
+                }
+                if (id.Contains("Shanghai", StringComparison.OrdinalIgnoreCase) ||
+                    id.Contains("Zhaoxin", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Zhaoxin";
+                }
+                if (id.Contains("Hygon", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Hygon";
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(cpuName))
+            {
+                string name = cpuName.Trim();
+                if (name.Contains("AMD", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Ryzen", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("EPYC", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Threadripper", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Athlon", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "AMD";
+                }
+                if (name.Contains("Intel", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Core", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Xeon", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Pentium", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Celeron", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Intel";
+                }
+                if (name.Contains("Qualcomm", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Snapdragon", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Qualcomm";
+                }
+                if (name.Contains("Apple", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Apple";
+                }
+                if (name.Contains("Zhaoxin", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Zhaoxin";
+                }
+                if (name.Contains("VIA", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "VIA";
+                }
+                if (name.Contains("ARM", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Cortex", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "ARM";
+                }
+            }
+
+            return "";
+        }
+
+        internal static string ResolveGpuVendor(HardwareType type, string? name)
+        {
+            if (type == HardwareType.GpuNvidia)
+            {
+                return "Nvidia";
+            }
+            if (type == HardwareType.GpuAmd)
+            {
+                return "AMD";
+            }
+            if (type == HardwareType.GpuIntel)
+            {
+                return "Intel";
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return "";
+            }
+
+            string trimmed = name.Trim();
+            if (trimmed.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("GeForce", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("RTX", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("GTX", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("Quadro", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Nvidia";
+            }
+            if (trimmed.Contains("AMD", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("Radeon", StringComparison.OrdinalIgnoreCase))
+            {
+                return "AMD";
+            }
+            if (trimmed.Contains("Intel", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("Arc", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("Iris", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("UHD", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Intel";
+            }
+            if (trimmed.Contains("Qualcomm", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("Adreno", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Qualcomm";
+            }
+            if (trimmed.Contains("Microsoft", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Microsoft";
+            }
+
+            return "";
         }
 
         public static bool IsPawnIoInstalled()
@@ -279,6 +441,129 @@ namespace CryoTray.Services
             }
         }
 
+        /// <summary>Builds a stable drive key for exclusion preferences and alert state tracking.</summary>
+        public static string GetDriveExclusionKey(DriveTelemetry drive)
+        {
+            if (!string.IsNullOrWhiteSpace(drive.SerialNumber))
+            {
+                return $"serial:{drive.SerialNumber.Trim()}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(drive.HardwareIdentifier))
+            {
+                return $"id:{drive.HardwareIdentifier.Trim()}";
+            }
+
+            string model = string.IsNullOrWhiteSpace(drive.Model) ? "drive" : drive.Model.Trim();
+            int number = drive.PhysicalDriveNumber ?? drive.Index;
+            return $"model:{model}#{number}";
+        }
+
+        public static bool IsDriveExcluded(DriveTelemetry drive, IReadOnlyCollection<string>? excludedDrives)
+        {
+            if (excludedDrives == null || excludedDrives.Count == 0)
+            {
+                return false;
+            }
+
+            string key = GetDriveExclusionKey(drive);
+            foreach (string entry in excludedDrives)
+            {
+                if (string.Equals(entry?.Trim(), key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Reads system RAM totals and active usage via MemoryTelemetryService without WMI.</summary>
+        public static bool TryReadMemoryMetrics(out double usedGb, out double totalGb, out double usagePercent)
+        {
+            usedGb = double.NaN;
+            totalGb = double.NaN;
+            usagePercent = double.NaN;
+
+            if (!MemoryTelemetryService.TryReadBreakdown(out var breakdown) || breakdown.TotalUsableBytes == 0)
+            {
+                return false;
+            }
+
+            const double bytesPerGiB = 1024.0 * 1024.0 * 1024.0;
+            double total = breakdown.TotalUsableBytes / bytesPerGiB;
+            double used = breakdown.InUseBytes / bytesPerGiB;
+            double percent = breakdown.InUsePercent;
+
+            usedGb = Math.Round(used, 2);
+            totalGb = Math.Round(total, 2);
+            usagePercent = Math.Round(Math.Clamp(percent, 0, 100), 1);
+            return true;
+        }
+
+        private static void PopulateMemoryTelemetry(HardwareSnapshot snapshot)
+        {
+            if (MemoryTelemetryService.TryReadBreakdown(out var breakdown) && breakdown.TotalUsableBytes > 0)
+            {
+                const double bytesPerGiB = 1024.0 * 1024.0 * 1024.0;
+                snapshot.Memory = breakdown;
+                snapshot.RamTotalGb = Math.Round(breakdown.TotalUsableBytes / bytesPerGiB, 2);
+                snapshot.RamUsedGb = Math.Round(breakdown.InUseBytes / bytesPerGiB, 2);
+                snapshot.RamUsagePercent = Math.Round(Math.Clamp(breakdown.InUsePercent, 0, 100), 1);
+            }
+        }
+
+        /// <summary>Immediately refreshes physical RAM telemetry in CurrentSnapshot and notifies listeners.</summary>
+        public void RefreshMemorySnapshotNow()
+        {
+            if (!_isInitialized)
+            {
+                return;
+            }
+
+            HardwareSnapshot updated = CloneSnapshot(CurrentSnapshot);
+            PopulateMemoryTelemetry(updated);
+            updated.Timestamp = DateTime.Now;
+            CurrentSnapshot = updated;
+            TelemetryUpdated?.Invoke(updated);
+        }
+
+        internal static HardwareSnapshot CloneSnapshot(HardwareSnapshot source)
+        {
+            return new HardwareSnapshot
+            {
+                CpuName = source.CpuName,
+                CpuVendor = source.CpuVendor,
+                CpuCores = source.CpuCores,
+                CpuTemp = source.CpuTemp,
+                PeakCpuTemp = source.PeakCpuTemp,
+                MaxCoreTemp = source.MaxCoreTemp,
+                CpuGhz = source.CpuGhz,
+                CpuBaseGhz = source.CpuBaseGhz,
+                CpuMaxGhz = source.CpuMaxGhz,
+                CpuLoad = source.CpuLoad,
+                CpuPackageWatts = source.CpuPackageWatts,
+                CpuCoresTelemetry = source.CpuCoresTelemetry,
+                RamUsedGb = source.RamUsedGb,
+                RamTotalGb = source.RamTotalGb,
+                RamUsagePercent = source.RamUsagePercent,
+                Memory = source.Memory,
+                GpuName = source.GpuName,
+                GpuVendor = source.GpuVendor,
+                GpuTemp = source.GpuTemp,
+                GpuLoad = source.GpuLoad,
+                GpuPowerWatts = source.GpuPowerWatts,
+                GpuHotspotTemp = source.GpuHotspotTemp,
+                GpuVramTemp = source.GpuVramTemp,
+                GpuFanRpm = source.GpuFanRpm,
+                Gpus = source.Gpus,
+                StorageDrives = source.StorageDrives,
+                PawnIoInstalled = source.PawnIoInstalled,
+                CoolingModeActive = source.CoolingModeActive,
+                Timestamp = source.Timestamp
+            };
+        }
+
         private void ReadHardwareNamesFromLhm()
         {
             if (_computer == null)
@@ -291,6 +576,10 @@ namespace CryoTray.Services
                 if (hardware.HardwareType == HardwareType.Cpu && !string.IsNullOrWhiteSpace(hardware.Name))
                 {
                     _cpuName = CleanCpuName(hardware.Name);
+                    if (string.IsNullOrWhiteSpace(_cpuVendor))
+                    {
+                        _cpuVendor = ResolveCpuVendor(null, _cpuName);
+                    }
                 }
             }
         }
@@ -337,25 +626,7 @@ namespace CryoTray.Services
                 return;
             }
 
-            var updated = new HardwareSnapshot
-            {
-                CpuName = current.CpuName,
-                CpuCores = current.CpuCores,
-                CpuTemp = current.CpuTemp,
-                PeakCpuTemp = current.PeakCpuTemp,
-                MaxCoreTemp = current.MaxCoreTemp,
-                CpuGhz = current.CpuGhz,
-                CpuBaseGhz = current.CpuBaseGhz,
-                CpuMaxGhz = current.CpuMaxGhz,
-                CpuLoad = current.CpuLoad,
-                CpuPackageWatts = current.CpuPackageWatts,
-                CpuCoresTelemetry = current.CpuCoresTelemetry,
-                Gpus = current.Gpus,
-                StorageDrives = current.StorageDrives,
-                PawnIoInstalled = current.PawnIoInstalled,
-                CoolingModeActive = current.CoolingModeActive,
-                Timestamp = current.Timestamp
-            };
+            var updated = CloneSnapshot(current);
 
             GpuTelemetry? primary = SelectPrimaryGpu(
                 updated.Gpus,
@@ -375,16 +646,7 @@ namespace CryoTray.Services
                     CurrentSnapshot = snapshot;
 
                     // Add to RingBuffer
-                    _ringBuffer.AddSample(new TelemetrySample
-                    {
-                        Timestamp = snapshot.Timestamp,
-                        CpuTemp = snapshot.CpuTemp,
-                        GpuTemp = snapshot.GpuTemp,
-                        CpuGhz = snapshot.CpuGhz,
-                        CpuLoad = snapshot.CpuLoad,
-                        GpuLoad = snapshot.GpuLoad,
-                        CoolingModeActive = snapshot.CoolingModeActive
-                    });
+                    _ringBuffer.AddSample(TelemetrySample.FromSnapshot(snapshot));
 
                     // Notify subscribers
                     TelemetryUpdated?.Invoke(snapshot);
@@ -500,6 +762,7 @@ namespace CryoTray.Services
             }
 
             snapshot.CpuName = _cpuName;
+            snapshot.CpuVendor = _cpuVendor;
             snapshot.CpuCores = _cpuCores;
 
             double? rawLoad = cpuSensors.TotalLoad
@@ -578,6 +841,8 @@ namespace CryoTray.Services
                 SettingsService.Instance.Current.PreferredGpuIdentifier);
             ApplyPrimaryGpu(snapshot, primaryGpu);
 
+            PopulateMemoryTelemetry(snapshot);
+
             snapshot.StorageDrives = drives;
             return snapshot;
         }
@@ -645,10 +910,8 @@ namespace CryoTray.Services
 
         private static GpuTelemetry ReadGpuTelemetry(IHardware hardware)
         {
-            string vendor = hardware.HardwareType == HardwareType.GpuNvidia ? "Nvidia"
-                : hardware.HardwareType == HardwareType.GpuAmd ? "AMD"
-                : "Intel";
             string name = hardware.Name?.Trim() ?? "";
+            string vendor = ResolveGpuVendor(hardware.HardwareType, name);
 
             double? gpuTemp = null;
             double? gpuTempFallback = null;

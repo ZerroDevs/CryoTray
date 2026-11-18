@@ -16,4 +16,6 @@ obj/
 *_old.*
 build-check/*
 publish/
+release/
 Installer/Output/
+cpu-sensors.txt

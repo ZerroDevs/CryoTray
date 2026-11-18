@@ -73,6 +73,98 @@
             </Setter>
         </Style>
 
+        <Style x:Key="SettingsRadioButtonStyle" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="#E4E4E4"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid VerticalAlignment="Center" Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid Width="18" Height="18" Margin="0,0,10,0" VerticalAlignment="Center">
+                                <Ellipse x:Name="RadioOuter"
+                                         Width="18" Height="18"
+                                         Fill="Transparent"
+                                         Stroke="#787878"
+                                         StrokeThickness="1.3"/>
+                                <Ellipse x:Name="RadioInner"
+                                         Width="6" Height="6"
+                                         Fill="#141414"
+                                         Visibility="Collapsed"/>
+                            </Grid>
+                            <ContentPresenter Grid.Column="1" VerticalAlignment="Center">
+                                <ContentPresenter.ContentTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}"
+                                                   Foreground="#E4E4E4"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"/>
+                                    </DataTemplate>
+                                </ContentPresenter.ContentTemplate>
+                            </ContentPresenter>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="RadioOuter" Property="Fill" Value="#2B88D8"/>
+                                <Setter TargetName="RadioOuter" Property="Stroke" Value="#2B88D8"/>
+                                <Setter TargetName="RadioInner" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsChecked" Value="False"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="RadioOuter" Property="Stroke" Value="#A8A8A8"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="RadioOuter" Property="Stroke" Value="#FFFFFF"/>
+                                <Setter TargetName="RadioOuter" Property="StrokeThickness" Value="1.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ColorSwatchButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="44"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderBrush" Value="#525252"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="SwatchBdr"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SwatchBdr" Property="BorderBrush" Value="#9A9A9A"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="SwatchBdr" Property="BorderBrush" Value="#FFFFFF"/>
+                                <Setter TargetName="SwatchBdr" Property="BorderThickness" Value="1.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="AutopilotRemoveButton" TargetType="Button">
             <Setter Property="Width" Value="24"/>
             <Setter Property="Height" Value="24"/>
@@ -268,6 +360,21 @@
             <Setter Property="Height" Value="34"/>
         </Style>
 
+        <Style x:Key="SettingsMiniComboStyle" TargetType="ComboBox">
+            <Setter Property="Template" Value="{StaticResource SettingsDarkComboBoxTemplate}"/>
+            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Width" Value="104"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.45"/>
+                    <Setter Property="Cursor" Value="Arrow"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Custom Tab Button Style -->
         <Style x:Key="TabButtonStyle" TargetType="RadioButton">
             <Setter Property="Background" Value="Transparent"/>
@@ -275,7 +382,7 @@
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="Normal"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Margin" Value="0,0,13,0"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
@@ -395,6 +502,13 @@
                         <TextBlock Text="{DynamicResource Settings_TabCpu}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
+                <RadioButton x:Name="TabMemory" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabMemory}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="M2,5 L14,5 L14,11 L2,11 Z M4,11 L4,13.5 M6.5,11 L6.5,13.5 M9.5,11 L9.5,13.5 M12,11 L12,13.5 M4.5,7 L6.5,7 L6.5,9 L4.5,9 Z M9.5,7 L11.5,7 L11.5,9 L9.5,9 Z"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.1" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
+                        <TextBlock Text="{DynamicResource Settings_TabMemory}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </RadioButton>
                 <RadioButton x:Name="TabDisk" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabDisk}">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="M2,4 L14,4 L14,12 L2,12 Z M4,7 L12,7 L12,10 L4,10 Z M4,5 L6,5 M4,8 L6,8"
@@ -463,7 +577,7 @@
         </Border>
 
         <!-- Content Area -->
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+        <ScrollViewer x:Name="SettingsContentScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
             <StackPanel>
                 <!-- GENERAL TAB -->
                 <StackPanel x:Name="PanelGeneral">
@@ -503,6 +617,7 @@
                     <CheckBox x:Name="ChkLaunchStartup" Content="{DynamicResource Settings_LaunchStartup}" Checked="ChkLaunchStartup_Changed" Unchecked="ChkLaunchStartup_Changed"/>
                     <CheckBox x:Name="ChkLaunchBackground" Content="{DynamicResource Settings_LaunchBackground}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkEnableCoolingOnLaunch" Content="{DynamicResource Settings_EnableCoolingOnLaunch}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkEnableCoolingOnBattery" Content="{DynamicResource Settings_EnableCoolingOnBattery}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkDisableCoolingOnExit" Content="{DynamicResource Settings_DisableCoolingOnExit}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkPinToTaskbar" Content="{DynamicResource Settings_PinToTaskbar}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkAlwaysOnTop" Content="{DynamicResource Settings_AlwaysOnTop}" Checked="SettingChanged" Unchecked="SettingChanged"/>
@@ -510,38 +625,137 @@
 
                     <!-- Hotkey combo -->
                     <CheckBox x:Name="ChkUseHotkey" Content="{DynamicResource Settings_UseHotkey}" Checked="ChkUseHotkey_Changed" Unchecked="ChkUseHotkey_Changed" Margin="0,12,0,6"/>
-                    <StackPanel Orientation="Horizontal" Margin="28,2,0,0">
-                        <TextBlock Text="Ctrl + Shift + " Foreground="#8E8E8E" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
-                        <TextBox x:Name="TxtHotkeyKey"
-                                 Text="C"
-                                 Width="60" Height="30"
+                    <StackPanel Margin="28,2,0,0">
+                        <TextBox x:Name="TxtHotkeyShortcut"
+                                 Text="Ctrl + Shift + C"
+                                 IsReadOnly="True"
+                                 Width="210" Height="30"
                                  Background="#1E1E1E"
                                  Foreground="#FFFFFF"
                                  BorderBrush="#4A4A4A"
                                  BorderThickness="1"
+                                 Padding="8,0"
                                  TextAlignment="Center"
                                  VerticalContentAlignment="Center"
-                                 KeyDown="TxtHotkeyKey_KeyDown"
-                                 Margin="6,0,0,0"/>
+                                 FlowDirection="LeftToRight"
+                                 HorizontalAlignment="Left"
+                                 Cursor="Hand"
+                                 AutomationProperties.Name="{DynamicResource Settings_UseHotkey}"
+                                 GotKeyboardFocus="TxtHotkeyShortcut_GotKeyboardFocus"
+                                 LostKeyboardFocus="TxtHotkeyShortcut_LostKeyboardFocus"
+                                 PreviewKeyDown="TxtHotkeyShortcut_PreviewKeyDown"/>
+                        <TextBlock x:Name="TxtHotkeyHint"
+                                   Text="{DynamicResource Settings_HotkeyHint}"
+                                   Foreground="#888888"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Margin="0,5,0,0"/>
                     </StackPanel>
                 </StackPanel>
 
                 <!-- VIEW TAB -->
                 <StackPanel x:Name="PanelView" Visibility="Collapsed">
                     <TextBlock Text="{DynamicResource Settings_SystemTrayBadges}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10"/>
-                    <CheckBox x:Name="ChkShowGpuBadge" Content="{DynamicResource Settings_ShowGpuBadge}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowCpuBadge" Content="{DynamicResource Settings_ShowCpuBadge}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuBadge" Content="{DynamicResource Settings_ShowGpuBadge}" Checked="ChkTrayBadge_Changed" Unchecked="ChkTrayBadge_Changed" Margin="0,6,0,6"/>
+                    <StackPanel x:Name="PnlGpuBadgeDigits" Margin="28,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <RadioButton x:Name="RdoGpuBlackDigits" GroupName="GpuTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_BlackDigits}" Checked="SettingChanged"/>
+                            <Border Width="22" Height="20" Background="#B3D872" CornerRadius="1" Margin="10,0,0,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleGpuBlack" Text="--" Foreground="#141414" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <RadioButton x:Name="RdoGpuWhiteDigits" GroupName="GpuTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_WhiteDigits}" Checked="SettingChanged"/>
+                            <Border Width="22" Height="20" Background="#4C8028" CornerRadius="1" Margin="10,0,0,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleGpuWhite" Text="--" Foreground="#FFFFFF" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <CheckBox x:Name="ChkShowCpuBadge" Content="{DynamicResource Settings_ShowCpuBadge}" Checked="ChkTrayBadge_Changed" Unchecked="ChkTrayBadge_Changed" Margin="0,6,0,6"/>
+                    <StackPanel x:Name="PnlCpuBadgeDigits" Margin="28,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <RadioButton x:Name="RdoCpuBlackDigits" GroupName="CpuTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_BlackDigits}" Checked="SettingChanged"/>
+                            <Border Width="22" Height="20" Background="#FFBDAF" CornerRadius="1" Margin="10,0,4,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleCpuOffBlack" Text="--" Foreground="#141414" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <Border Width="22" Height="20" Background="#8AD2F1" CornerRadius="1" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleCpuOnBlack" Text="--" Foreground="#141414" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <RadioButton x:Name="RdoCpuWhiteDigits" GroupName="CpuTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_WhiteDigits}" Checked="SettingChanged"/>
+                            <Border Width="22" Height="20" Background="#C44830" CornerRadius="1" Margin="10,0,4,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleCpuOffWhite" Text="--" Foreground="#FFFFFF" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <Border Width="22" Height="20" Background="#1B6CB3" CornerRadius="1" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleCpuOnWhite" Text="--" Foreground="#FFFFFF" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+
                     <CheckBox x:Name="ChkMergeTrayIcons" Content="{DynamicResource Settings_MergeTrayIcons}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,4,0,0"/>
+
+                    <TextBlock Text="{DynamicResource Settings_FrameColorsHeader}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,8"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{DynamicResource Settings_ColorCoolingOn}" Foreground="#E4E4E4" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="BtnColorCoolingOn"
+                                    Style="{StaticResource ColorSwatchButtonStyle}"
+                                    Background="#2B88D8"
+                                    Click="BtnColorCoolingOn_Click"
+                                    AutomationProperties.Name="{DynamicResource Settings_ColorCoolingOn}"/>
+                            <Button x:Name="BtnResetColorCoolingOn"
+                                    Content="↺"
+                                    Style="{StaticResource SettingsFooterButton}"
+                                    Padding="6,2"
+                                    Margin="6,0,0,0"
+                                    Click="BtnResetColorCoolingOn_Click"
+                                    ToolTip="{DynamicResource Settings_ResetColorTooltip}"
+                                    AutomationProperties.Name="{DynamicResource Settings_ResetColorTooltip}"
+                                    Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Grid>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{DynamicResource Settings_ColorCoolingOff}" Foreground="#E4E4E4" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="BtnColorCoolingOff"
+                                    Style="{StaticResource ColorSwatchButtonStyle}"
+                                    Background="#C26A47"
+                                    Click="BtnColorCoolingOff_Click"
+                                    AutomationProperties.Name="{DynamicResource Settings_ColorCoolingOff}"/>
+                            <Button x:Name="BtnResetColorCoolingOff"
+                                    Content="↺"
+                                    Style="{StaticResource SettingsFooterButton}"
+                                    Padding="6,2"
+                                    Margin="6,0,0,0"
+                                    Click="BtnResetColorCoolingOff_Click"
+                                    ToolTip="{DynamicResource Settings_ResetColorTooltip}"
+                                    AutomationProperties.Name="{DynamicResource Settings_ResetColorTooltip}"
+                                    Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Grid>
 
                     <TextBlock Text="{DynamicResource Settings_WindowDocking}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
                     <CheckBox x:Name="ChkAnchorToTray" Content="{DynamicResource Settings_AnchorToTray}" Checked="SettingChanged" Unchecked="SettingChanged"/>
 
                     <TextBlock Text="{DynamicResource Settings_DashboardRows}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
+                    <CheckBox x:Name="ChkShowRamRow" Content="{DynamicResource Settings_ShowRamRow}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowOverlayRow" Content="{DynamicResource Settings_ShowOverlayRow}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowAutopilotRow" Content="{DynamicResource Settings_ShowAutopilotRow}" Checked="SettingChanged" Unchecked="SettingChanged"/>
 
                     <TextBlock Text="{DynamicResource Settings_OverlayReadouts}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,4"/>
                     <TextBlock Text="{DynamicResource Settings_OverlayReadoutsDesc}" Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="ChkOverlayClickThrough" Content="{DynamicResource Settings_OverlayClickThrough}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,2,0,2"/>
+                    <TextBlock Text="{DynamicResource Settings_OverlayClickThroughHint}" Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="28,0,0,10"/>
                     <TextBlock Text="{DynamicResource Settings_OverlayOpacity}" Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,4"/>
                     <Grid Margin="0,0,0,4">
                         <Grid.ColumnDefinitions>
@@ -566,6 +780,7 @@
                     <CheckBox x:Name="ChkOverlayGpuTemp" Content="{DynamicResource Settings_OverlayGpuTemp}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,4,0,0"/>
                     <CheckBox x:Name="ChkOverlayGpuLoad" Content="{DynamicResource Settings_OverlayGpuLoad}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkOverlayGpuPower" Content="{DynamicResource Settings_OverlayGpuPower}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkOverlayShowRam" Content="{DynamicResource Settings_OverlayShowRam}" Checked="SettingChanged" Unchecked="SettingChanged"/>
 
                     <TextBlock Text="{DynamicResource Settings_DashboardReadouts}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
                     <CheckBox x:Name="ChkShowCpuPower" Content="{DynamicResource Settings_ShowCpuPower}" Checked="SettingChanged" Unchecked="SettingChanged"/>
@@ -579,6 +794,35 @@
 
                 <!-- CPU TAB -->
                 <StackPanel x:Name="PanelCpu" Visibility="Collapsed">
+                    <CheckBox x:Name="ChkShowCpuClock" Content="{DynamicResource Settings_ShowCpuClock}" Checked="ChkCpuDisplay_Changed" Unchecked="ChkCpuDisplay_Changed" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="ChkShowCpuBaseSpeed" Content="{DynamicResource Settings_ShowCpuBaseSpeed}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,10"/>
+
+                    <Grid Margin="0,2,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox x:Name="ChkShowCpuGraph" Grid.Column="0" Content="{DynamicResource Settings_ShowCpuGraph}" Checked="ChkCpuDisplay_Changed" Unchecked="ChkCpuDisplay_Changed" Margin="0" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CmbCpuGraphTimeframe"
+                                  Grid.Column="1"
+                                  Style="{StaticResource SettingsMiniComboStyle}"
+                                  Margin="10,0,0,0"
+                                  SelectionChanged="CmbCpuGraphTimeframe_SelectionChanged"
+                                  AutomationProperties.Name="{DynamicResource Settings_ShowCpuGraph}">
+                            <ComboBoxItem Content="{DynamicResource Main_Timeframe1}" Tag="1" IsSelected="True"/>
+                            <ComboBoxItem Content="{DynamicResource Main_Timeframe5}" Tag="5"/>
+                            <ComboBoxItem Content="{DynamicResource Main_Timeframe10}" Tag="10"/>
+                            <ComboBoxItem Content="{DynamicResource Main_Timeframe30}" Tag="30"/>
+                            <ComboBoxItem Content="{DynamicResource Main_Timeframe60}" Tag="60"/>
+                        </ComboBox>
+                    </Grid>
+                    <StackPanel x:Name="PnlCpuGraphSize" Margin="28,2,0,6">
+                        <RadioButton x:Name="RdoCpuGraphLarge" GroupName="CpuGraphSize" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_GraphLarge}" Checked="SettingChanged"/>
+                        <RadioButton x:Name="RdoCpuGraphSmall" GroupName="CpuGraphSize" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_GraphSmall}" Checked="SettingChanged"/>
+                    </StackPanel>
+
+                    <Rectangle Height="1" Fill="#262626" Margin="0,10,0,16"/>
+
                     <TextBlock Text="{DynamicResource Settings_PowerPlanOff}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
                     <TextBlock Text="{DynamicResource Settings_PowerPlanDesc}" Foreground="#888888" FontSize="11" Margin="0,0,0,10"/>
                     <ComboBox x:Name="CmbNormalPowerPlan"
@@ -622,8 +866,92 @@
                     </Grid>
                 </StackPanel>
 
+                <!-- MEMORY TAB -->
+                <StackPanel x:Name="PanelMemory" Visibility="Collapsed">
+                    <TextBlock Text="{DynamicResource Settings_RamCleaningOptions}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,4"/>
+                    <TextBlock Text="{DynamicResource Settings_RamCleaningDesc}" Foreground="#9A9A9A" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="ChkRamFreeWorkingSets" Content="{DynamicResource Settings_RamFreeWorkingSets}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,8,0,8"/>
+                    <CheckBox x:Name="ChkRamClearStandby" Content="{DynamicResource Settings_RamClearStandby}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,8,0,8"/>
+                    <CheckBox x:Name="ChkRamClearClipboard" Content="{DynamicResource Settings_RamClearClipboard}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,8,0,8"/>
+                    <CheckBox x:Name="ChkRamShowNotification" Content="{DynamicResource Settings_RamShowNotification}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,8,0,8"/>
+
+                    <Rectangle Height="1" Fill="#262626" Margin="0,12,0,16"/>
+
+                    <TextBlock Text="{DynamicResource Settings_RamAutoHeader}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,10"/>
+                    <ToggleButton x:Name="ChkAutoRamEnabled"
+                                  Style="{StaticResource AutopilotToggleStyle}"
+                                  Content="{DynamicResource Settings_RamAutoEnable}"
+                                  Checked="ChkAutoRamEnabled_Changed"
+                                  Unchecked="ChkAutoRamEnabled_Changed"/>
+
+                    <TextBlock Text="{DynamicResource Settings_RamAutoThreshold}" Foreground="#CCCCCC" FontSize="12" Margin="0,4,0,6"/>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="50"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider x:Name="SldAutoRamThreshold"
+                                Minimum="10"
+                                Maximum="50"
+                                Value="25"
+                                TickFrequency="1"
+                                IsSnapToTickEnabled="True"
+                                ValueChanged="SldAutoRamThreshold_ValueChanged"
+                                AutomationProperties.Name="{DynamicResource Settings_RamAutoThreshold}"/>
+                        <TextBlock Grid.Column="1" x:Name="TxtAutoRamThreshold" Text="25%" Foreground="#2B88D8" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
+                    </Grid>
+                    <TextBlock Text="{DynamicResource Settings_RamAutoCooldownHint}" Foreground="#9A9A9A" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                    <CheckBox x:Name="ChkAutoRamCpuIdle" Content="{DynamicResource Settings_RamAutoCpuIdle}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,6,0,10"/>
+
+                    <TextBlock Text="{DynamicResource Settings_RamAutoInterval}" Foreground="#CCCCCC" FontSize="12" Margin="0,4,0,6"/>
+                    <ComboBox x:Name="CmbAutoRamInterval"
+                              HorizontalAlignment="Left"
+                              Width="180"
+                              SelectionChanged="CmbAutoRamInterval_SelectionChanged"
+                              AutomationProperties.Name="{DynamicResource Settings_RamAutoInterval}">
+                        <ComboBoxItem Content="{DynamicResource Settings_RamIntervalDisabled}" Tag="0" IsSelected="True"/>
+                        <ComboBoxItem Content="{DynamicResource Settings_RamInterval1h}" Tag="1"/>
+                        <ComboBoxItem Content="{DynamicResource Settings_RamInterval2h}" Tag="2"/>
+                        <ComboBoxItem Content="{DynamicResource Settings_RamInterval4h}" Tag="4"/>
+                        <ComboBoxItem Content="{DynamicResource Settings_RamInterval6h}" Tag="6"/>
+                    </ComboBox>
+
+                    <Rectangle Height="1" Fill="#262626" Margin="0,18,0,16"/>
+
+                    <TextBlock Text="{DynamicResource Settings_RamHotkeyHeader}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="ChkUseRamHotkey" Content="{DynamicResource Settings_UseRamHotkey}" Checked="ChkUseRamHotkey_Changed" Unchecked="ChkUseRamHotkey_Changed" Margin="0,8,0,6"/>
+                    <StackPanel Margin="28,2,0,0">
+                        <TextBox x:Name="TxtRamHotkeyShortcut"
+                                 Text="Ctrl + Alt + M"
+                                 IsReadOnly="True"
+                                 Width="210" Height="30"
+                                 Background="#1E1E1E"
+                                 Foreground="#FFFFFF"
+                                 BorderBrush="#4A4A4A"
+                                 BorderThickness="1"
+                                 Padding="8,0"
+                                 TextAlignment="Center"
+                                 VerticalContentAlignment="Center"
+                                 FlowDirection="LeftToRight"
+                                 HorizontalAlignment="Left"
+                                 Cursor="Hand"
+                                 AutomationProperties.Name="{DynamicResource Settings_UseRamHotkey}"
+                                 GotKeyboardFocus="TxtRamHotkeyShortcut_GotKeyboardFocus"
+                                 LostKeyboardFocus="TxtRamHotkeyShortcut_LostKeyboardFocus"
+                                 PreviewKeyDown="TxtRamHotkeyShortcut_PreviewKeyDown"/>
+                        <TextBlock x:Name="TxtRamHotkeyHint"
+                                   Text="{DynamicResource Settings_HotkeyHint}"
+                                   Foreground="#9A9A9A"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Margin="0,5,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+
                 <!-- DISK TAB -->
                 <StackPanel x:Name="PanelDisk" Visibility="Collapsed">
+                    <CheckBox x:Name="ChkShowDiskTemp" Content="{DynamicResource Settings_ShowDiskTemp}" Checked="ChkShowDiskTemp_Changed" Unchecked="ChkShowDiskTemp_Changed" Margin="0,0,0,12"/>
                     <TextBlock Text="{DynamicResource Settings_StoragePrefs}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
                     <TextBlock Text="{DynamicResource Settings_CpuAlertThreshold}" Foreground="#888888" FontSize="12" Margin="0,0,0,6"/>
                     <Grid Margin="0,0,0,16">
@@ -634,6 +962,26 @@
                         <Slider x:Name="SldDiskThreshold" Minimum="40" Maximum="85" Value="60" ValueChanged="SldDiskThreshold_ValueChanged" AutomationProperties.Name="{DynamicResource Settings_CpuAlertThreshold}"/>
                         <TextBlock Grid.Column="1" x:Name="TxtDiskThreshold" Text="60°C" Foreground="#2B88D8" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
                     </Grid>
+                    <Rectangle Height="1" Fill="#262626" Margin="0,2,0,14"/>
+                    <TextBlock Text="{DynamicResource Settings_MonitoredDrives}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,4"/>
+                    <TextBlock Text="{DynamicResource Settings_MonitoredDrivesDesc}" Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                    <Border x:Name="BdrMonitoredDrives"
+                            Background="#1E1E1E"
+                            BorderBrush="#333333"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10,4">
+                        <Grid>
+                            <TextBlock x:Name="TxtNoDrivesDetected"
+                                       Text="{DynamicResource Settings_MonitoredDrivesUnavailable}"
+                                       Foreground="#888888"
+                                       FontSize="11.5"
+                                       TextWrapping="Wrap"
+                                       Margin="2,8"
+                                       Visibility="Collapsed"/>
+                            <StackPanel x:Name="PnlDiskDrives"/>
+                        </Grid>
+                    </Border>
                 </StackPanel>
 
                 <!-- GPU TAB -->
@@ -670,7 +1018,12 @@
                                Foreground="#888888"
                                FontSize="11.5"
                                TextWrapping="Wrap"
-                               Margin="0,-4,0,14"/>
+                               Margin="0,-4,0,10"/>
+                    <CheckBox x:Name="ChkAutopilotFullscreen"
+                              Content="{DynamicResource Settings_AutopilotPauseFullscreen}"
+                              Checked="SettingChanged"
+                              Unchecked="SettingChanged"
+                              Margin="0,0,0,12"/>
 
                     <Rectangle Height="1" Fill="#262626" Margin="0,0,0,14"/>
 

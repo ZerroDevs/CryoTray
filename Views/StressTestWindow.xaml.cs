@@ -10,6 +10,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using CryoTray.Models;
 using CryoTray.Services;
+using Microsoft.Win32;
 
 namespace CryoTray.Views
 {
@@ -20,6 +21,31 @@ namespace CryoTray.Views
         private readonly DispatcherTimer _timer;
         private Stopwatch _stopwatch = new();
         private readonly List<double> _testTemps = new();
+        private readonly List<bool> _testCoolingStates = new();
+        private readonly List<TelemetrySample> _recordedSamples = new();
+
+        internal readonly record struct StressCoolingComparison(
+            bool HasOffPhase,
+            double OffTemp,
+            double OffWatts,
+            bool HasOnPhase,
+            double OnTemp,
+            double OnWatts,
+            double DeltaTemp,
+            double DeltaWatts);
+
+        private static readonly Brush PhaseOffChartBrush = CreateFrozenBrush("#E07D62");
+        private static readonly Brush PhaseOnChartBrush = CreateFrozenBrush("#2B88D8");
+        private static readonly Brush DeltaGoodBrush = CreateFrozenBrush("#ABD068");
+        private static readonly Brush DeltaWarmBrush = CreateFrozenBrush("#E5987E");
+        private static readonly Brush DeltaHintBrush = CreateFrozenBrush("#B0B0B0");
+
+        private static Brush CreateFrozenBrush(string hex)
+        {
+            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+            brush.Freeze();
+            return brush;
+        }
 
         public StressTestWindow()
         {
@@ -92,11 +118,132 @@ namespace CryoTray.Views
                 ? $"{snapshot.CpuGhz:0.00} GHz"
                 : "-- GHz";
 
-            if (_isRunning && hasTemp)
+            if (_isRunning)
             {
-                _testTemps.Add(snapshot.CpuTemp);
-                DrawChart();
+                _recordedSamples.Add(TelemetrySample.FromSnapshot(snapshot));
+                BtnExportCsv.IsEnabled = _recordedSamples.Count > 0;
+                if (hasTemp)
+                {
+                    _testTemps.Add(snapshot.CpuTemp);
+                    _testCoolingStates.Add(snapshot.CoolingModeActive);
+                    DrawChart();
+                }
+                UpdateComparisonDisplay();
             }
+        }
+
+        internal static StressCoolingComparison ComputeCoolingComparison(
+            IReadOnlyList<TelemetrySample> samples,
+            bool isFahrenheit)
+        {
+            const int trailingWindow = 5;
+
+            var offSamples = new List<TelemetrySample>();
+            var onSamples = new List<TelemetrySample>();
+            for (int i = 0; i < samples.Count; i++)
+            {
+                var sample = samples[i];
+                if (!double.IsFinite(sample.CpuTemp) || sample.CpuTemp <= 0)
+                {
+                    continue;
+                }
+
+                if (sample.CoolingModeActive)
+                {
+                    onSamples.Add(sample);
+                }
+                else
+                {
+                    offSamples.Add(sample);
+                }
+            }
+
+            (bool hasOff, double offTemp, double offWatts) = SummarizePhase(offSamples, trailingWindow, isFahrenheit);
+            (bool hasOn, double onTemp, double onWatts) = SummarizePhase(onSamples, trailingWindow, isFahrenheit);
+
+            double deltaTemp = hasOff && hasOn ? onTemp - offTemp : double.NaN;
+            double deltaWatts = hasOff && hasOn && double.IsFinite(offWatts) && double.IsFinite(onWatts)
+                ? onWatts - offWatts
+                : double.NaN;
+
+            return new StressCoolingComparison(hasOff, offTemp, offWatts, hasOn, onTemp, onWatts, deltaTemp, deltaWatts);
+        }
+
+        private static (bool HasSamples, double AvgTemp, double AvgWatts) SummarizePhase(
+            List<TelemetrySample> samples,
+            int trailingWindow,
+            bool isFahrenheit)
+        {
+            if (samples.Count == 0)
+            {
+                return (false, double.NaN, double.NaN);
+            }
+
+            int start = Math.Max(0, samples.Count - trailingWindow);
+            int count = samples.Count - start;
+            double tempSum = 0;
+            double wattsSum = 0;
+            int wattsCount = 0;
+
+            for (int i = start; i < samples.Count; i++)
+            {
+                double temp = isFahrenheit ? (samples[i].CpuTemp * 9 / 5) + 32 : samples[i].CpuTemp;
+                tempSum += temp;
+
+                int? cpuPower = samples[i].CpuPowerWatts;
+                if (cpuPower.HasValue && cpuPower.Value > 0)
+                {
+                    wattsSum += cpuPower.Value;
+                    wattsCount++;
+                }
+            }
+
+            double avgTemp = tempSum / count;
+            double avgWatts = wattsCount > 0 ? wattsSum / wattsCount : double.NaN;
+            return (true, avgTemp, avgWatts);
+        }
+
+        private void UpdateComparisonDisplay()
+        {
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            string unit = isFahrenheit ? "°F" : "°C";
+            var cmp = ComputeCoolingComparison(_recordedSamples, isFahrenheit);
+
+            TxtPhaseOff.Text = cmp.HasOffPhase
+                ? FormatPhaseText(cmp.OffTemp, cmp.OffWatts, unit)
+                : "--";
+            TxtPhaseOn.Text = cmp.HasOnPhase
+                ? FormatPhaseText(cmp.OnTemp, cmp.OnWatts, unit)
+                : "--";
+
+            if (cmp.HasOffPhase && cmp.HasOnPhase)
+            {
+                long deltaTempRounded = (long)Math.Round(cmp.DeltaTemp);
+                string tempSign = deltaTempRounded > 0 ? "+" : "";
+                string deltaText = $"{tempSign}{deltaTempRounded} {unit}";
+                if (double.IsFinite(cmp.DeltaWatts))
+                {
+                    long deltaWattsRounded = (long)Math.Round(cmp.DeltaWatts);
+                    string wattSign = deltaWattsRounded > 0 ? "+" : "";
+                    deltaText += $" · {wattSign}{deltaWattsRounded} W";
+                }
+
+                TxtPhaseDelta.Text = deltaText;
+                TxtPhaseDelta.Foreground = cmp.DeltaTemp <= 0 ? DeltaGoodBrush : DeltaWarmBrush;
+            }
+            else
+            {
+                TxtPhaseDelta.Text = LocalizationService.Get("Stress_DeltaHint");
+                TxtPhaseDelta.Foreground = DeltaHintBrush;
+            }
+        }
+
+        private static string FormatPhaseText(double temp, double watts, string unit)
+        {
+            string tempPart = $"{Math.Round(temp)} {unit}";
+            return double.IsFinite(watts) && watts > 0
+                ? $"{tempPart} · {Math.Round(watts)} W"
+                : tempPart;
         }
 
         private void DrawChart()
@@ -125,12 +272,13 @@ namespace CryoTray.Views
             double minT = 30;
             double maxT = 95;
 
-            var points = new PointCollection();
             int maxCount = 60;
             int startIdx = Math.Max(0, _testTemps.Count - maxCount);
             int count = _testTemps.Count - startIdx;
             double stepX = w / Math.Max(1, count - 1);
 
+            double prevX = 0;
+            double prevY = 0;
             for (int i = 0; i < count; i++)
             {
                 double t = _testTemps[startIdx + i];
@@ -138,16 +286,26 @@ namespace CryoTray.Views
                 norm = Math.Clamp(norm, 0, 1);
                 double y = h - (norm * (h - 10) + 5);
                 double x = i * stepX;
-                points.Add(new Point(x, y));
-            }
 
-            var polyline = new Polyline
-            {
-                Points = points,
-                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2B88D8")),
-                StrokeThickness = 2
-            };
-            ChartCanvas.Children.Add(polyline);
+                if (i > 0)
+                {
+                    bool segmentCoolingOn = startIdx + i < _testCoolingStates.Count && _testCoolingStates[startIdx + i];
+                    ChartCanvas.Children.Add(new Line
+                    {
+                        X1 = prevX,
+                        Y1 = prevY,
+                        X2 = x,
+                        Y2 = y,
+                        Stroke = segmentCoolingOn ? PhaseOnChartBrush : PhaseOffChartBrush,
+                        StrokeThickness = 2,
+                        StrokeStartLineCap = PenLineCap.Round,
+                        StrokeEndLineCap = PenLineCap.Round
+                    });
+                }
+
+                prevX = x;
+                prevY = y;
+            }
         }
 
         private void BtnStartStop_Click(object sender, RoutedEventArgs e)
@@ -166,6 +324,11 @@ namespace CryoTray.Views
         {
             _isRunning = true;
             _testTemps.Clear();
+            _testCoolingStates.Clear();
+            _recordedSamples.Clear();
+            _recordedSamples.Add(TelemetrySample.FromSnapshot(HardwareMonitorService.Instance.CurrentSnapshot));
+            BtnExportCsv.IsEnabled = _recordedSamples.Count > 0;
+            UpdateComparisonDisplay();
             _stopwatch.Restart();
             _timer.Start();
 
@@ -175,11 +338,11 @@ namespace CryoTray.Views
             _testCts = new CancellationTokenSource();
             var token = _testCts.Token;
 
-            // Run CPU load across all logical processors
+            // Use dedicated BelowNormal OS threads so full CPU load never starves ThreadPool polling.
             int cores = Environment.ProcessorCount;
             for (int c = 0; c < cores; c++)
             {
-                Task.Run(() =>
+                var worker = new Thread(() =>
                 {
                     while (!token.IsCancellationRequested)
                     {
@@ -187,7 +350,13 @@ namespace CryoTray.Views
                         double b = Math.Sin(a);
                         _ = b;
                     }
-                }, token);
+                })
+                {
+                    IsBackground = true,
+                    Priority = ThreadPriority.BelowNormal,
+                    Name = $"CryoTray-Stress-{c}"
+                };
+                worker.Start();
             }
         }
 
@@ -208,6 +377,7 @@ namespace CryoTray.Views
         {
             LocalizationService.Instance.ApplyWindow(this);
             UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
+            UpdateComparisonDisplay();
             BtnStartStop.Content = LocalizationService.Get(_isRunning ? "Stress_Stop" : "Stress_Start");
         }
 
@@ -219,6 +389,36 @@ namespace CryoTray.Views
         private void BtnToggleCooling_Click(object sender, RoutedEventArgs e)
         {
             PowerPlanService.Instance.ToggleCoolingMode();
+        }
+
+        private void BtnExportCsv_Click(object sender, RoutedEventArgs e)
+        {
+            if (_recordedSamples.Count == 0)
+            {
+                MessageBox.Show(
+                    LocalizationService.Get("Main_CsvNoSamples"),
+                    LocalizationService.Get("Stress_Title"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var sfd = new SaveFileDialog
+            {
+                Filter = LocalizationService.Get("Common_CsvFilter"),
+                FileName = $"CryoTray_StressTest_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+            };
+
+            if (sfd.ShowDialog() == true)
+            {
+                var exportCopy = new List<TelemetrySample>(_recordedSamples);
+                TelemetryCsvService.ExportSamples(exportCopy, sfd.FileName);
+                MessageBox.Show(
+                    LocalizationService.Format("Main_CsvExportDone", exportCopy.Count, sfd.FileName),
+                    LocalizationService.Get("Stress_Title"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

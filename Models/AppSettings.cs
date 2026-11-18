@@ -11,6 +11,7 @@ namespace CryoTray.Models
         public bool LaunchOnStartup { get; set; } = false;
         public bool LaunchInBackground { get; set; } = false;
         public bool EnableCoolingOnLaunch { get; set; } = false;
+        public bool EnableCoolingOnBattery { get; set; } = false;
         public bool DisableCoolingModeOnExit { get; set; } = true;
         public bool PinToTaskbar { get; set; } = true;
         public bool AlwaysOnTop { get; set; } = false;
@@ -19,16 +20,42 @@ namespace CryoTray.Models
         public string HotkeyModifiers { get; set; } = "Ctrl+Shift";
         public string HotkeyKey { get; set; } = "C";
 
+        // Memory Optimization
+        public bool RamFreeWorkingSets { get; set; } = true;
+        public bool RamClearStandby { get; set; } = true;
+        public bool RamClearClipboard { get; set; } = false;
+        public bool RamShowNotification { get; set; } = true;
+        public bool AutoRamOptimizeEnabled { get; set; } = false;
+        public int AutoRamThresholdPercent { get; set; } = 25;
+        public bool AutoRamCpuIdleOnly { get; set; } = true;
+        public int AutoRamIntervalHours { get; set; } = 0; // 0 = Disabled, 1, 2, 4, 6
+        public bool UseRamHotkey { get; set; } = false;
+        public string RamHotkeyModifiers { get; set; } = "Ctrl+Alt";
+        public string RamHotkeyKey { get; set; } = "M";
+
         // View
         public bool ShowGpuBadge { get; set; } = true;
         public bool ShowCpuBadge { get; set; } = true;
+        public bool CpuTrayWhiteDigits { get; set; } = false;
+        public bool GpuTrayWhiteDigits { get; set; } = false;
+        public string CoolingOnFrameColor { get; set; } = "#2B88D8";
+        public string CoolingOffFrameColor { get; set; } = "#C26A47";
         public bool AnchorToTray { get; set; } = true;
         public bool ShowOverlayRow { get; set; } = false;
         public bool ShowAutopilotRow { get; set; } = false;
         public bool MergeTrayIcons { get; set; } = false;
 
         // Dashboard readouts
+        public bool ShowCpuClock { get; set; } = true;
+        public bool ShowCpuBaseSpeed { get; set; } = true;
+        public bool ShowCpuGraph { get; set; } = true;
+        public bool CpuGraphSmall { get; set; } = false;
+        public int CpuGraphTimeframeMinutes { get; set; } = 1;
+        public bool ShowDiskTemp { get; set; } = true;
+        public List<string> DiskGraphDrives { get; set; } = new();
+        public Dictionary<string, int> DiskGraphTimeframes { get; set; } = new();
         public bool ShowCpuPower { get; set; } = true;
+        public bool ShowRamRow { get; set; } = true;
         public bool ShowGpuPower { get; set; } = true;
         public bool ShowGpuTemp { get; set; } = true;
         public bool ShowGpuName { get; set; } = false;
@@ -48,6 +75,7 @@ namespace CryoTray.Models
 
         // Autopilot
         public bool AutopilotEnabled { get; set; } = false;
+        public bool AutopilotPauseOnFullscreen { get; set; } = false;
         public List<string> AutopilotWhitelist { get; set; } = new();
 
         // Overlay
@@ -60,6 +88,7 @@ namespace CryoTray.Models
         public bool OverlayShowGpuTemp { get; set; } = true;
         public bool OverlayShowGpuLoad { get; set; } = true;
         public bool OverlayShowGpuPower { get; set; } = true;
+        public bool OverlayShowRam { get; set; } = false;
         public int OverlayOpacityPercent { get; set; } = 90;
         public double? OverlayLeft { get; set; }
         public double? OverlayTop { get; set; }

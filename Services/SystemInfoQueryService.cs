@@ -79,6 +79,7 @@ namespace CryoTray.Services
             // 3. Graphics card
             try
             {
+                var gpuNames = new List<string>();
                 using var searcher = new ManagementObjectSearcher("SELECT Name FROM Win32_VideoController");
                 using var results = searcher.Get();
                 foreach (ManagementObject obj in results)
@@ -87,19 +88,17 @@ namespace CryoTray.Services
                     string name = obj["Name"]?.ToString()?.Trim() ?? "";
                     if (!string.IsNullOrEmpty(name))
                     {
-                        info.GraphicsCard = name;
-                        break;
+                        gpuNames.Add(name);
                     }
                 }
+
+                info.GraphicsCard = SelectGraphicsCardSummary(
+                    gpuNames, HardwareMonitorService.Instance.CurrentSnapshot.GpuName);
             }
             catch
             {
-                info.GraphicsCard = LocalizationService.Get("Common_NotReported");
-            }
-
-            if (string.IsNullOrWhiteSpace(info.GraphicsCard))
-            {
-                info.GraphicsCard = LocalizationService.Get("Common_NotReported");
+                info.GraphicsCard = SelectGraphicsCardSummary(
+                    Array.Empty<string>(), HardwareMonitorService.Instance.CurrentSnapshot.GpuName);
             }
 
             // 4. Storage devices
@@ -503,6 +502,60 @@ namespace CryoTray.Services
             {
                 return LocalizationService.Get("Common_NotReported");
             }
+        }
+
+        internal static string SelectGraphicsCardSummary(IEnumerable<string?> wmiNames, string? primaryGpuName)
+        {
+            var distinct = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string? raw in wmiNames)
+            {
+                string trimmed = raw?.Trim() ?? "";
+                if (!string.IsNullOrEmpty(trimmed) && seen.Add(trimmed))
+                {
+                    distinct.Add(trimmed);
+                }
+            }
+
+            var physical = distinct.Where(n => !IsVirtualDisplayAdapter(n)).ToList();
+            List<string> candidates = physical.Count > 0 ? physical : distinct;
+
+            string primary = primaryGpuName?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(primary))
+            {
+                if (candidates.Count == 0)
+                {
+                    return primary;
+                }
+
+                int matchIndex = candidates.FindIndex(c =>
+                    string.Equals(c, primary, StringComparison.OrdinalIgnoreCase) ||
+                    c.Contains(primary, StringComparison.OrdinalIgnoreCase) ||
+                    primary.Contains(c, StringComparison.OrdinalIgnoreCase));
+                if (matchIndex > 0)
+                {
+                    string matched = candidates[matchIndex];
+                    candidates.RemoveAt(matchIndex);
+                    candidates.Insert(0, matched);
+                }
+            }
+
+            return candidates.Count > 0
+                ? string.Join(", ", candidates)
+                : LocalizationService.Get("Common_NotReported");
+        }
+
+        private static bool IsVirtualDisplayAdapter(string name)
+        {
+            return name.Contains("Microsoft Basic Display", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("Microsoft Remote Display", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("Microsoft Hyper-V Video", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("Parsec Virtual", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("Citrix Indirect", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("spacedesk", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("LuminonCore", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("Virtual Desktop Monitor", StringComparison.OrdinalIgnoreCase) ||
+                   name.Contains("Indirect Display", StringComparison.OrdinalIgnoreCase);
         }
 
         private string QueryMonitorNames()

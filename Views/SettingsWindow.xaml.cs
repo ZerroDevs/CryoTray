@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -9,10 +10,12 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using CryoTray.Models;
 using CryoTray.Services;
 using Microsoft.Win32;
+using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Views
 {
@@ -27,13 +30,44 @@ namespace CryoTray.Views
         private object?[] _updateStatusArgs = Array.Empty<object?>();
         private string? _updateStatusLiteral;
         private string _updateButtonKey = "Settings_CheckUpdates";
+        private string _hotkeyModifiers = "Ctrl+Shift";
+        private string _hotkeyKey = "C";
+        private string _ramHotkeyModifiers = "Ctrl+Alt";
+        private string _ramHotkeyKey = "M";
+        private string _coolingOnFrameColor = App.DefaultCoolingOnFrameColor;
+        private string _coolingOffFrameColor = App.DefaultCoolingOffFrameColor;
+        private readonly List<DiskDriveControlRow> _diskDriveRows = new();
+
+        private sealed class DiskDriveControlRow
+        {
+            public required string Key { get; init; }
+            public required CheckBox VisibleCheckBox { get; init; }
+            public required CheckBox GraphCheckBox { get; init; }
+            public required ComboBox TimeframeCombo { get; init; }
+            public required Grid GraphSubRow { get; init; }
+        }
+
+        private sealed class Win32WindowOwner : WinForms.IWin32Window
+        {
+            public IntPtr Handle { get; }
+            public Win32WindowOwner(IntPtr handle) => Handle = handle;
+        }
 
         private static readonly Brush WhitelistTextBrush =
             CreateFrozenBrush(Color.FromRgb(224, 224, 224));
+        private static readonly Brush HotkeyDefaultBorderBrush =
+            CreateFrozenBrush(Color.FromRgb(0x4A, 0x4A, 0x4A));
+        private static readonly Brush HotkeyActiveBorderBrush =
+            CreateFrozenBrush(Color.FromRgb(0x2B, 0x88, 0xD8));
+        private static readonly Brush HotkeyHintBrush =
+            CreateFrozenBrush(Color.FromRgb(0x88, 0x88, 0x88));
+        private static readonly Brush HotkeyWarningBrush =
+            CreateFrozenBrush(Color.FromRgb(0xE5, 0x98, 0x7E));
 
 
         public bool OpenAboutOnLoad { get; set; }
         public bool OpenAutopilotOnLoad { get; set; }
+        public bool OpenMemoryOnLoad { get; set; }
 
         public void SelectAboutTab()
         {
@@ -43,6 +77,11 @@ namespace CryoTray.Views
         public void SelectAutopilotTab()
         {
             TabAutopilot.IsChecked = true;
+        }
+
+        public void SelectMemoryTab()
+        {
+            TabMemory.IsChecked = true;
         }
 
         public SettingsWindow()
@@ -59,6 +98,8 @@ namespace CryoTray.Views
         {
             _isClosed = true;
             Activated -= SettingsWindow_Activated;
+            HardwareMonitorService.Instance.TelemetryUpdated -= OnSettingsTelemetryUpdated;
+            SettingsService.Instance.SettingsChanged -= OnExternalSettingsChanged;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
@@ -83,11 +124,78 @@ namespace CryoTray.Views
             {
                 TabAutopilot.IsChecked = true;
             }
+            else if (OpenMemoryOnLoad)
+            {
+                TabMemory.IsChecked = true;
+            }
 
             ApplyLocalizedText();
             RefreshPawnIoBanner();
             RefreshRollbackUi();
+            HardwareMonitorService.Instance.TelemetryUpdated += OnSettingsTelemetryUpdated;
+            SettingsService.Instance.SettingsChanged += OnExternalSettingsChanged;
             _isBinding = false;
+        }
+
+        private void OnSettingsTelemetryUpdated(HardwareSnapshot _)
+        {
+            if (_isClosed || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosed || PanelView == null || PanelView.Visibility != Visibility.Visible)
+                {
+                    return;
+                }
+
+                UpdateTrayBadgeSampleTexts();
+            }));
+        }
+
+        private void OnExternalSettingsChanged()
+        {
+            if (_isClosed)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosed)
+                {
+                    return;
+                }
+
+                var s = SettingsService.Instance.Current;
+                bool previous = _isBinding;
+                _isBinding = true;
+                try
+                {
+                    if (ChkOverlayClickThrough != null && ChkOverlayClickThrough.IsChecked != s.OverlayClickThrough)
+                    {
+                        ChkOverlayClickThrough.IsChecked = s.OverlayClickThrough;
+                    }
+                    if (ChkRamFreeWorkingSets != null && ChkRamFreeWorkingSets.IsChecked != s.RamFreeWorkingSets)
+                    {
+                        ChkRamFreeWorkingSets.IsChecked = s.RamFreeWorkingSets;
+                    }
+                    if (ChkRamClearStandby != null && ChkRamClearStandby.IsChecked != s.RamClearStandby)
+                    {
+                        ChkRamClearStandby.IsChecked = s.RamClearStandby;
+                    }
+                    if (CmbCpuGraphTimeframe != null && ReadSelectedTimeframeMinutes(CmbCpuGraphTimeframe) != s.CpuGraphTimeframeMinutes)
+                    {
+                        SelectTimeframeCombo(CmbCpuGraphTimeframe, s.CpuGraphTimeframeMinutes);
+                    }
+                }
+                finally
+                {
+                    _isBinding = previous;
+                }
+            }));
         }
 
         private void LoadSettingsIntoUI()
@@ -104,26 +212,50 @@ namespace CryoTray.Views
 
             // Checkboxes
             ChkShowComputerName.IsChecked = s.ShowComputerName;
-            ChkLaunchStartup.IsChecked = s.LaunchOnStartup;
+            bool taskConfigured = StartupTaskService.IsStartupConfigured();
+            if (s.LaunchOnStartup && !taskConfigured)
+            {
+                StartupTaskService.EnsureSynchronized(true);
+                taskConfigured = StartupTaskService.IsStartupConfigured();
+                if (!taskConfigured)
+                {
+                    s.LaunchOnStartup = false;
+                }
+            }
+            ChkLaunchStartup.IsChecked = s.LaunchOnStartup && taskConfigured;
             ChkLaunchBackground.IsChecked = s.LaunchInBackground;
             ChkEnableCoolingOnLaunch.IsChecked = s.EnableCoolingOnLaunch;
+            ChkEnableCoolingOnBattery.IsChecked = s.EnableCoolingOnBattery;
             ChkDisableCoolingOnExit.IsChecked = s.DisableCoolingModeOnExit;
             ChkPinToTaskbar.IsChecked = s.PinToTaskbar;
             ChkAlwaysOnTop.IsChecked = s.AlwaysOnTop;
             ChkHideOnFocusLoss.IsChecked = s.HideOnFocusLoss;
 
             ChkUseHotkey.IsChecked = s.UseHotkey;
-            TxtHotkeyKey.Text = string.IsNullOrEmpty(s.HotkeyKey) ? "C" : s.HotkeyKey;
+            _hotkeyKey = string.IsNullOrWhiteSpace(s.HotkeyKey) ? "C" : s.HotkeyKey.Trim();
+            _hotkeyModifiers = string.IsNullOrWhiteSpace(s.HotkeyKey) ? "Ctrl+Shift" : (s.HotkeyModifiers ?? "");
+            TxtHotkeyShortcut.Text = GlobalHotkeyService.FormatShortcutDisplay(_hotkeyModifiers, _hotkeyKey);
+            TxtHotkeyShortcut.IsEnabled = s.UseHotkey;
             ChkMuteTemperatureAlerts.IsChecked = s.MuteTemperatureAlerts;
             ChkAutomaticUpdates.IsChecked = s.AutomaticUpdateChecks;
 
             // View Tab
             ChkShowGpuBadge.IsChecked = s.ShowGpuBadge;
+            RdoGpuBlackDigits.IsChecked = !s.GpuTrayWhiteDigits;
+            RdoGpuWhiteDigits.IsChecked = s.GpuTrayWhiteDigits;
             ChkShowCpuBadge.IsChecked = s.ShowCpuBadge;
+            RdoCpuBlackDigits.IsChecked = !s.CpuTrayWhiteDigits;
+            RdoCpuWhiteDigits.IsChecked = s.CpuTrayWhiteDigits;
             ChkMergeTrayIcons.IsChecked = s.MergeTrayIcons;
+            _coolingOnFrameColor = App.NormalizeHexColor(App.ResolveFrameColor(s.CoolingOnFrameColor, App.DefaultCoolingOnFrameColor));
+            _coolingOffFrameColor = App.NormalizeHexColor(App.ResolveFrameColor(s.CoolingOffFrameColor, App.DefaultCoolingOffFrameColor));
+            UpdateFrameColorSwatchesUi();
+            UpdateTrayBadgeSampleTexts();
             ChkAnchorToTray.IsChecked = s.AnchorToTray;
+            ChkShowRamRow.IsChecked = s.ShowRamRow;
             ChkShowOverlayRow.IsChecked = s.ShowOverlayRow;
             ChkShowAutopilotRow.IsChecked = s.ShowAutopilotRow;
+            ChkOverlayClickThrough.IsChecked = s.OverlayClickThrough;
             ChkOverlayCpuTemp.IsChecked = s.OverlayShowCpuTemp;
             ChkOverlayCpuLoad.IsChecked = s.OverlayShowCpuLoad;
             ChkOverlayCpuPower.IsChecked = s.OverlayShowCpuPower;
@@ -131,6 +263,7 @@ namespace CryoTray.Views
             ChkOverlayGpuTemp.IsChecked = s.OverlayShowGpuTemp;
             ChkOverlayGpuLoad.IsChecked = s.OverlayShowGpuLoad;
             ChkOverlayGpuPower.IsChecked = s.OverlayShowGpuPower;
+            ChkOverlayShowRam.IsChecked = s.OverlayShowRam;
             SldOverlayOpacity.Value = Math.Clamp(s.OverlayOpacityPercent, 0, 100);
             TxtOverlayOpacity.Text = $"{(int)Math.Round(SldOverlayOpacity.Value)}%";
             ChkShowCpuPower.IsChecked = s.ShowCpuPower;
@@ -141,19 +274,51 @@ namespace CryoTray.Views
             ChkShowGpuVram.IsChecked = s.ShowGpuVram;
             ChkShowGpuFan.IsChecked = s.ShowGpuFan;
 
-            // CPU Tab - Cooling Controls
+            // CPU Tab - Display & Cooling Controls
+            ChkShowCpuClock.IsChecked = s.ShowCpuClock;
+            ChkShowCpuBaseSpeed.IsChecked = s.ShowCpuBaseSpeed;
+            ChkShowCpuGraph.IsChecked = s.ShowCpuGraph;
+            SelectTimeframeCombo(CmbCpuGraphTimeframe, s.CpuGraphTimeframeMinutes);
+            RdoCpuGraphLarge.IsChecked = !s.CpuGraphSmall;
+            RdoCpuGraphSmall.IsChecked = s.CpuGraphSmall;
+            UpdateCpuDisplayControlStates();
+
             CmbPerfBoostMode.SelectedIndex = s.PerfBoostMode == 1 ? 1 : 0;
             SldThrottle.Value = s.MaxCpuThrottlePercent;
             TxtThrottleVal.Text = $"{s.MaxCpuThrottlePercent}%";
 
+            // Memory Tab
+            ChkRamFreeWorkingSets.IsChecked = s.RamFreeWorkingSets;
+            ChkRamClearStandby.IsChecked = s.RamClearStandby;
+            ChkRamClearClipboard.IsChecked = s.RamClearClipboard;
+            ChkRamShowNotification.IsChecked = s.RamShowNotification;
+            ChkAutoRamEnabled.IsChecked = s.AutoRamOptimizeEnabled;
+            SldAutoRamThreshold.Value = Math.Clamp(s.AutoRamThresholdPercent, 10, 50);
+            TxtAutoRamThreshold.Text = $"{(int)SldAutoRamThreshold.Value}%";
+            ChkAutoRamCpuIdle.IsChecked = s.AutoRamCpuIdleOnly;
+            SelectAutoRamInterval(s.AutoRamIntervalHours);
+            UpdateMemoryRuleControlStates();
+
+            ChkUseRamHotkey.IsChecked = s.UseRamHotkey;
+            _ramHotkeyKey = string.IsNullOrWhiteSpace(s.RamHotkeyKey) ? "M" : s.RamHotkeyKey.Trim();
+            _ramHotkeyModifiers = string.IsNullOrWhiteSpace(s.RamHotkeyKey) ? "Ctrl+Alt" : (s.RamHotkeyModifiers ?? "");
+            TxtRamHotkeyShortcut.Text = GlobalHotkeyService.FormatShortcutDisplay(_ramHotkeyModifiers, _ramHotkeyKey);
+            TxtRamHotkeyShortcut.IsEnabled = s.UseRamHotkey;
+
             ChkAutopilotEnabled.IsChecked = s.AutopilotEnabled;
+            ChkAutopilotFullscreen.IsChecked = s.AutopilotPauseOnFullscreen;
             RefreshAutopilotWhitelist();
 
             // CPU, disk, and GPU alert thresholds
             SldCpuThreshold.Value = s.HighTempThresholdCpu;
+            ChkShowDiskTemp.IsChecked = s.ShowDiskTemp;
             SldDiskThreshold.Value = s.HighTempThresholdDisk;
             SldGpuThreshold.Value = s.HighTempThresholdGpu;
             LoadGpuOptions();
+            RefreshDiskDriveList();
+            UpdateDiskControlStates();
+            RefreshHotkeyFeedback();
+            RefreshRamHotkeyFeedback();
             UpdateThresholdLabels();
 
             SetUpdateState("Settings_UpdateDefault", "Settings_CheckUpdates");
@@ -163,8 +328,12 @@ namespace CryoTray.Views
         {
             TxtAboutVersion.Text = LocalizationService.Format("Settings_AboutVersion", UpdateService.CurrentVersion);
             UpdateThresholdLabels();
+            UpdateTrayBadgeSampleTexts();
             ApplyUpdateState();
             RefreshAutopilotWhitelist();
+            RefreshDiskDriveListSafely();
+            RefreshHotkeyFeedback();
+            RefreshRamHotkeyFeedback();
         }
 
         private void OnLanguageChanged()
@@ -439,7 +608,7 @@ namespace CryoTray.Views
                         apps[processName] = new RunningAppOption
                         {
                             ProcessName = processName,
-                            DisplayName = $"{processName} — {title}"
+                            DisplayName = $"{processName} - {title}"
                         };
                     }
                     catch (InvalidOperationException)
@@ -490,18 +659,30 @@ namespace CryoTray.Views
         {
             if (PanelGeneral == null) return;
 
+            SettingsContentScroll?.ScrollToTop();
             PanelGeneral.Visibility = Visibility.Collapsed;
             PanelView.Visibility = Visibility.Collapsed;
             PanelCpu.Visibility = Visibility.Collapsed;
+            PanelMemory.Visibility = Visibility.Collapsed;
             PanelDisk.Visibility = Visibility.Collapsed;
             PanelGpu.Visibility = Visibility.Collapsed;
             PanelAutopilot.Visibility = Visibility.Collapsed;
             PanelAbout.Visibility = Visibility.Collapsed;
 
             if (TabGeneral.IsChecked == true) PanelGeneral.Visibility = Visibility.Visible;
-            else if (TabView.IsChecked == true) PanelView.Visibility = Visibility.Visible;
+            else if (TabView.IsChecked == true)
+            {
+                PanelView.Visibility = Visibility.Visible;
+                UpdateTrayBadgeSampleTexts();
+                UpdateFrameColorSwatchesUi();
+            }
             else if (TabCpu.IsChecked == true) PanelCpu.Visibility = Visibility.Visible;
-            else if (TabDisk.IsChecked == true) PanelDisk.Visibility = Visibility.Visible;
+            else if (TabMemory.IsChecked == true) PanelMemory.Visibility = Visibility.Visible;
+            else if (TabDisk.IsChecked == true)
+            {
+                PanelDisk.Visibility = Visibility.Visible;
+                RefreshDiskDriveListSafely();
+            }
             else if (TabGpu.IsChecked == true)
             {
                 PanelGpu.Visibility = Visibility.Visible;
@@ -532,22 +713,30 @@ namespace CryoTray.Views
             s.LaunchOnStartup = ChkLaunchStartup.IsChecked == true;
             s.LaunchInBackground = ChkLaunchBackground.IsChecked == true;
             s.EnableCoolingOnLaunch = ChkEnableCoolingOnLaunch.IsChecked == true;
+            s.EnableCoolingOnBattery = ChkEnableCoolingOnBattery.IsChecked == true;
             s.DisableCoolingModeOnExit = ChkDisableCoolingOnExit.IsChecked == true;
             s.PinToTaskbar = ChkPinToTaskbar.IsChecked == true;
             s.AlwaysOnTop = ChkAlwaysOnTop.IsChecked == true;
             s.HideOnFocusLoss = ChkHideOnFocusLoss.IsChecked == true;
 
             s.UseHotkey = ChkUseHotkey.IsChecked == true;
-            s.HotkeyKey = TxtHotkeyKey.Text.Trim();
+            s.HotkeyModifiers = _hotkeyModifiers;
+            s.HotkeyKey = _hotkeyKey;
             s.MuteTemperatureAlerts = ChkMuteTemperatureAlerts.IsChecked == true;
             s.AutomaticUpdateChecks = ChkAutomaticUpdates.IsChecked == true;
 
             s.ShowGpuBadge = ChkShowGpuBadge.IsChecked == true;
+            s.GpuTrayWhiteDigits = RdoGpuWhiteDigits.IsChecked == true;
             s.ShowCpuBadge = ChkShowCpuBadge.IsChecked == true;
+            s.CpuTrayWhiteDigits = RdoCpuWhiteDigits.IsChecked == true;
             s.MergeTrayIcons = ChkMergeTrayIcons.IsChecked == true;
+            s.CoolingOnFrameColor = _coolingOnFrameColor;
+            s.CoolingOffFrameColor = _coolingOffFrameColor;
             s.AnchorToTray = ChkAnchorToTray.IsChecked == true;
+            s.ShowRamRow = ChkShowRamRow.IsChecked == true;
             s.ShowOverlayRow = ChkShowOverlayRow.IsChecked == true;
             s.ShowAutopilotRow = ChkShowAutopilotRow.IsChecked == true;
+            s.OverlayClickThrough = ChkOverlayClickThrough.IsChecked == true;
             s.OverlayShowCpuTemp = ChkOverlayCpuTemp.IsChecked == true;
             s.OverlayShowCpuLoad = ChkOverlayCpuLoad.IsChecked == true;
             s.OverlayShowCpuPower = ChkOverlayCpuPower.IsChecked == true;
@@ -555,6 +744,7 @@ namespace CryoTray.Views
             s.OverlayShowGpuTemp = ChkOverlayGpuTemp.IsChecked == true;
             s.OverlayShowGpuLoad = ChkOverlayGpuLoad.IsChecked == true;
             s.OverlayShowGpuPower = ChkOverlayGpuPower.IsChecked == true;
+            s.OverlayShowRam = ChkOverlayShowRam.IsChecked == true;
             s.OverlayOpacityPercent = (int)Math.Round(SldOverlayOpacity.Value);
             s.ShowCpuPower = ChkShowCpuPower.IsChecked == true;
             s.ShowGpuPower = ChkShowGpuPower.IsChecked == true;
@@ -564,6 +754,12 @@ namespace CryoTray.Views
             s.ShowGpuVram = ChkShowGpuVram.IsChecked == true;
             s.ShowGpuFan = ChkShowGpuFan.IsChecked == true;
 
+            s.ShowCpuClock = ChkShowCpuClock.IsChecked == true;
+            s.ShowCpuBaseSpeed = ChkShowCpuBaseSpeed.IsChecked == true;
+            s.ShowCpuGraph = ChkShowCpuGraph.IsChecked == true;
+            s.CpuGraphSmall = RdoCpuGraphSmall.IsChecked == true;
+            s.CpuGraphTimeframeMinutes = ReadSelectedTimeframeMinutes(CmbCpuGraphTimeframe);
+
             s.NormalPowerPlanGuid = CmbNormalPowerPlan.SelectedItem is PowerSchemeInfo normalPlan
                 ? normalPlan.Guid.ToString()
                 : PowerPlanService.BalancedGuid.ToString();
@@ -571,12 +767,50 @@ namespace CryoTray.Views
             s.PerfBoostMode = CmbPerfBoostMode.SelectedIndex == 1 ? 1 : 0;
             s.MaxCpuThrottlePercent = (int)SldThrottle.Value;
 
+            s.RamFreeWorkingSets = ChkRamFreeWorkingSets.IsChecked == true;
+            s.RamClearStandby = ChkRamClearStandby.IsChecked == true;
+            s.RamClearClipboard = ChkRamClearClipboard.IsChecked == true;
+            s.RamShowNotification = ChkRamShowNotification.IsChecked == true;
+            s.AutoRamOptimizeEnabled = ChkAutoRamEnabled.IsChecked == true;
+            s.AutoRamThresholdPercent = (int)Math.Round(SldAutoRamThreshold.Value);
+            s.AutoRamCpuIdleOnly = ChkAutoRamCpuIdle.IsChecked == true;
+            s.AutoRamIntervalHours = ReadSelectedAutoRamIntervalHours();
+            s.UseRamHotkey = ChkUseRamHotkey.IsChecked == true;
+            s.RamHotkeyModifiers = _ramHotkeyModifiers;
+            s.RamHotkeyKey = _ramHotkeyKey;
+
             s.AutopilotEnabled = ChkAutopilotEnabled.IsChecked == true;
+            s.AutopilotPauseOnFullscreen = ChkAutopilotFullscreen.IsChecked == true;
 
             s.HighTempThresholdCpu = (int)SldCpuThreshold.Value;
+            s.ShowDiskTemp = ChkShowDiskTemp.IsChecked == true;
             s.HighTempThresholdDisk = (int)SldDiskThreshold.Value;
             s.HighTempThresholdGpu = (int)SldGpuThreshold.Value;
             s.PreferredGpuIdentifier = CmbPrimaryGpu?.SelectedValue as string ?? "";
+
+            if (_diskDriveRows.Count > 0)
+            {
+                s.ExcludedDrives ??= new List<string>();
+                s.DiskGraphDrives ??= new List<string>();
+                s.DiskGraphTimeframes ??= new Dictionary<string, int>();
+
+                var renderedKeys = new HashSet<string>(_diskDriveRows.Select(r => r.Key), StringComparer.OrdinalIgnoreCase);
+                s.ExcludedDrives.RemoveAll(k => renderedKeys.Contains(k));
+                s.DiskGraphDrives.RemoveAll(k => renderedKeys.Contains(k));
+
+                foreach (var row in _diskDriveRows)
+                {
+                    if (row.VisibleCheckBox.IsChecked != true)
+                    {
+                        s.ExcludedDrives.Add(row.Key);
+                    }
+                    if (row.GraphCheckBox.IsChecked == true)
+                    {
+                        s.DiskGraphDrives.Add(row.Key);
+                    }
+                    s.DiskGraphTimeframes[row.Key] = ReadSelectedTimeframeMinutes(row.TimeframeCombo);
+                }
+            }
 
             SettingsService.Instance.Save();
 
@@ -600,7 +834,220 @@ namespace CryoTray.Views
             {
                 SaveUiIntoSettings();
                 UpdateThresholdLabels();
+                UpdateTrayBadgeSampleTexts();
             }
+        }
+
+        private void ChkTrayBadge_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateTrayBadgeSampleTexts();
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void UpdateTrayBadgeSampleTexts()
+        {
+            if (TxtSampleGpuBlack == null || TxtSampleCpuOffBlack == null)
+            {
+                return;
+            }
+
+            if (PnlGpuBadgeDigits != null && ChkShowGpuBadge != null)
+            {
+                PnlGpuBadgeDigits.IsEnabled = ChkShowGpuBadge.IsChecked == true;
+            }
+            if (PnlCpuBadgeDigits != null && ChkShowCpuBadge != null)
+            {
+                PnlCpuBadgeDigits.IsEnabled = ChkShowCpuBadge.IsChecked == true;
+            }
+
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            var snap = HardwareMonitorService.Instance.CurrentSnapshot;
+
+            string cpuSample = double.IsFinite(snap.CpuTemp) && snap.CpuTemp > 0
+                ? ((int)Math.Round(isFahrenheit ? (snap.CpuTemp * 9 / 5) + 32 : snap.CpuTemp)).ToString(CultureInfo.InvariantCulture)
+                : "--";
+            string gpuSample = double.IsFinite(snap.GpuTemp) && snap.GpuTemp > 0
+                ? ((int)Math.Round(isFahrenheit ? (snap.GpuTemp * 9 / 5) + 32 : snap.GpuTemp)).ToString(CultureInfo.InvariantCulture)
+                : "--";
+
+            TxtSampleCpuOffBlack.Text = cpuSample;
+            TxtSampleCpuOnBlack.Text = cpuSample;
+            TxtSampleCpuOffWhite.Text = cpuSample;
+            TxtSampleCpuOnWhite.Text = cpuSample;
+            TxtSampleGpuBlack.Text = gpuSample;
+            TxtSampleGpuWhite.Text = gpuSample;
+        }
+
+        private void BtnColorCoolingOn_Click(object sender, RoutedEventArgs e)
+        {
+            PickFrameColor(_coolingOnFrameColor, App.DefaultCoolingOnFrameColor, hex => _coolingOnFrameColor = hex);
+        }
+
+        private void BtnColorCoolingOff_Click(object sender, RoutedEventArgs e)
+        {
+            PickFrameColor(_coolingOffFrameColor, App.DefaultCoolingOffFrameColor, hex => _coolingOffFrameColor = hex);
+        }
+
+        private void BtnResetColorCoolingOn_Click(object sender, RoutedEventArgs e)
+        {
+            _coolingOnFrameColor = App.DefaultCoolingOnFrameColor;
+            UpdateFrameColorSwatchesUi();
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void BtnResetColorCoolingOff_Click(object sender, RoutedEventArgs e)
+        {
+            _coolingOffFrameColor = App.DefaultCoolingOffFrameColor;
+            UpdateFrameColorSwatchesUi();
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void PickFrameColor(string currentHex, string fallbackHex, Action<string> apply)
+        {
+            Color wpfCurrent = App.ResolveFrameColor(currentHex, fallbackHex);
+            using var dialog = new WinForms.ColorDialog
+            {
+                AllowFullOpen = true,
+                FullOpen = true,
+                AnyColor = true,
+                SolidColorOnly = true,
+                Color = System.Drawing.Color.FromArgb(wpfCurrent.R, wpfCurrent.G, wpfCurrent.B)
+            };
+
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            WinForms.DialogResult result = hwnd != IntPtr.Zero
+                ? dialog.ShowDialog(new Win32WindowOwner(hwnd))
+                : dialog.ShowDialog();
+
+            if (result == WinForms.DialogResult.OK)
+            {
+                Color picked = Color.FromRgb(dialog.Color.R, dialog.Color.G, dialog.Color.B);
+                apply(App.NormalizeHexColor(picked));
+                UpdateFrameColorSwatchesUi();
+                if (!_isBinding) SaveUiIntoSettings();
+            }
+        }
+
+        private void UpdateFrameColorSwatchesUi()
+        {
+            if (BtnColorCoolingOn == null || BtnColorCoolingOff == null)
+            {
+                return;
+            }
+
+            BtnColorCoolingOn.Background = CreateFrozenBrush(
+                App.ResolveFrameColor(_coolingOnFrameColor, App.DefaultCoolingOnFrameColor));
+            BtnColorCoolingOff.Background = CreateFrozenBrush(
+                App.ResolveFrameColor(_coolingOffFrameColor, App.DefaultCoolingOffFrameColor));
+
+            if (BtnResetColorCoolingOn != null)
+            {
+                BtnResetColorCoolingOn.Visibility = string.Equals(
+                    _coolingOnFrameColor, App.DefaultCoolingOnFrameColor, StringComparison.OrdinalIgnoreCase)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+            }
+            if (BtnResetColorCoolingOff != null)
+            {
+                BtnResetColorCoolingOff.Visibility = string.Equals(
+                    _coolingOffFrameColor, App.DefaultCoolingOffFrameColor, StringComparison.OrdinalIgnoreCase)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+            }
+        }
+
+        private void ChkCpuDisplay_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateCpuDisplayControlStates();
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void CmbCpuGraphTimeframe_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void UpdateCpuDisplayControlStates()
+        {
+            if (ChkShowCpuClock == null || ChkShowCpuBaseSpeed == null ||
+                ChkShowCpuGraph == null || CmbCpuGraphTimeframe == null || PnlCpuGraphSize == null)
+            {
+                return;
+            }
+
+            ChkShowCpuBaseSpeed.IsEnabled = ChkShowCpuClock.IsChecked == true;
+            bool graphEnabled = ChkShowCpuGraph.IsChecked == true;
+            CmbCpuGraphTimeframe.IsEnabled = graphEnabled;
+            PnlCpuGraphSize.IsEnabled = graphEnabled;
+        }
+
+        private void ChkShowDiskTemp_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateDiskControlStates();
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void UpdateDiskControlStates()
+        {
+            bool showDisk = ChkShowDiskTemp == null || ChkShowDiskTemp.IsChecked == true;
+            if (BdrMonitoredDrives != null)
+            {
+                BdrMonitoredDrives.IsEnabled = showDisk;
+                BdrMonitoredDrives.Opacity = showDisk ? 1.0 : 0.48;
+            }
+
+            foreach (var row in _diskDriveRows)
+            {
+                bool driveEnabled = showDisk && row.VisibleCheckBox.IsChecked == true;
+                row.GraphSubRow.IsEnabled = driveEnabled;
+                row.TimeframeCombo.IsEnabled = driveEnabled && row.GraphCheckBox.IsChecked == true;
+            }
+        }
+
+        private static void SelectTimeframeCombo(ComboBox combo, int minutes)
+        {
+            int target = minutes switch
+            {
+                5 => 5,
+                10 => 10,
+                30 => 30,
+                60 => 60,
+                _ => 1
+            };
+
+            foreach (object item in combo.Items)
+            {
+                if (item is ComboBoxItem cbi &&
+                    int.TryParse(cbi.Tag?.ToString(), out int parsed) &&
+                    parsed == target)
+                {
+                    combo.SelectedItem = cbi;
+                    return;
+                }
+            }
+
+            if (combo.Items.Count > 0)
+            {
+                combo.SelectedIndex = 0;
+            }
+        }
+
+        private static int ReadSelectedTimeframeMinutes(ComboBox? combo)
+        {
+            if (combo?.SelectedItem is ComboBoxItem cbi &&
+                int.TryParse(cbi.Tag?.ToString(), out int parsed))
+            {
+                return parsed switch
+                {
+                    5 => 5,
+                    10 => 10,
+                    30 => 30,
+                    60 => 60,
+                    _ => 1
+                };
+            }
+
+            return 1;
         }
 
         private void CmbNormalPowerPlan_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -679,23 +1126,389 @@ namespace CryoTray.Views
         {
             if (_isBinding) return;
             bool enable = ChkLaunchStartup.IsChecked == true;
-            StartupTaskService.SetStartup(enable);
+            if (!StartupTaskService.TrySetStartup(enable, out string? errorMessage))
+            {
+                _isBinding = true;
+                ChkLaunchStartup.IsChecked = !enable;
+                _isBinding = false;
+                SaveUiIntoSettings();
+
+                string detail = string.IsNullOrWhiteSpace(errorMessage) ? "" : $"\n\n{errorMessage}";
+                MessageBox.Show(
+                    LocalizationService.Format("Settings_StartupTaskFailed", detail).TrimEnd(),
+                    LocalizationService.Get("App_Title"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
             SaveUiIntoSettings();
         }
 
         private void ChkUseHotkey_Changed(object sender, RoutedEventArgs e)
         {
             if (_isBinding) return;
+            TxtHotkeyShortcut.IsEnabled = ChkUseHotkey.IsChecked == true;
             SaveUiIntoSettings();
+            RefreshHotkeyFeedback();
+            RefreshRamHotkeyFeedback();
         }
 
-        private void TxtHotkeyKey_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        private void ChkUseRamHotkey_Changed(object sender, RoutedEventArgs e)
         {
-            if (e.Key >= Key.A && e.Key <= Key.Z)
+            if (_isBinding) return;
+            TxtRamHotkeyShortcut.IsEnabled = ChkUseRamHotkey.IsChecked == true;
+            SaveUiIntoSettings();
+            RefreshHotkeyFeedback();
+            RefreshRamHotkeyFeedback();
+        }
+
+        private void ChkAutoRamEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateMemoryRuleControlStates();
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void SldAutoRamThreshold_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtAutoRamThreshold != null)
             {
-                TxtHotkeyKey.Text = e.Key.ToString();
-                e.Handled = true;
+                TxtAutoRamThreshold.Text = $"{(int)Math.Round(SldAutoRamThreshold.Value)}%";
+            }
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void CmbAutoRamInterval_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void UpdateMemoryRuleControlStates()
+        {
+            if (ChkAutoRamEnabled == null || SldAutoRamThreshold == null || ChkAutoRamCpuIdle == null || CmbAutoRamInterval == null)
+            {
+                return;
+            }
+
+            bool autoEnabled = ChkAutoRamEnabled.IsChecked == true;
+            SldAutoRamThreshold.IsEnabled = autoEnabled;
+            ChkAutoRamCpuIdle.IsEnabled = autoEnabled;
+            CmbAutoRamInterval.IsEnabled = autoEnabled;
+        }
+
+        private void SelectAutoRamInterval(int hours)
+        {
+            if (CmbAutoRamInterval == null)
+            {
+                return;
+            }
+
+            foreach (object item in CmbAutoRamInterval.Items)
+            {
+                if (item is ComboBoxItem cbi &&
+                    int.TryParse(cbi.Tag?.ToString(), out int parsed) &&
+                    parsed == hours)
+                {
+                    CmbAutoRamInterval.SelectedItem = cbi;
+                    return;
+                }
+            }
+
+            CmbAutoRamInterval.SelectedIndex = 0;
+        }
+
+        private int ReadSelectedAutoRamIntervalHours()
+        {
+            if (CmbAutoRamInterval?.SelectedItem is ComboBoxItem cbi &&
+                int.TryParse(cbi.Tag?.ToString(), out int parsed))
+            {
+                return parsed;
+            }
+
+            return 0;
+        }
+
+        private void TxtHotkeyShortcut_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            HandleHotkeyFocus(TxtHotkeyShortcut);
+        }
+
+        private void TxtHotkeyShortcut_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            HandleHotkeyBlur(TxtHotkeyShortcut, _hotkeyModifiers, _hotkeyKey, RefreshHotkeyFeedback);
+        }
+
+        private void TxtHotkeyShortcut_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            HandleHotkeyPreviewKeyDown(e, TxtHotkeyShortcut, ref _hotkeyModifiers, ref _hotkeyKey, () =>
+            {
+                RefreshHotkeyFeedback();
+                RefreshRamHotkeyFeedback();
+            });
+        }
+
+        private void TxtRamHotkeyShortcut_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            HandleHotkeyFocus(TxtRamHotkeyShortcut);
+        }
+
+        private void TxtRamHotkeyShortcut_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            HandleHotkeyBlur(TxtRamHotkeyShortcut, _ramHotkeyModifiers, _ramHotkeyKey, RefreshRamHotkeyFeedback);
+        }
+
+        private void TxtRamHotkeyShortcut_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            HandleHotkeyPreviewKeyDown(e, TxtRamHotkeyShortcut, ref _ramHotkeyModifiers, ref _ramHotkeyKey, () =>
+            {
+                RefreshHotkeyFeedback();
+                RefreshRamHotkeyFeedback();
+            });
+        }
+
+        private static void HandleHotkeyFocus(TextBox box)
+        {
+            if (!box.IsEnabled)
+            {
+                return;
+            }
+
+            box.Text = LocalizationService.Get("Settings_HotkeyListening");
+            box.BorderBrush = HotkeyActiveBorderBrush;
+        }
+
+        private static void HandleHotkeyBlur(TextBox box, string modifiers, string key, Action refreshFeedback)
+        {
+            box.Text = GlobalHotkeyService.FormatShortcutDisplay(modifiers, key);
+            box.BorderBrush = HotkeyDefaultBorderBrush;
+            refreshFeedback();
+        }
+
+        private void HandleHotkeyPreviewKeyDown(
+            System.Windows.Input.KeyEventArgs e,
+            TextBox box,
+            ref string modifiers,
+            ref string key,
+            Action refreshFeedback)
+        {
+            if (e.Key == Key.Tab)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            if (e.Key == Key.Escape)
+            {
+                box.Text = GlobalHotkeyService.FormatShortcutDisplay(modifiers, key);
+                box.BorderBrush = HotkeyDefaultBorderBrush;
+                Keyboard.ClearFocus();
+                return;
+            }
+
+            if (GlobalHotkeyService.TryCaptureShortcut(e.Key, e.SystemKey, Keyboard.Modifiers, out string mods, out string capturedKey))
+            {
+                modifiers = mods;
+                key = capturedKey;
+                box.Text = GlobalHotkeyService.FormatShortcutDisplay(modifiers, key);
+                box.BorderBrush = HotkeyDefaultBorderBrush;
                 SaveUiIntoSettings();
+                refreshFeedback();
+            }
+        }
+
+        private void RefreshHotkeyFeedback()
+        {
+            if (TxtHotkeyHint == null)
+            {
+                return;
+            }
+
+            string formatted = GlobalHotkeyService.FormatShortcutDisplay(_hotkeyModifiers, _hotkeyKey);
+            if (ChkUseHotkey.IsChecked == true && !GlobalHotkeyService.Instance.IsRegistered)
+            {
+                TxtHotkeyHint.Text = LocalizationService.Format("Settings_HotkeyConflict", formatted);
+                TxtHotkeyHint.Foreground = HotkeyWarningBrush;
+                return;
+            }
+
+            TxtHotkeyHint.Text = LocalizationService.Get("Settings_HotkeyHint");
+            TxtHotkeyHint.Foreground = HotkeyHintBrush;
+        }
+
+        private void RefreshRamHotkeyFeedback()
+        {
+            if (TxtRamHotkeyHint == null)
+            {
+                return;
+            }
+
+            string ramFormatted = GlobalHotkeyService.FormatShortcutDisplay(_ramHotkeyModifiers, _ramHotkeyKey);
+            string coolingFormatted = GlobalHotkeyService.FormatShortcutDisplay(_hotkeyModifiers, _hotkeyKey);
+
+            if (ChkUseRamHotkey.IsChecked == true &&
+                ChkUseHotkey.IsChecked == true &&
+                string.Equals(ramFormatted, coolingFormatted, StringComparison.OrdinalIgnoreCase))
+            {
+                TxtRamHotkeyHint.Text = LocalizationService.Get("Settings_RamHotkeyConflictCooling");
+                TxtRamHotkeyHint.Foreground = HotkeyWarningBrush;
+                return;
+            }
+
+            if (ChkUseRamHotkey.IsChecked == true && !GlobalHotkeyService.Instance.IsRamHotkeyRegistered)
+            {
+                TxtRamHotkeyHint.Text = LocalizationService.Format("Settings_HotkeyConflict", ramFormatted);
+                TxtRamHotkeyHint.Foreground = HotkeyWarningBrush;
+                return;
+            }
+
+            TxtRamHotkeyHint.Text = LocalizationService.Get("Settings_HotkeyHint");
+            TxtRamHotkeyHint.Foreground = HotkeyHintBrush;
+        }
+
+        private void RefreshDiskDriveListSafely()
+        {
+            bool previousBinding = _isBinding;
+            _isBinding = true;
+            try
+            {
+                RefreshDiskDriveList();
+            }
+            finally
+            {
+                _isBinding = previousBinding;
+            }
+        }
+
+        private void RefreshDiskDriveList()
+        {
+            if (PnlDiskDrives == null || TxtNoDrivesDetected == null)
+            {
+                return;
+            }
+
+            PnlDiskDrives.Children.Clear();
+            _diskDriveRows.Clear();
+            var drives = HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives;
+            var s = SettingsService.Instance.Current;
+            var excluded = s.ExcludedDrives;
+            var graphDrives = s.DiskGraphDrives ?? new List<string>();
+            var graphTimeframes = s.DiskGraphTimeframes ?? new Dictionary<string, int>();
+
+            if (drives.Count == 0)
+            {
+                TxtNoDrivesDetected.Visibility = Visibility.Visible;
+                return;
+            }
+
+            TxtNoDrivesDetected.Visibility = Visibility.Collapsed;
+            var miniComboStyle = (Style)FindResource("SettingsMiniComboStyle");
+            var dividerBrush = CreateFrozenBrush(Color.FromRgb(42, 42, 42));
+
+            for (int i = 0; i < drives.Count; i++)
+            {
+                var drive = drives[i];
+                string key = HardwareMonitorService.GetDriveExclusionKey(drive);
+                string model = string.IsNullOrWhiteSpace(drive.Model)
+                    ? LocalizationService.Format("Alert_DriveName", drive.Index + 1)
+                    : drive.Model.Trim();
+                string label = string.IsNullOrWhiteSpace(drive.DriveLetters)
+                    ? model
+                    : $"{model} ({drive.DriveLetters.Trim()})";
+
+                var container = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
+
+                var visibleCb = new CheckBox
+                {
+                    Content = label,
+                    Tag = key,
+                    IsChecked = !HardwareMonitorService.IsDriveExcluded(drive, excluded),
+                    Margin = new Thickness(0, 2, 0, 4)
+                };
+                AutomationProperties.SetAutomationId(visibleCb, $"ChkDriveVisible_{i}");
+
+                var subGrid = new Grid { Margin = new Thickness(28, 2, 0, 2) };
+                subGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                subGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                string graphText = drive.IsSolidState == false
+                    ? LocalizationService.Get("Settings_ShowHddGraph")
+                    : LocalizationService.Get("Settings_ShowSsdGraph");
+                bool isGraphEnabled = graphDrives.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+
+                var graphCb = new CheckBox
+                {
+                    Content = graphText,
+                    IsChecked = isGraphEnabled,
+                    Margin = new Thickness(0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                AutomationProperties.SetAutomationId(graphCb, $"ChkDriveGraph_{i}");
+                Grid.SetColumn(graphCb, 0);
+
+                var tfCombo = new ComboBox
+                {
+                    Style = miniComboStyle,
+                    Margin = new Thickness(10, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                PopulateTimeframeComboItems(tfCombo);
+                int savedMinutes = graphTimeframes.TryGetValue(key, out int mins) ? mins : 1;
+                SelectTimeframeCombo(tfCombo, savedMinutes);
+                AutomationProperties.SetAutomationId(tfCombo, $"CmbDriveTimeframe_{i}");
+                AutomationProperties.SetName(tfCombo, $"{label} {graphText}");
+                Grid.SetColumn(tfCombo, 1);
+
+                subGrid.Children.Add(graphCb);
+                subGrid.Children.Add(tfCombo);
+                container.Children.Add(visibleCb);
+                container.Children.Add(subGrid);
+
+                if (i < drives.Count - 1)
+                {
+                    container.Children.Add(new System.Windows.Shapes.Rectangle
+                    {
+                        Height = 1,
+                        Fill = dividerBrush,
+                        Margin = new Thickness(0, 8, 0, 0)
+                    });
+                }
+
+                visibleCb.Checked += (_, _) => { UpdateDiskControlStates(); if (!_isBinding) SaveUiIntoSettings(); };
+                visibleCb.Unchecked += (_, _) => { UpdateDiskControlStates(); if (!_isBinding) SaveUiIntoSettings(); };
+                graphCb.Checked += (_, _) => { UpdateDiskControlStates(); if (!_isBinding) SaveUiIntoSettings(); };
+                graphCb.Unchecked += (_, _) => { UpdateDiskControlStates(); if (!_isBinding) SaveUiIntoSettings(); };
+                tfCombo.SelectionChanged += (_, _) => { if (!_isBinding) SaveUiIntoSettings(); };
+
+                _diskDriveRows.Add(new DiskDriveControlRow
+                {
+                    Key = key,
+                    VisibleCheckBox = visibleCb,
+                    GraphCheckBox = graphCb,
+                    TimeframeCombo = tfCombo,
+                    GraphSubRow = subGrid
+                });
+                PnlDiskDrives.Children.Add(container);
+            }
+
+            UpdateDiskControlStates();
+        }
+
+        private static void PopulateTimeframeComboItems(ComboBox combo)
+        {
+            (int minutes, string resourceKey)[] entries =
+            {
+                (1, "Main_Timeframe1"),
+                (5, "Main_Timeframe5"),
+                (10, "Main_Timeframe10"),
+                (30, "Main_Timeframe30"),
+                (60, "Main_Timeframe60")
+            };
+
+            foreach ((int minutes, string key) in entries)
+            {
+                var item = new ComboBoxItem { Tag = minutes.ToString(CultureInfo.InvariantCulture) };
+                item.SetResourceReference(ContentControl.ContentProperty, key);
+                combo.Items.Add(item);
             }
         }
 
@@ -773,6 +1586,7 @@ namespace CryoTray.Views
             if (ofd.ShowDialog() == true)
             {
                 SettingsService.Instance.Import(ofd.FileName);
+                StartupTaskService.TrySetStartup(SettingsService.Instance.Current.LaunchOnStartup, out _);
                 _isBinding = true;
                 LoadSettingsIntoUI();
                 _isBinding = false;
@@ -783,6 +1597,7 @@ namespace CryoTray.Views
         {
             // Restore defaults in settings.json
             SettingsService.Instance.Reset();
+            StartupTaskService.TrySetStartup(SettingsService.Instance.Current.LaunchOnStartup, out _);
 
             // Restore CryoTray Cooling Windows power scheme to exact baseline .pow state
             PowerPlanService.Instance.ResetCryoTraySchemeToDefault();

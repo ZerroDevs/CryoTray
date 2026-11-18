@@ -112,6 +112,32 @@
                         </StackPanel>
                     </StackPanel>
 
+                    <StackPanel x:Name="RamOverlayGroup"
+                                Orientation="Vertical"
+                                VerticalAlignment="Center"
+                                Margin="12,0,0,0"
+                                Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{DynamicResource Main_LabelRam}"
+                                       Foreground="#AAAAAA"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock x:Name="TxtRamUsed"
+                                       Text="--G"
+                                       Foreground="#62B0E8"
+                                       FontSize="12"
+                                       FontWeight="Bold"
+                                       Margin="4,0,0,0"
+                                       ToolTip="{DynamicResource Settings_OverlayShowRam}"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TxtRamPercent"
+                                   Text="--%"
+                                   Foreground="#A8A8A8"
+                                   FontSize="9.5"
+                                   Margin="0,1,0,0"
+                                   ToolTip="{DynamicResource Settings_OverlayShowRam}"/>
+                    </StackPanel>
+
                     <TextBlock x:Name="TxtOverlayEmpty"
                                Text="{DynamicResource Overlay_NoMetrics}"
                                Foreground="#9A9A9A"
@@ -123,7 +149,8 @@
             </Grid>
 
             <!-- Close button -->
-            <Button Grid.Column="2"
+            <Button x:Name="BtnCloseOverlay"
+                    Grid.Column="2"
                     Click="BtnClose_Click"
                     Background="Transparent"
                     BorderThickness="0"

@@ -66,6 +66,10 @@ jobs:
         shell: pwsh
         run: dotnet build CryoTray.csproj -c Release --no-restore
 
+      - name: Run verification tests
+        shell: pwsh
+        run: dotnet bin\Release\net8.0-windows\CryoTray.dll /test
+
       - name: Publish self-contained Windows build
         shell: pwsh
         run: |
@@ -75,12 +79,39 @@ jobs:
             --self-contained true `
             -p:PublishSingleFile=false `
             -p:DebugType=None `
-            -o publish
+            -o publish\win-x64
 
-      - name: Sign CryoTray.exe
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $iscc) {
+            $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          }
+          if (-not $iscc) {
+            throw "ISCC.exe (Inno Setup 6) could not be found."
+          }
+
+          & $iscc "/DAppVersion=$version" Installer\CryoTray.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Sign release executables
         if: env.SIGNING_PFX_BASE64 != ''
         shell: pwsh
         run: |
+          $version = "${{ steps.version.outputs.version }}"
           $pfxPath = Join-Path $env:RUNNER_TEMP "CryoTray-signing.pfx"
           [IO.File]::WriteAllBytes(
             $pfxPath,
@@ -98,17 +129,23 @@ jobs:
             throw "signtool.exe was not found. Install the Windows SDK signing tools."
           }
 
-          & $signtool.FullName sign `
-            /fd SHA256 `
-            /td SHA256 `
-            /tr http://timestamp.digicert.com `
-            /f $pfxPath `
-            /p $env:SIGNING_PFX_PASSWORD `
-            publish\CryoTray.exe
+          $targets = @(
+            "publish\win-x64\CryoTray.exe",
+            "Installer\Output\CryoTray-Setup-$version.exe"
+          )
+          foreach ($target in $targets) {
+            & $signtool.FullName sign `
+              /fd SHA256 `
+              /td SHA256 `
+              /tr http://timestamp.digicert.com `
+              /f $pfxPath `
+              /p $env:SIGNING_PFX_PASSWORD `
+              $target
 
-          $signature = Get-AuthenticodeSignature -LiteralPath publish\CryoTray.exe
-          if ($signature.Status -ne "Valid") {
-            throw "CryoTray.exe signature verification failed: $($signature.Status)."
+            $signature = Get-AuthenticodeSignature -LiteralPath $target
+            if ($signature.Status -ne "Valid") {
+              throw "$target signature verification failed: $($signature.Status)."
+            }
           }
 
           Remove-Item -LiteralPath $pfxPath -Force
@@ -118,16 +155,21 @@ jobs:
         shell: pwsh
         run: Write-Warning "Signing secrets are not configured. Publishing unsigned assets with SHA-256 verification."
 
-      - name: Build release package
+      - name: Build release packages and checksums
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $name = "CryoTray-$version-win-x64"
+          $zipName = "CryoTray-$version-win-x64.zip"
+          $setupName = "CryoTray-Setup-$version.exe"
           New-Item -ItemType Directory -Path release -Force | Out-Null
 
-          Compress-Archive -Path "publish\*" -DestinationPath "release\$name.zip" -Force
-          $hash = (Get-FileHash -LiteralPath "release\$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $name.zip" | Set-Content -LiteralPath "release\$name.zip.sha256" -Encoding ascii
+          Compress-Archive -Path "publish\win-x64\*" -DestinationPath "release\$zipName" -Force
+          Copy-Item -LiteralPath "Installer\Output\$setupName" -Destination "release\$setupName" -Force
+
+          foreach ($artifact in @($zipName, $setupName)) {
+            $hash = (Get-FileHash -LiteralPath "release\$artifact" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $artifact" | Set-Content -LiteralPath "release\$artifact.sha256" -Encoding ascii
+          }
 
           $previousTag = ""
           try {
@@ -151,7 +193,8 @@ jobs:
 
           ## Download
 
-          Download `CryoTray-$version-win-x64.zip`, verify it against the attached `.sha256` file, extract it, and run `CryoTray.exe`.
+          - **Installer (Recommended):** Download `CryoTray-Setup-$version.exe` (includes bundled PawnIO driver setup) and verify against `$setupName.sha256`.
+          - **Portable Zip:** Download `$zipName`, verify against `$zipName.sha256`, extract, and run `CryoTray.exe`.
           "@
 
           Set-Content -LiteralPath "release\notes.md" -Value $notes -Encoding utf8
@@ -164,10 +207,13 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $tag = "v$version"
-          $name = "CryoTray-$version-win-x64"
+          $zipName = "CryoTray-$version-win-x64.zip"
+          $setupName = "CryoTray-Setup-$version.exe"
 
           gh release create $tag `
-            "release\$name.zip" `
-            "release\$name.zip.sha256" `
+            "release\$setupName" `
+            "release\$setupName.sha256" `
+            "release\$zipName" `
+            "release\$zipName.sha256" `
             --title "CryoTray $version" `
             --notes-file "release\notes.md"

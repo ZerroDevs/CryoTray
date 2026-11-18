@@ -68,7 +68,9 @@ namespace CryoTray.Services
 
             foreach (var drive in snapshot.StorageDrives)
             {
-                if (!double.IsFinite(drive.Temperature) || drive.Temperature <= 0)
+                if (HardwareMonitorService.IsDriveExcluded(drive, settings.ExcludedDrives) ||
+                    !double.IsFinite(drive.Temperature) ||
+                    drive.Temperature <= 0)
                 {
                     continue;
                 }
@@ -78,7 +80,7 @@ namespace CryoTray.Services
                     : drive.Model.Trim();
 
                 Evaluate(
-                    $"drive:{drive.Index}",
+                    $"drive:{HardwareMonitorService.GetDriveExclusionKey(drive)}",
                     drive.Temperature,
                     settings.HighTempThresholdDisk,
                     () => new TemperatureAlert(

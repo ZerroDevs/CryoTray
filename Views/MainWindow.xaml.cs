@@ -20,6 +20,7 @@ using System.Windows.Threading;
 using CryoTray.Models;
 using CryoTray.Services;
 using CryoTray.Tray;
+using Microsoft.Win32;
 using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Views
@@ -38,26 +39,58 @@ namespace CryoTray.Views
         private bool _isClosing;
         private bool _isExitConfirmationOpen;
         private bool _showKeyboardFocusCues;
+        private bool _isApplyingSettings;
         private readonly double _expandedHeight;
+        private const double BaselineSsdSectionHeight = 79;
 
         private List<TelemetrySample> _cpuChartSamples = new();
         private List<TelemetrySample> _gpuChartSamples = new();
         private bool _cpuHoverActive;
+        private bool _cpuHoverSmall;
         private bool _gpuHoverActive;
         private double _cpuHoverX;
         private double _gpuHoverX;
+        private SsdRowView? _activeHoverDriveRow;
 
         private readonly List<SsdRowView> _ssdRows = new();
         private string? _ssdRowSignature;
+        private DispatcherTimer? _ramFeedbackTimer;
+        private bool _ramTooltipPinned;
+
+        private static readonly Brush SsdHealthGoodBrush = CreateFrozenBrush("#ABD068");
+        private static readonly Brush SsdHealthFairBrush = CreateFrozenBrush("#F3C765");
+        private static readonly Brush SsdHealthWarnBrush = CreateFrozenBrush("#FAAA9A");
+        private static readonly Brush RamFooterMutedBrush = CreateFrozenBrush("#A6A6A6");
+        private static readonly Brush RamFooterTextBrush = CreateFrozenBrush("#B8B8B8");
+        private static readonly Brush RamAccentBrush = CreateFrozenBrush("#29B6F6");
+        private static readonly Brush RamWarnBrush = CreateFrozenBrush("#F3C765");
+
+        private static Brush CreateFrozenBrush(string hex)
+        {
+            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+            brush.Freeze();
+            return brush;
+        }
 
         private sealed class SsdRowView
         {
+            public required string DriveKey { get; init; }
+            public required bool ShowGraph { get; init; }
             public required Grid Root { get; init; }
-            public required Border TempBorder { get; init; }
-            public required TextBlock TempText { get; init; }
-            public required TextBlock UnitText { get; init; }
+            public required TextBlock BadgeText { get; init; }
+            public required TextBlock RowTitleText { get; init; }
+            public required TextBlock HealthText { get; init; }
             public required TextBlock TooltipTitle { get; init; }
             public required TextBlock TooltipHealth { get; init; }
+            public Border? TempBorder { get; init; }
+            public TextBlock? TempText { get; init; }
+            public TextBlock? UnitText { get; init; }
+            public Canvas? ChartCanvas { get; init; }
+            public Canvas? ChartHoverCanvas { get; init; }
+            public TextBlock? ChartUnavailableText { get; init; }
+            public List<TelemetrySample> ChartSamples { get; } = new();
+            public bool HoverActive { get; set; }
+            public double HoverX { get; set; }
         }
 
         public int CoreColumns
@@ -97,6 +130,7 @@ namespace CryoTray.Views
             LocalizationService.Instance.ApplyWindow(this);
             DataContext = this;
             CpuCoresPopup.Opened += CpuCoresPopup_Opened;
+            RamBreakdownToolTip.PlacementTarget = BtnRamBreakdown;
             SetupFanAnimation();
 
             Loaded += MainWindow_Loaded;
@@ -203,9 +237,12 @@ namespace CryoTray.Views
 
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingModeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
+            MemoryOptimizerService.Instance.OptimizingStateChanged += OnRamOptimizingStateChanged;
+            MemoryOptimizerService.Instance.OptimizationCompleted += OnRamOptimizationCompleted;
 
             UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
             UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+            SetRamOptimizingVisualState(MemoryOptimizerService.Instance.IsOptimizing);
             StartFanAnimation();
         }
 
@@ -213,6 +250,11 @@ namespace CryoTray.Views
         {
             _isClosing = true;
             HideChartTooltips();
+            CloseRamBreakdownToolTip();
+            if (RamScopeMenu != null)
+            {
+                RamScopeMenu.IsOpen = false;
+            }
             CpuCoresPopup.IsOpen = false;
         }
 
@@ -228,6 +270,11 @@ namespace CryoTray.Views
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingModeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
+            MemoryOptimizerService.Instance.OptimizingStateChanged -= OnRamOptimizingStateChanged;
+            MemoryOptimizerService.Instance.OptimizationCompleted -= OnRamOptimizationCompleted;
+            _ramFeedbackTimer?.Stop();
+            _ramFeedbackTimer = null;
+            OptGlyphHost?.BeginAnimation(OpacityProperty, null);
             StopFanAnimation();
             DataContext = null;
             Content = null;
@@ -238,35 +285,90 @@ namespace CryoTray.Views
             Dispatcher.Invoke(() =>
             {
                 var s = SettingsService.Instance.Current;
-                TxtAppTitle.Text = s.ShowComputerName
-                    ? LocalizationService.Format("Main_AppWithPc", Environment.MachineName)
-                    : LocalizationService.Get("App_Title");
+                _isApplyingSettings = true;
+                try
+                {
+                    TxtAppTitle.Text = s.ShowComputerName
+                        ? LocalizationService.Format("Main_AppWithPc", Environment.MachineName)
+                        : LocalizationService.Get("App_Title");
 
-                TxtCpuModel.TextAlignment = LocalizationService.Instance.IsArabic
-                    ? TextAlignment.Right
-                    : TextAlignment.Left;
+                    TxtCpuModel.TextAlignment = LocalizationService.Instance.IsArabic
+                        ? TextAlignment.Right
+                        : TextAlignment.Left;
 
-                Topmost = s.AlwaysOnTop;
-                ShowInTaskbar = s.PinToTaskbar;
-                ApplyTelemetryVisibility(s);
+                    Topmost = s.AlwaysOnTop;
+                    ShowInTaskbar = s.PinToTaskbar;
 
-                OverlayRow.Visibility = s.ShowOverlayRow
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-                AutopilotRow.Visibility = s.ShowAutopilotRow
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-                AutopilotSeparator.Visibility = s.ShowOverlayRow && s.ShowAutopilotRow
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
+                    _timeframeSamples = TimeframeMinutesToSamples(s.CpuGraphTimeframeMinutes);
+                    int targetIdx = TimeframeMinutesToIndex(s.CpuGraphTimeframeMinutes);
+                    if (CmbTimeframe != null && CmbTimeframe.SelectedIndex != targetIdx)
+                    {
+                        CmbTimeframe.SelectedIndex = targetIdx;
+                    }
 
-                UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
+                    ApplyTelemetryVisibility(s);
+                    _ssdRowSignature = null;
+
+                    RamRow.Visibility = s.ShowRamRow
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
+                    RamSeparator.Visibility = RamRow.Visibility;
+                    OverlayRow.Visibility = s.ShowOverlayRow
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
+                    AutopilotRow.Visibility = s.ShowAutopilotRow
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
+                    AutopilotSeparator.Visibility = s.ShowOverlayRow && s.ShowAutopilotRow
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
+
+                    bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
+                    string unit = isFahrenheit ? "°F" : "°C";
+                    RenderSsdRows(HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives, isFahrenheit, unit);
+                    UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
+                    DrawCpuChart();
+                }
+                finally
+                {
+                    _isApplyingSettings = false;
+                }
             });
         }
 
         private void UpdateWindowHeight(bool showOverlay, bool showAutopilot)
         {
+            var s = SettingsService.Instance.Current;
             double height = _expandedHeight;
+
+            if (!s.ShowCpuGraph)
+            {
+                height -= 80;
+            }
+            else if (s.CpuGraphSmall)
+            {
+                height -= 80;
+                height += CpuSmallChartRow.Height
+                    + CpuSmallChartSeparator.Height
+                    + CpuSmallChartSeparator.Margin.Top
+                    + CpuSmallChartSeparator.Margin.Bottom;
+            }
+
+            if (CpuSpeedRow.Visibility != Visibility.Visible)
+            {
+                height -= CpuSpeedRow.Height
+                    + CpuSpeedSeparator.Height
+                    + CpuSpeedSeparator.Margin.Top
+                    + CpuSpeedSeparator.Margin.Bottom;
+            }
+
+            if (RamRow.Visibility != Visibility.Visible)
+            {
+                height -= RamRow.Height
+                    + RamSeparator.Height
+                    + RamSeparator.Margin.Top
+                    + RamSeparator.Margin.Bottom;
+            }
             if (!showOverlay)
             {
                 height -= OverlayRow.Height;
@@ -285,10 +387,29 @@ namespace CryoTray.Views
             {
                 height -= GpuHealthRow.Height;
             }
+
+            double actualSsdHeight;
+            if (!s.ShowDiskTemp || SsdRowsContainer.Visibility != Visibility.Visible || SsdRowsContainer.Children.Count == 0)
+            {
+                actualSsdHeight = 0;
+            }
+            else if (_ssdRows.Count == 0)
+            {
+                actualSsdHeight = 38;
+            }
+            else
+            {
+                actualSsdHeight = _ssdRows.Sum(r => r.Root.Height) + 3;
+            }
+            height += actualSsdHeight - BaselineSsdSectionHeight;
+
             if (PawnIoBanner.Visibility == Visibility.Visible)
             {
                 height += PawnIoBanner.Height;
             }
+
+            double maxWorkHeight = Math.Max(260, SystemParameters.WorkArea.Height - 24);
+            height = Math.Clamp(height, 260, maxWorkHeight);
 
             if (Math.Abs(Height - height) < 0.1)
             {
@@ -296,7 +417,7 @@ namespace CryoTray.Views
             }
 
             Height = height;
-            if (SettingsService.Instance.Current.AnchorToTray)
+            if (s.AnchorToTray)
             {
                 Top = SystemParameters.WorkArea.Bottom - Height - 12;
             }
@@ -338,6 +459,11 @@ namespace CryoTray.Views
             if (!s.HideOnFocusLoss || s.AlwaysOnTop) return;
 
             HideChartTooltips();
+            CloseRamBreakdownToolTip();
+            if (RamScopeMenu != null)
+            {
+                RamScopeMenu.IsOpen = false;
+            }
             Close();
         }
 
@@ -479,18 +605,35 @@ namespace CryoTray.Views
             }
             TxtHeroUnit.Text = unit;
 
-            // CPU Speed
-            string clockNow = double.IsFinite(snapshot.CpuGhz) && snapshot.CpuGhz > 0
-                ? $"{snapshot.CpuGhz:0.00}"
-                : "--";
-            string clockMax = double.IsFinite(snapshot.CpuMaxGhz) && snapshot.CpuMaxGhz > 0
-                ? $"{snapshot.CpuMaxGhz:0.00}"
-                : "--";
-            TxtCpuClockRatio.Text = $"{clockNow} / {clockMax}";
+            // CPU Speed & Small CPU label
+            TxtCpuSmallLabel.Text = FormatCpuSmallRowLabel(snapshot.CpuName, snapshot.CpuVendor);
+            TxtCpuClockRatio.Text = FormatCpuClockReadout(
+                snapshot.CpuGhz, snapshot.CpuBaseGhz, snapshot.CpuMaxGhz, s.ShowCpuBaseSpeed);
             TxtCpuPackageWatts.Text = snapshot.CpuPackageWatts.HasValue
                 ? $"{snapshot.CpuPackageWatts.Value}W"
                 : "--W";
             TxtCpuPackagePowerPopup.Text = FormatPackagePower(snapshot.CpuPackageWatts);
+
+            // RAM Row
+            if (double.IsFinite(snapshot.RamUsedGb) &&
+                double.IsFinite(snapshot.RamTotalGb) &&
+                snapshot.RamTotalGb > 0)
+            {
+                TxtRamRatio.Text = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0:0.0} / {1:0.0}",
+                    snapshot.RamUsedGb,
+                    snapshot.RamTotalGb);
+                TxtRamPercent.Text = double.IsFinite(snapshot.RamUsagePercent)
+                    ? $"{Math.Round(snapshot.RamUsagePercent)}%"
+                    : "--%";
+            }
+            else
+            {
+                TxtRamRatio.Text = "-- / --";
+                TxtRamPercent.Text = "--%";
+            }
+            UpdateMemoryBreakdownUi(snapshot);
 
             // GPU Row
             TxtGpuLabel.Text = LocalizationService.Get("Main_GpuLabel");
@@ -532,10 +675,10 @@ namespace CryoTray.Views
                 ? $"{snapshot.GpuFanRpm.Value} {LocalizationService.Get("Main_RpmUnit")}"
                 : "--";
             ApplyTelemetryVisibility(s);
-            UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
 
-            // SSD Rows
+            // SSD Rows (rendered before height update so height reflects visible & graphed drives)
             RenderSsdRows(snapshot.StorageDrives, isFahrenheit, unit);
+            UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
 
             // Draw Charts
             DrawCpuChart();
@@ -547,27 +690,124 @@ namespace CryoTray.Views
             }
         }
 
+        internal static string FormatCpuClockReadout(double cpuGhz, double cpuBaseGhz, double cpuMaxGhz, bool showBaseSpeed)
+        {
+            string clockNow = double.IsFinite(cpuGhz) && cpuGhz > 0
+                ? cpuGhz.ToString("0.00", CultureInfo.InvariantCulture)
+                : "--";
+            if (!showBaseSpeed)
+            {
+                return clockNow;
+            }
+
+            double baseVal = double.IsFinite(cpuBaseGhz) && cpuBaseGhz > 0 ? cpuBaseGhz : cpuMaxGhz;
+            string clockBase = double.IsFinite(baseVal) && baseVal > 0
+                ? baseVal.ToString("0.00", CultureInfo.InvariantCulture)
+                : "--";
+            return $"{clockNow} / {clockBase}";
+        }
+
+        internal static string FormatCpuSmallRowLabel(string? cpuName, string? cpuVendor = null)
+        {
+            string vendor = !string.IsNullOrWhiteSpace(cpuVendor)
+                ? cpuVendor.Trim()
+                : HardwareMonitorService.ResolveCpuVendor(null, cpuName);
+
+            return !string.IsNullOrWhiteSpace(vendor)
+                ? LocalizationService.Format("Main_CpuVendorFormat", vendor)
+                : LocalizationService.Get("Common_Cpu");
+        }
+
         private void RenderSsdRows(List<DriveTelemetry> drives, bool isFahrenheit, string unit)
         {
-            string signature = string.Join("\n", drives.Select(drive => $"{drive.Index}|{drive.Model}"));
+            var s = SettingsService.Instance.Current;
+            if (!s.ShowDiskTemp)
+            {
+                SsdChartTooltip.IsOpen = false;
+                _activeHoverDriveRow = null;
+                if (_ssdRowSignature != "HIDDEN")
+                {
+                    SsdRowsContainer.Children.Clear();
+                    _ssdRows.Clear();
+                    _ssdRowSignature = "HIDDEN";
+                }
+                return;
+            }
+
+            var excluded = s.ExcludedDrives;
+            var graphDrives = s.DiskGraphDrives ?? new List<string>();
+            var graphTimeframes = s.DiskGraphTimeframes ?? new Dictionary<string, int>();
+            var visibleDrives = drives
+                .Where(d => !HardwareMonitorService.IsDriveExcluded(d, excluded))
+                .ToList();
+
+            string signature = $"1|{drives.Count}|" + string.Join("\n", visibleDrives.Select(drive =>
+            {
+                string key = HardwareMonitorService.GetDriveExclusionKey(drive);
+                bool showGraph = graphDrives.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+                int tf = graphTimeframes.TryGetValue(key, out int mins) ? mins : 1;
+                return $"{key}|{drive.Model}|{drive.DriveLetters}|{drive.IsSolidState}|{showGraph}|{tf}";
+            }));
+
             if (!string.Equals(signature, _ssdRowSignature, StringComparison.Ordinal))
             {
-                BuildSsdRows(drives);
+                BuildSsdRows(visibleDrives, drives.Count, graphDrives);
                 _ssdRowSignature = signature;
             }
 
-            for (int i = 0; i < _ssdRows.Count && i < drives.Count; i++)
+            for (int i = 0; i < _ssdRows.Count && i < visibleDrives.Count; i++)
             {
-                UpdateSsdRow(_ssdRows[i], drives[i], isFahrenheit, unit);
+                var row = _ssdRows[i];
+                var drive = visibleDrives[i];
+                int tfMinutes = graphTimeframes.TryGetValue(row.DriveKey, out int mins) ? mins : 1;
+                UpdateSsdRow(row, drive, tfMinutes, isFahrenheit, unit);
             }
         }
 
-        private void BuildSsdRows(List<DriveTelemetry> drives)
+        private static string[] ParseDriveLetterTokens(string? driveLetters)
         {
+            if (string.IsNullOrWhiteSpace(driveLetters))
+            {
+                return Array.Empty<string>();
+            }
+
+            return driveLetters
+                .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(token => token.Trim().TrimEnd(':').ToUpperInvariant())
+                .Where(token => token.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        internal static string FormatSsdBadgeText(DriveTelemetry drive)
+        {
+            string[] tokens = ParseDriveLetterTokens(drive.DriveLetters);
+            return tokens.Length > 0
+                ? tokens[0]
+                : (drive.Index + 1).ToString(CultureInfo.InvariantCulture);
+        }
+
+        internal static string FormatSsdRowLabel(DriveTelemetry drive)
+        {
+            bool isHdd = drive.IsSolidState == false;
+            string[] tokens = ParseDriveLetterTokens(drive.DriveLetters);
+            if (tokens.Length > 0)
+            {
+                string formatted = string.Join(", ", tokens.Select(t => $"{t}:"));
+                return LocalizationService.Format(isHdd ? "Main_HddWithDrive" : "Main_SsdWithDrive", formatted);
+            }
+
+            return LocalizationService.Format(isHdd ? "Main_HddIndexed" : "Main_SsdIndexed", drive.Index + 1);
+        }
+
+        private void BuildSsdRows(List<DriveTelemetry> visibleDrives, int totalDetectedDrives, IReadOnlyCollection<string> graphDrives)
+        {
+            SsdChartTooltip.IsOpen = false;
+            _activeHoverDriveRow = null;
             SsdRowsContainer.Children.Clear();
             _ssdRows.Clear();
 
-            if (drives.Count == 0)
+            if (totalDetectedDrives == 0)
             {
                 var empty = new Grid { Height = 38 };
                 empty.Children.Add(new TextBlock
@@ -581,9 +821,16 @@ namespace CryoTray.Views
                 return;
             }
 
-            foreach (var drive in drives)
+            if (visibleDrives.Count == 0)
             {
-                SsdRowView row = BuildSsdRow(drive);
+                return;
+            }
+
+            foreach (var drive in visibleDrives)
+            {
+                string key = HardwareMonitorService.GetDriveExclusionKey(drive);
+                bool showGraph = graphDrives.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+                SsdRowView row = BuildSsdRow(drive, key, showGraph);
                 _ssdRows.Add(row);
                 SsdRowsContainer.Children.Add(row.Root);
             }
@@ -596,10 +843,19 @@ namespace CryoTray.Views
             });
         }
 
-        private SsdRowView BuildSsdRow(DriveTelemetry drive)
+        private SsdRowView BuildSsdRow(DriveTelemetry drive, string driveKey, bool showGraph)
         {
-            var grid = new Grid { Height = 38 };
-            var leftStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var grid = new Grid { Height = showGraph ? 46 : 38 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var leftStack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = Brushes.Transparent
+            };
+            Grid.SetColumn(leftStack, 0);
 
             var iconHost = new Grid
             {
@@ -621,16 +877,17 @@ namespace CryoTray.Views
                 VerticalAlignment = VerticalAlignment.Center
             });
 
-            iconHost.Children.Add(new TextBlock
+            var badgeText = new TextBlock
             {
-                Text = drive.Index.ToString(),
+                Text = FormatSsdBadgeText(drive),
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
-                FontSize = 10.5,
-                FontWeight = FontWeights.Normal,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 0, 0, 0)
-            });
+            };
+            iconHost.Children.Add(badgeText);
 
             var iconLines = new StackPanel
             {
@@ -651,62 +908,30 @@ namespace CryoTray.Views
             }
             iconHost.Children.Add(iconLines);
             leftStack.Children.Add(iconHost);
-            leftStack.Children.Add(new TextBlock
+
+            var rowTitleText = new TextBlock
             {
-                Text = LocalizationService.Get("Main_SsdLabel"),
+                Text = FormatSsdRowLabel(drive),
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D5D5D5")),
                 FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-
-            grid.Children.Add(leftStack);
-
-            var rightStack = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
                 FlowDirection = System.Windows.FlowDirection.LeftToRight
             };
+            leftStack.Children.Add(rowTitleText);
 
-            var valBorder = new Border
+            var healthText = new TextBlock
             {
-                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#242424")),
-                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#303030")),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(12, 3, 12, 3),
-                Margin = new Thickness(0, 0, 6, 0)
-            };
-
-            var txtVal = new TextBlock
-            {
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D8D8D8")),
-                FontSize = 12,
-                FontWeight = FontWeights.SemiBold
-            };
-            valBorder.Child = txtVal;
-            rightStack.Children.Add(valBorder);
-
-            var unitBorder = new Border
-            {
-                Background = Brushes.Transparent,
-                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4A4A4A")),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(7, 3, 7, 3)
-            };
-
-            var txtUnit = new TextBlock
-            {
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9A9A9A")),
+                Foreground = SsdHealthGoodBrush,
                 FontSize = 11,
-                FontWeight = FontWeights.SemiBold
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                Margin = new Thickness(8, 0, 0, 0),
+                Visibility = Visibility.Collapsed
             };
-            unitBorder.Child = txtUnit;
-            rightStack.Children.Add(unitBorder);
-            grid.Children.Add(rightStack);
+            leftStack.Children.Add(healthText);
+            grid.Children.Add(leftStack);
 
             var tooltipTitle = new TextBlock
             {
@@ -736,32 +961,214 @@ namespace CryoTray.Views
                 Placement = PlacementMode.Top,
                 VerticalOffset = -6
             };
-            ToolTipService.SetInitialShowDelay(valBorder, 250);
-            ToolTipService.SetShowDuration(valBorder, 8000);
-            valBorder.ToolTip = tooltip;
 
-            return new SsdRowView
+            Border? valBorder = null;
+            TextBlock? txtVal = null;
+            TextBlock? txtUnit = null;
+            Canvas? chartCanvas = null;
+            Canvas? chartHoverCanvas = null;
+            TextBlock? chartUnavailableText = null;
+
+            SsdRowView row;
+            if (showGraph)
             {
-                Root = grid,
-                TempBorder = valBorder,
-                TempText = txtVal,
-                UnitText = txtUnit,
-                TooltipTitle = tooltipTitle,
-                TooltipHealth = tooltipHealth
-            };
+                ToolTipService.SetInitialShowDelay(leftStack, 250);
+                ToolTipService.SetShowDuration(leftStack, 8000);
+                leftStack.ToolTip = tooltip;
+
+                var chartHostGrid = new Grid();
+                chartCanvas = new Canvas
+                {
+                    FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                    Background = Brushes.Transparent,
+                    ClipToBounds = true
+                };
+                chartHoverCanvas = new Canvas
+                {
+                    FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                    IsHitTestVisible = false,
+                    ClipToBounds = true
+                };
+                chartUnavailableText = new TextBlock
+                {
+                    Text = "--",
+                    Foreground = CreateFrozenBrush("#9A9A9A"),
+                    FontSize = 10.5,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    IsHitTestVisible = false,
+                    Visibility = Visibility.Collapsed
+                };
+
+                chartHostGrid.Children.Add(chartCanvas);
+                chartHostGrid.Children.Add(chartHoverCanvas);
+                chartHostGrid.Children.Add(chartUnavailableText);
+
+                var chartBorder = new Border
+                {
+                    Width = 238,
+                    Height = 36,
+                    Background = CreateFrozenBrush("#121212"),
+                    BorderBrush = CreateFrozenBrush("#383838"),
+                    BorderThickness = new Thickness(1),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                    Child = chartHostGrid
+                };
+                Grid.SetColumn(chartBorder, 1);
+                grid.Children.Add(chartBorder);
+
+                row = new SsdRowView
+                {
+                    DriveKey = driveKey,
+                    ShowGraph = true,
+                    Root = grid,
+                    BadgeText = badgeText,
+                    RowTitleText = rowTitleText,
+                    HealthText = healthText,
+                    TooltipTitle = tooltipTitle,
+                    TooltipHealth = tooltipHealth,
+                    ChartCanvas = chartCanvas,
+                    ChartHoverCanvas = chartHoverCanvas,
+                    ChartUnavailableText = chartUnavailableText
+                };
+
+                chartCanvas.SizeChanged += (_, _) =>
+                {
+                    var s = SettingsService.Instance.Current;
+                    bool isF = s.TemperatureUnit == "Fahrenheit";
+                    int tf = s.DiskGraphTimeframes != null && s.DiskGraphTimeframes.TryGetValue(row.DriveKey, out int m) ? m : 1;
+                    DrawDriveChart(row, drive, tf, isF, isF ? "°F" : "°C");
+                };
+                chartCanvas.MouseMove += (_, e) =>
+                {
+                    if (_activeHoverDriveRow != null && !ReferenceEquals(_activeHoverDriveRow, row))
+                    {
+                        _activeHoverDriveRow.HoverActive = false;
+                        _activeHoverDriveRow.ChartHoverCanvas?.Children.Clear();
+                    }
+                    _activeHoverDriveRow = row;
+                    row.HoverActive = true;
+                    row.HoverX = e.GetPosition(chartCanvas).X;
+                    UpdateDriveChartTooltip(row);
+                };
+                chartCanvas.MouseLeave += (_, _) =>
+                {
+                    row.HoverActive = false;
+                    chartHoverCanvas.Children.Clear();
+                    if (ReferenceEquals(_activeHoverDriveRow, row))
+                    {
+                        _activeHoverDriveRow = null;
+                        SsdChartTooltip.IsOpen = false;
+                    }
+                };
+            }
+            else
+            {
+                var rightStack = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FlowDirection = System.Windows.FlowDirection.LeftToRight
+                };
+                Grid.SetColumn(rightStack, 1);
+
+                valBorder = new Border
+                {
+                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#242424")),
+                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#303030")),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(3),
+                    Padding = new Thickness(12, 3, 12, 3),
+                    Margin = new Thickness(0, 0, 6, 0)
+                };
+
+                txtVal = new TextBlock
+                {
+                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D8D8D8")),
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold
+                };
+                valBorder.Child = txtVal;
+                rightStack.Children.Add(valBorder);
+
+                var unitBorder = new Border
+                {
+                    Background = Brushes.Transparent,
+                    BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4A4A4A")),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(3),
+                    Padding = new Thickness(7, 3, 7, 3)
+                };
+
+                txtUnit = new TextBlock
+                {
+                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9A9A9A")),
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold
+                };
+                unitBorder.Child = txtUnit;
+                rightStack.Children.Add(unitBorder);
+                grid.Children.Add(rightStack);
+
+                ToolTipService.SetInitialShowDelay(valBorder, 250);
+                ToolTipService.SetShowDuration(valBorder, 8000);
+                valBorder.ToolTip = tooltip;
+
+                row = new SsdRowView
+                {
+                    DriveKey = driveKey,
+                    ShowGraph = false,
+                    Root = grid,
+                    BadgeText = badgeText,
+                    RowTitleText = rowTitleText,
+                    HealthText = healthText,
+                    TooltipTitle = tooltipTitle,
+                    TooltipHealth = tooltipHealth,
+                    TempBorder = valBorder,
+                    TempText = txtVal,
+                    UnitText = txtUnit
+                };
+            }
+
+            return row;
         }
 
-        private static void UpdateSsdRow(SsdRowView row, DriveTelemetry drive, bool isFahrenheit, string unit)
+        private void UpdateSsdRow(SsdRowView row, DriveTelemetry drive, int timeframeMinutes, bool isFahrenheit, string unit)
         {
-            bool hasTemperature = !double.IsNaN(drive.Temperature);
+            row.BadgeText.Text = FormatSsdBadgeText(drive);
+            row.RowTitleText.Text = FormatSsdRowLabel(drive);
+
+            if (drive.SmartHealthPercent.HasValue)
+            {
+                int pct = drive.SmartHealthPercent.Value;
+                row.HealthText.Text = $"{pct}%";
+                row.HealthText.Foreground = pct >= 80
+                    ? SsdHealthGoodBrush
+                    : pct >= 50
+                        ? SsdHealthFairBrush
+                        : SsdHealthWarnBrush;
+                row.HealthText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                row.HealthText.Visibility = Visibility.Collapsed;
+            }
+
+            bool hasTemperature = double.IsFinite(drive.Temperature) && drive.Temperature > 0;
             double displayTemp = hasTemperature
                 ? (isFahrenheit ? (drive.Temperature * 9 / 5 + 32) : drive.Temperature)
                 : 0;
 
-            row.TempText.Text = hasTemperature ? $"{Math.Round(displayTemp)}" : "--";
-            row.UnitText.Text = unit;
-
-            string model = string.IsNullOrWhiteSpace(drive.Model) ? "SSD" : drive.Model.Trim();
+            string model = !string.IsNullOrWhiteSpace(drive.Model)
+                ? drive.Model.Trim()
+                : drive.IsSolidState == false
+                    ? "HDD"
+                    : drive.IsSolidState == true
+                        ? "SSD"
+                        : LocalizationService.Format("Alert_DriveName", drive.Index + 1);
             row.TooltipTitle.Text = hasTemperature
                 ? LocalizationService.Format("Main_SsdModelTemp", model, Math.Round(displayTemp), unit)
                 : model;
@@ -772,50 +1179,253 @@ namespace CryoTray.Views
                     LocalizationService.Health(drive.StatusText))
                 : LocalizationService.Get("Main_SsdHealthUnknown");
 
-            AutomationProperties.SetHelpText(row.TempBorder,
-                $"{row.TooltipTitle.Text}. {row.TooltipHealth.Text}");
+            if (row.ShowGraph)
+            {
+                DrawDriveChart(row, drive, timeframeMinutes, isFahrenheit, unit);
+            }
+            else if (row.TempBorder != null && row.TempText != null && row.UnitText != null)
+            {
+                row.TempText.Text = hasTemperature ? $"{Math.Round(displayTemp)}" : "--";
+                row.UnitText.Text = unit;
+                AutomationProperties.SetHelpText(row.TempBorder,
+                    $"{row.RowTitleText.Text} {row.TempText.Text}{row.UnitText.Text}. {row.TooltipTitle.Text}. {row.TooltipHealth.Text}");
+            }
         }
 
-        private void DrawCpuChart()
+        private void DrawDriveChart(SsdRowView row, DriveTelemetry drive, int timeframeMinutes, bool isFahrenheit, string unit)
         {
-            CpuChartCanvas.Children.Clear();
-            CpuChartHoverCanvas.Children.Clear();
-            double w = CpuChartCanvas.ActualWidth;
-            double h = CpuChartCanvas.ActualHeight;
-            if (w <= 0 || h <= 0) return;
-
-            double plotH = Math.Max(10, h - 26);
-
-            // Horizontal grid lines
-            for (int i = 1; i <= 3; i++)
+            if (row.ChartCanvas == null || row.ChartHoverCanvas == null || row.ChartUnavailableText == null)
             {
-                double y = (plotH / 4.0) * i;
-                var line = new Line
+                return;
+            }
+
+            Canvas canvas = row.ChartCanvas;
+            canvas.Children.Clear();
+            row.ChartHoverCanvas.Children.Clear();
+            double w = canvas.ActualWidth;
+            double h = canvas.ActualHeight;
+            if (w <= 0 || h <= 0)
+            {
+                return;
+            }
+
+            DrawInlineGridLines(canvas, w, h, horizontalBands: 4, verticalBands: 4, "#2C2C2C");
+
+            int windowSamples = TimeframeMinutesToSamples(timeframeMinutes);
+            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(windowSamples)
+                .Where(sample => sample.TryGetDriveTemp(row.DriveKey, out _))
+                .ToList();
+
+            if (samples.Count == 1)
+            {
+                samples.Add(samples[0]);
+            }
+            else if (samples.Count == 0 && double.IsFinite(drive.Temperature) && drive.Temperature > 0)
+            {
+                var fallback = TelemetrySample.FromSnapshot(HardwareMonitorService.Instance.CurrentSnapshot);
+                samples.Add(fallback);
+                samples.Add(fallback);
+            }
+
+            row.ChartSamples.Clear();
+            row.ChartSamples.AddRange(samples);
+
+            if (samples.Count < 2)
+            {
+                row.ChartUnavailableText.Visibility = Visibility.Visible;
+                if (ReferenceEquals(_activeHoverDriveRow, row))
+                {
+                    SsdChartTooltip.IsOpen = false;
+                }
+                return;
+            }
+
+            row.ChartUnavailableText.Visibility = Visibility.Collapsed;
+
+            const double minT = 20;
+            const double maxT = 80;
+            double stepX = w / Math.Max(1, samples.Count - 1);
+            var points = new List<Point>(samples.Count);
+
+            for (int i = 0; i < samples.Count; i++)
+            {
+                samples[i].TryGetDriveTemp(row.DriveKey, out double t);
+                double norm = Math.Clamp((t - minT) / (maxT - minT), 0, 1);
+                double y = h - (norm * (h - 8) + 4);
+                points.Add(new Point(i * stepX, y));
+            }
+
+            var areaBrush = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(0, 1)
+            };
+            areaBrush.GradientStops.Add(new GradientStop(Color.FromArgb(110, 176, 176, 176), 0));
+            areaBrush.GradientStops.Add(new GradientStop(Color.FromArgb(14, 176, 176, 176), 1));
+
+            canvas.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = CreateSmoothAreaGeometry(points, h),
+                Fill = areaBrush
+            });
+
+            canvas.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = CreateSmoothLineGeometry(points),
+                Stroke = CreateFrozenBrush("#BDBDBD"),
+                StrokeThickness = 1.5,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round
+            });
+
+            if (row.HoverActive && ReferenceEquals(_activeHoverDriveRow, row))
+            {
+                UpdateDriveChartTooltip(row);
+            }
+        }
+
+        private void UpdateDriveChartTooltip(SsdRowView row)
+        {
+            if (row.ChartCanvas == null || row.ChartHoverCanvas == null || row.ChartSamples.Count < 2)
+            {
+                return;
+            }
+
+            double width = row.ChartCanvas.ActualWidth;
+            double height = row.ChartCanvas.ActualHeight;
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            int count = row.ChartSamples.Count;
+            double stepX = width / Math.Max(1, count - 1);
+            int index = Math.Clamp((int)Math.Round(row.HoverX / stepX), 0, count - 1);
+            var sample = row.ChartSamples[index];
+            if (!sample.TryGetDriveTemp(row.DriveKey, out double temperature))
+            {
+                SsdChartTooltip.IsOpen = false;
+                return;
+            }
+
+            double x = index * stepX;
+            double normalized = Math.Clamp((temperature - 20) / (80 - 20), 0, 1);
+            double y = height - (normalized * (height - 8) + 4);
+
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            double displayTemp = isFahrenheit ? (temperature * 9 / 5) + 32 : temperature;
+            string unit = isFahrenheit ? "°F" : "°C";
+
+            TxtSsdChartTooltipValue.Text = $"{Math.Round(displayTemp)}{unit}";
+            TxtSsdChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
+
+            DrawChartHoverMarker(row.ChartHoverCanvas, x, y, height, (Color)ColorConverter.ConvertFromString("#BDBDBD"));
+            ShowChartTooltip(SsdChartTooltip, row.ChartCanvas, x, y, width);
+        }
+
+        private static void DrawInlineGridLines(Canvas canvas, double w, double h, int horizontalBands, int verticalBands, string strokeHex)
+        {
+            Brush brush = CreateFrozenBrush(strokeHex);
+            for (int i = 1; i < horizontalBands; i++)
+            {
+                double y = (h / horizontalBands) * i;
+                canvas.Children.Add(new Line
                 {
                     X1 = 0,
                     X2 = w,
                     Y1 = y,
                     Y2 = y,
-                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#3A3A3A")),
+                    Stroke = brush,
                     StrokeThickness = 1
-                };
-                CpuChartCanvas.Children.Add(line);
+                });
             }
 
-            // Vertical time grid lines
-            for (int i = 1; i <= 2; i++)
+            for (int i = 1; i < verticalBands; i++)
             {
-                double x = (w / 3.0) * i;
-                var vline = new Line
+                double x = (w / verticalBands) * i;
+                canvas.Children.Add(new Line
                 {
                     X1 = x,
                     X2 = x,
                     Y1 = 0,
-                    Y2 = plotH,
-                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")),
+                    Y2 = h,
+                    Stroke = brush,
                     StrokeThickness = 1
-                };
-                CpuChartCanvas.Children.Add(vline);
+                });
+            }
+        }
+
+        private void DrawCpuChart()
+        {
+            var s = SettingsService.Instance.Current;
+            if (!s.ShowCpuGraph)
+            {
+                CpuChartCanvas.Children.Clear();
+                CpuChartHoverCanvas.Children.Clear();
+                CpuSmallChartCanvas.Children.Clear();
+                CpuSmallChartHoverCanvas.Children.Clear();
+                CpuChartTooltip.IsOpen = false;
+                return;
+            }
+
+            if (s.CpuGraphSmall)
+            {
+                CpuChartCanvas.Children.Clear();
+                CpuChartHoverCanvas.Children.Clear();
+                DrawCpuChartCore(CpuSmallChartCanvas, CpuSmallChartHoverCanvas, TxtCpuSmallChartUnavailable, isSmall: true);
+            }
+            else
+            {
+                CpuSmallChartCanvas.Children.Clear();
+                CpuSmallChartHoverCanvas.Children.Clear();
+                DrawCpuChartCore(CpuChartCanvas, CpuChartHoverCanvas, TxtCpuChartUnavailable, isSmall: false);
+            }
+        }
+
+        private void DrawCpuChartCore(Canvas plotCanvas, Canvas hoverCanvas, TextBlock unavailableText, bool isSmall)
+        {
+            plotCanvas.Children.Clear();
+            hoverCanvas.Children.Clear();
+            double w = plotCanvas.ActualWidth;
+            double h = plotCanvas.ActualHeight;
+            if (w <= 0 || h <= 0) return;
+
+            double plotH = isSmall ? h : Math.Max(10, h - 26);
+
+            if (isSmall)
+            {
+                DrawInlineGridLines(plotCanvas, w, plotH, horizontalBands: 4, verticalBands: 4, "#2C2C2C");
+            }
+            else
+            {
+                for (int i = 1; i <= 3; i++)
+                {
+                    double y = (plotH / 4.0) * i;
+                    plotCanvas.Children.Add(new Line
+                    {
+                        X1 = 0,
+                        X2 = w,
+                        Y1 = y,
+                        Y2 = y,
+                        Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#3A3A3A")),
+                        StrokeThickness = 1
+                    });
+                }
+
+                for (int i = 1; i <= 2; i++)
+                {
+                    double x = (w / 3.0) * i;
+                    plotCanvas.Children.Add(new Line
+                    {
+                        X1 = x,
+                        X2 = x,
+                        Y1 = 0,
+                        Y2 = plotH,
+                        Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")),
+                        StrokeThickness = 1
+                    });
+                }
             }
 
             var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples)
@@ -827,16 +1437,17 @@ namespace CryoTray.Views
                 CpuChartTooltip.IsOpen = false;
                 var current = HardwareMonitorService.Instance.CurrentSnapshot;
                 bool cpuUnavailable = !(double.IsFinite(current.CpuTemp) && current.CpuTemp > 0);
-                TxtCpuChartUnavailable.Visibility = cpuUnavailable
+                unavailableText.Visibility = cpuUnavailable
                     ? Visibility.Visible
                     : Visibility.Collapsed;
                 return;
             }
 
-            TxtCpuChartUnavailable.Visibility = Visibility.Collapsed;
+            unavailableText.Visibility = Visibility.Collapsed;
 
             double minT = 25;
             double maxT = 90;
+            double padY = isSmall ? 4.0 : 8.0;
 
             int n = samples.Count;
             double stepX = w / Math.Max(1, n - 1);
@@ -852,22 +1463,33 @@ namespace CryoTray.Views
                 }
 
                 int segEnd = Math.Min(end + 1, n - 1);
-                DrawCpuSegment(samples, start, segEnd, mode, minT, maxT, stepX, plotH, h);
+                DrawCpuSegment(plotCanvas, samples, start, segEnd, mode, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
                 start = end + 1;
             }
 
-            if (_cpuHoverActive)
+            if (_cpuHoverActive && _cpuHoverSmall == isSmall)
             {
-                UpdateCpuChartTooltip(_cpuHoverX);
+                UpdateCpuChartTooltip(_cpuHoverX, isSmall);
             }
-            else
+            else if (!_cpuHoverActive)
             {
                 CpuChartTooltip.IsOpen = false;
             }
         }
 
-        private void DrawCpuSegment(List<TelemetrySample> samples, int start, int end, bool isCooling,
-                                    double minT, double maxT, double stepX, double h, double fillBottom)
+        private static void DrawCpuSegment(
+            Canvas targetCanvas,
+            List<TelemetrySample> samples,
+            int start,
+            int end,
+            bool isCooling,
+            double minT,
+            double maxT,
+            double stepX,
+            double h,
+            double padY,
+            double fillBottom,
+            bool includeGlow)
         {
             var points = new List<Point>(end - start + 1);
             for (int i = start; i <= end; i++)
@@ -875,7 +1497,7 @@ namespace CryoTray.Views
                 double t = samples[i].CpuTemp;
                 double norm = (t - minT) / (maxT - minT);
                 norm = Math.Clamp(norm, 0, 1);
-                double y = h - (norm * (h - 16) + 8);
+                double y = h - (norm * (h - (padY * 2)) + padY);
                 double x = i * stepX;
                 points.Add(new Point(x, y));
             }
@@ -907,19 +1529,22 @@ namespace CryoTray.Views
                 Data = CreateSmoothAreaGeometry(points, fillBottom),
                 Fill = areaBrush
             };
-            CpuChartCanvas.Children.Add(area);
+            targetCanvas.Children.Add(area);
 
             Geometry lineGeometry = CreateSmoothLineGeometry(points);
-            var glow = new System.Windows.Shapes.Path
+            if (includeGlow)
             {
-                Data = lineGeometry,
-                Stroke = new SolidColorBrush(Color.FromArgb(42, lineColor.R, lineColor.G, lineColor.B)),
-                StrokeThickness = 3.4,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeLineJoin = PenLineJoin.Round
-            };
-            CpuChartCanvas.Children.Add(glow);
+                var glow = new System.Windows.Shapes.Path
+                {
+                    Data = lineGeometry,
+                    Stroke = new SolidColorBrush(Color.FromArgb(42, lineColor.R, lineColor.G, lineColor.B)),
+                    StrokeThickness = 3.4,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round
+                };
+                targetCanvas.Children.Add(glow);
+            }
 
             var line = new System.Windows.Shapes.Path
             {
@@ -930,7 +1555,7 @@ namespace CryoTray.Views
                 StrokeEndLineCap = PenLineCap.Round,
                 StrokeLineJoin = PenLineJoin.Round
             };
-            CpuChartCanvas.Children.Add(line);
+            targetCanvas.Children.Add(line);
         }
 
         private static Geometry CreateSmoothLineGeometry(IReadOnlyList<Point> points)
@@ -1076,27 +1701,63 @@ namespace CryoTray.Views
             }
         }
 
+        private static int TimeframeMinutesToSamples(int minutes) => minutes switch
+        {
+            5 => 300,
+            10 => 600,
+            30 => 1800,
+            60 => 3600,
+            _ => 60
+        };
+
+        private static int TimeframeMinutesToIndex(int minutes) => minutes switch
+        {
+            5 => 1,
+            10 => 2,
+            30 => 3,
+            60 => 4,
+            _ => 0
+        };
+
+        private static int IndexToTimeframeMinutes(int index) => index switch
+        {
+            1 => 5,
+            2 => 10,
+            3 => 30,
+            4 => 60,
+            _ => 1
+        };
+
         private void CpuChartCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            DrawCpuChart();
+        }
+
+        private void CpuSmallChartCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             DrawCpuChart();
         }
 
         private void CmbTimeframe_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            _timeframeSamples = CmbTimeframe.SelectedIndex switch
-            {
-                1 => 300,  // 5 min
-                2 => 600,  // 10 min
-                3 => 1800, // 30 min
-                4 => 3600, // 60 min
-                _ => 60    // 1 min
-            };
+            int minutes = IndexToTimeframeMinutes(CmbTimeframe.SelectedIndex);
+            _timeframeSamples = TimeframeMinutesToSamples(minutes);
 
             // The initial selection fires while XAML is still creating the GPU chart.
             if (CpuChartCanvas == null || CpuChartHoverCanvas == null ||
                 GpuChartCanvas == null || GpuChartHoverCanvas == null)
             {
                 return;
+            }
+
+            if (!_isApplyingSettings && IsLoaded)
+            {
+                var settings = SettingsService.Instance.Current;
+                if (settings.CpuGraphTimeframeMinutes != minutes)
+                {
+                    settings.CpuGraphTimeframeMinutes = minutes;
+                    SettingsService.Instance.Save();
+                }
             }
 
             DrawCpuChart();
@@ -1106,8 +1767,9 @@ namespace CryoTray.Views
         private void CpuChartCanvas_MouseMove(object sender, MouseEventArgs e)
         {
             _cpuHoverActive = true;
+            _cpuHoverSmall = false;
             _cpuHoverX = e.GetPosition(CpuChartCanvas).X;
-            UpdateCpuChartTooltip(_cpuHoverX);
+            UpdateCpuChartTooltip(_cpuHoverX, false);
         }
 
         private void CpuChartCanvas_MouseLeave(object sender, MouseEventArgs e)
@@ -1115,6 +1777,21 @@ namespace CryoTray.Views
             _cpuHoverActive = false;
             CpuChartTooltip.IsOpen = false;
             CpuChartHoverCanvas.Children.Clear();
+        }
+
+        private void CpuSmallChartCanvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            _cpuHoverActive = true;
+            _cpuHoverSmall = true;
+            _cpuHoverX = e.GetPosition(CpuSmallChartCanvas).X;
+            UpdateCpuChartTooltip(_cpuHoverX, true);
+        }
+
+        private void CpuSmallChartCanvas_MouseLeave(object sender, MouseEventArgs e)
+        {
+            _cpuHoverActive = false;
+            CpuChartTooltip.IsOpen = false;
+            CpuSmallChartHoverCanvas.Children.Clear();
         }
 
         private void GpuChartCanvas_MouseMove(object sender, MouseEventArgs e)
@@ -1131,21 +1808,24 @@ namespace CryoTray.Views
             GpuChartHoverCanvas.Children.Clear();
         }
 
-        private void UpdateCpuChartTooltip(double hoverX)
+        private void UpdateCpuChartTooltip(double hoverX, bool isSmall)
         {
             if (_cpuChartSamples.Count < 2)
             {
                 return;
             }
 
-            double width = CpuChartCanvas.ActualWidth;
-            double height = CpuChartCanvas.ActualHeight;
+            Canvas targetCanvas = isSmall ? CpuSmallChartCanvas : CpuChartCanvas;
+            Canvas hoverCanvas = isSmall ? CpuSmallChartHoverCanvas : CpuChartHoverCanvas;
+            double width = targetCanvas.ActualWidth;
+            double height = targetCanvas.ActualHeight;
             if (width <= 0 || height <= 0)
             {
                 return;
             }
 
-            double plotH = Math.Max(10, height - 26);
+            double plotH = isSmall ? height : Math.Max(10, height - 26);
+            double padY = isSmall ? 4.0 : 8.0;
             int count = _cpuChartSamples.Count;
             double stepX = width / Math.Max(1, count - 1);
             int index = Math.Clamp((int)Math.Round(hoverX / stepX), 0, count - 1);
@@ -1158,7 +1838,7 @@ namespace CryoTray.Views
                 return;
             }
             double normalized = Math.Clamp((temperature - 25) / (90 - 25), 0, 1);
-            double y = plotH - (normalized * (plotH - 16) + 8);
+            double y = plotH - (normalized * (plotH - (padY * 2)) + padY);
 
             bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
             double displayTemp = isFahrenheit ? (temperature * 9 / 5) + 32 : temperature;
@@ -1172,8 +1852,8 @@ namespace CryoTray.Views
                 ? (Color)ColorConverter.ConvertFromString("#4FC3F7")
                 : (Color)ColorConverter.ConvertFromString("#E5987E");
 
-            DrawChartHoverMarker(CpuChartHoverCanvas, x, y, plotH, accent);
-            ShowChartTooltip(CpuChartTooltip, CpuChartCanvas, x, y, width);
+            DrawChartHoverMarker(hoverCanvas, x, y, plotH, accent);
+            ShowChartTooltip(CpuChartTooltip, targetCanvas, x, y, width);
         }
 
         private void UpdateGpuChartTooltip(double hoverX)
@@ -1273,8 +1953,16 @@ namespace CryoTray.Views
             _gpuHoverActive = false;
             CpuChartTooltip.IsOpen = false;
             GpuChartTooltip.IsOpen = false;
+            SsdChartTooltip.IsOpen = false;
             CpuChartHoverCanvas.Children.Clear();
+            CpuSmallChartHoverCanvas.Children.Clear();
             GpuChartHoverCanvas.Children.Clear();
+            foreach (var row in _ssdRows)
+            {
+                row.HoverActive = false;
+                row.ChartHoverCanvas?.Children.Clear();
+            }
+            _activeHoverDriveRow = null;
         }
 
         private void BtnCoolingToggle_Click(object sender, RoutedEventArgs e)
@@ -1302,6 +1990,21 @@ namespace CryoTray.Views
             };
             itemStress.Click += (s, args) => OpenStressTestDialog();
 
+            var itemExportCsv = new MenuItem
+            {
+                Header = LocalizationService.Get("Main_ToolsExportCsv"),
+                Foreground = Brushes.White
+            };
+            itemExportCsv.Click += (s, args) => ExportRingBufferCsv();
+
+            bool isRecordingCsv = TelemetryCsvService.Instance.IsRecording;
+            var itemRecordCsv = new MenuItem
+            {
+                Header = LocalizationService.Get(isRecordingCsv ? "Main_ToolsStopCsvLog" : "Main_ToolsStartCsvLog"),
+                Foreground = Brushes.White
+            };
+            itemRecordCsv.Click += (s, args) => ToggleLiveCsvLogging();
+
             var itemAbout = new MenuItem
             {
                 Header = LocalizationService.Get("Main_AboutTitle"),
@@ -1309,19 +2012,95 @@ namespace CryoTray.Views
             };
             itemAbout.Click += (s, args) =>
             {
-                MessageBox.Show(
+                RunWithChildDialogGuard(() => MessageBox.Show(
                     LocalizationService.Get("Main_AboutBody"),
                     LocalizationService.Get("Main_AboutTitle"),
                     MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                    MessageBoxImage.Information));
             };
 
             menu.Items.Add(itemStress);
+            menu.Items.Add(itemExportCsv);
+            menu.Items.Add(itemRecordCsv);
             menu.Items.Add(new Separator { Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C2C2C")) });
             menu.Items.Add(itemAbout);
 
             menu.PlacementTarget = BtnToolsMenu;
             menu.IsOpen = true;
+        }
+
+        private void RunWithChildDialogGuard(Action action)
+        {
+            bool previous = _isChildDialogOpen;
+            _isChildDialogOpen = true;
+            try
+            {
+                action();
+            }
+            finally
+            {
+                UpdateChildDialogState();
+                if (previous)
+                {
+                    _isChildDialogOpen = true;
+                }
+            }
+        }
+
+        private void ExportRingBufferCsv()
+        {
+            var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(3600);
+            if (samples.Count == 0)
+            {
+                RunWithChildDialogGuard(() => MessageBox.Show(
+                    LocalizationService.Get("Main_CsvNoSamples"),
+                    LocalizationService.Get("App_Title"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information));
+                return;
+            }
+
+            RunWithChildDialogGuard(() =>
+            {
+                var sfd = new SaveFileDialog
+                {
+                    Filter = LocalizationService.Get("Common_CsvFilter"),
+                    FileName = $"CryoTray_Telemetry_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+                };
+
+                if (sfd.ShowDialog(this) == true)
+                {
+                    TelemetryCsvService.ExportSamples(samples, sfd.FileName);
+                    MessageBox.Show(
+                        LocalizationService.Format("Main_CsvExportDone", samples.Count, sfd.FileName),
+                        LocalizationService.Get("App_Title"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+            });
+        }
+
+        private void ToggleLiveCsvLogging()
+        {
+            if (TelemetryCsvService.Instance.IsRecording)
+            {
+                TelemetryCsvService.Instance.StopRecording();
+                return;
+            }
+
+            RunWithChildDialogGuard(() =>
+            {
+                var sfd = new SaveFileDialog
+                {
+                    Filter = LocalizationService.Get("Common_CsvFilter"),
+                    FileName = $"CryoTray_LiveLog_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+                };
+
+                if (sfd.ShowDialog(this) == true)
+                {
+                    TelemetryCsvService.Instance.StartRecording(sfd.FileName);
+                }
+            });
         }
 
         private void BtnSettings_Click(object sender, RoutedEventArgs e)
@@ -1534,11 +2313,404 @@ namespace CryoTray.Views
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             ShowKeyboardFocusCues = true;
+            if (e.Key == Key.Escape && RamBreakdownToolTip.IsOpen)
+            {
+                CloseRamBreakdownToolTip();
+                e.Handled = true;
+            }
         }
 
         private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
             ShowKeyboardFocusCues = false;
+            if (_ramTooltipPinned && e.OriginalSource is DependencyObject source && !IsDescendantOf(source, BtnRamBreakdown))
+            {
+                CloseRamBreakdownToolTip();
+            }
+        }
+
+        private static bool IsDescendantOf(DependencyObject node, DependencyObject ancestor)
+        {
+            DependencyObject? current = node;
+            while (current != null)
+            {
+                if (ReferenceEquals(current, ancestor))
+                {
+                    return true;
+                }
+                current = current is Visual || current is System.Windows.Media.Media3D.Visual3D
+                    ? VisualTreeHelper.GetParent(current)
+                    : LogicalTreeHelper.GetParent(current);
+            }
+            return false;
+        }
+
+        private void BtnRamBreakdown_Click(object sender, RoutedEventArgs e)
+        {
+            if (RamBreakdownToolTip.IsOpen && _ramTooltipPinned)
+            {
+                CloseRamBreakdownToolTip();
+                return;
+            }
+
+            CpuCoresPopup.IsOpen = false;
+            _ramTooltipPinned = true;
+            UpdateMemoryBreakdownUi(HardwareMonitorService.Instance.CurrentSnapshot);
+            RamBreakdownToolTip.IsOpen = true;
+        }
+
+        private void BtnRamBreakdown_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (_ramTooltipPinned)
+            {
+                CloseRamBreakdownToolTip();
+            }
+        }
+
+        private void RamBreakdownToolTip_Opened(object sender, RoutedEventArgs e)
+        {
+            UpdateMemoryBreakdownUi(HardwareMonitorService.Instance.CurrentSnapshot);
+        }
+
+        private void RamBreakdownToolTip_Closed(object sender, RoutedEventArgs e)
+        {
+            _ramTooltipPinned = false;
+        }
+
+        private void CloseRamBreakdownToolTip()
+        {
+            _ramTooltipPinned = false;
+            RamBreakdownToolTip.IsOpen = false;
+        }
+
+        internal void ExerciseRamTooltipLifecycleForTest()
+        {
+            if (RamTelemetryZone.ToolTip != null ||
+                TxtRamPercent.ToolTip != null ||
+                !ReferenceEquals(BtnRamBreakdown.ToolTip, RamBreakdownToolTip))
+            {
+                throw new InvalidOperationException("RamBreakdownToolTip must be scoped strictly to BtnRamBreakdown.");
+            }
+
+            var clickArgs = new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, BtnRamBreakdown);
+            BtnRamBreakdown_Click(BtnRamBreakdown, clickArgs);
+            if (!RamBreakdownToolTip.IsOpen || !RamBreakdownToolTip.StaysOpen || !_ramTooltipPinned)
+            {
+                throw new InvalidOperationException("Click-pin open state invalid on RamBreakdownToolTip.");
+            }
+
+            CloseRamBreakdownToolTip();
+            if (RamBreakdownToolTip.IsOpen || !RamBreakdownToolTip.StaysOpen || _ramTooltipPinned)
+            {
+                throw new InvalidOperationException("CloseRamBreakdownToolTip must leave ToolTip.StaysOpen true.");
+            }
+
+            var pcsType = typeof(FrameworkElement).Assembly.GetType("System.Windows.Controls.PopupControlService")
+                ?? throw new InvalidOperationException("WPF PopupControlService type not found.");
+            var pcs = pcsType.GetProperty("Current", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?.GetValue(null)
+                ?? throw new InvalidOperationException("WPF PopupControlService.Current is null.");
+            var findMethod = pcsType.GetMethod("FindToolTipOwner", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?? throw new InvalidOperationException("WPF PopupControlService.FindToolTipOwner not found.");
+            var showMethod = pcsType.GetMethod("ShowToolTip", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?? throw new InvalidOperationException("WPF PopupControlService.ShowToolTip not found.");
+            var dismissMethod = pcsType.GetMethod("DismissToolTips", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?? throw new InvalidOperationException("WPF PopupControlService.DismissToolTips not found.");
+
+            var triggerType = findMethod.GetParameters()[1].ParameterType;
+            object mouseTrigger = Enum.Parse(triggerType, "Mouse");
+            if (findMethod.Invoke(pcs, new object[] { RamTelemetryZone, mouseTrigger }) != null ||
+                findMethod.Invoke(pcs, new object[] { TxtRamPercent, mouseTrigger }) != null ||
+                !ReferenceEquals(findMethod.Invoke(pcs, new object[] { BtnRamBreakdown, mouseTrigger }), BtnRamBreakdown) ||
+                !ReferenceEquals(findMethod.Invoke(pcs, new object[] { TxtRamRatio, mouseTrigger }), BtnRamBreakdown))
+            {
+                throw new InvalidOperationException("FindToolTipOwner did not scope hover exclusively to BtnRamBreakdown.");
+            }
+
+            // Hover #1
+            showMethod.Invoke(pcs, new object[] { BtnRamBreakdown, false });
+            if (!RamBreakdownToolTip.IsOpen || !RamBreakdownToolTip.StaysOpen)
+            {
+                throw new InvalidOperationException("Hover #1 failed to open RamBreakdownToolTip.");
+            }
+
+            dismissMethod.Invoke(pcs, Array.Empty<object>());
+            if (RamBreakdownToolTip.IsOpen || !RamBreakdownToolTip.StaysOpen || _ramTooltipPinned)
+            {
+                throw new InvalidOperationException("Hover #1 dismiss state invalid on RamBreakdownToolTip.");
+            }
+
+            // Hover #2 (regression check after closing)
+            showMethod.Invoke(pcs, new object[] { BtnRamBreakdown, false });
+            if (!RamBreakdownToolTip.IsOpen || !RamBreakdownToolTip.StaysOpen)
+            {
+                throw new InvalidOperationException("Hover #2 failed to open RamBreakdownToolTip.");
+            }
+
+            dismissMethod.Invoke(pcs, Array.Empty<object>());
+
+            // Pinned + Hover
+            BtnRamBreakdown_Click(BtnRamBreakdown, clickArgs);
+            showMethod.Invoke(pcs, new object[] { BtnRamBreakdown, false });
+            if (!RamBreakdownToolTip.IsOpen || !RamBreakdownToolTip.StaysOpen)
+            {
+                throw new InvalidOperationException("Pinned + Hover state invalid on RamBreakdownToolTip.");
+            }
+
+            dismissMethod.Invoke(pcs, Array.Empty<object>());
+            CloseRamBreakdownToolTip();
+        }
+
+        private async void BtnOptimizeRam_Click(object sender, RoutedEventArgs e)
+        {
+            await MemoryOptimizerService.Instance.OptimizeAsync(MemoryOptimizationTrigger.Manual);
+        }
+
+        private void BtnOptimizeRamMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (RamScopeMenu == null)
+            {
+                return;
+            }
+
+            RamScopeMenu.PlacementTarget = BtnOptimizeRam;
+            RamScopeMenu.Placement = PlacementMode.Bottom;
+            RamScopeMenu.VerticalOffset = 4;
+            RamScopeMenu.IsOpen = true;
+        }
+
+        private void RamScopeMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            var settings = SettingsService.Instance.Current;
+            MenuRamFreeWorkingSets.IsChecked = settings.RamFreeWorkingSets;
+            MenuRamClearStandby.IsChecked = settings.RamClearStandby;
+        }
+
+        private void MenuRamScope_Click(object sender, RoutedEventArgs e)
+        {
+            var settings = SettingsService.Instance.Current;
+            settings.RamFreeWorkingSets = MenuRamFreeWorkingSets.IsChecked;
+            settings.RamClearStandby = MenuRamClearStandby.IsChecked;
+            SettingsService.Instance.Save();
+            UpdateMemoryTooltipFooter();
+        }
+
+        private void OnRamOptimizingStateChanged(bool isOptimizing)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosing)
+                {
+                    return;
+                }
+
+                SetRamOptimizingVisualState(isOptimizing);
+                UpdateMemoryTooltipFooter();
+            }));
+        }
+
+        private void OnRamOptimizationCompleted(MemoryOptimizationResult result)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosing)
+                {
+                    return;
+                }
+
+                UpdateMemoryBreakdownUi(HardwareMonitorService.Instance.CurrentSnapshot);
+
+                if (result.Succeeded)
+                {
+                    FlashRamSuccessCheckmark();
+                }
+            }));
+        }
+
+        private void SetRamOptimizingVisualState(bool isOptimizing)
+        {
+            BtnOptimizeRam.IsEnabled = !isOptimizing;
+            if (isOptimizing)
+            {
+                RamCheckIcon.Visibility = Visibility.Collapsed;
+                RamCleanIcon.Visibility = Visibility.Visible;
+                var pulse = new DoubleAnimation(1.0, 0.35, TimeSpan.FromMilliseconds(350))
+                {
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever
+                };
+                OptGlyphHost.BeginAnimation(OpacityProperty, pulse);
+            }
+            else
+            {
+                OptGlyphHost.BeginAnimation(OpacityProperty, null);
+                OptGlyphHost.Opacity = 1.0;
+            }
+        }
+
+        private void FlashRamSuccessCheckmark()
+        {
+            _ramFeedbackTimer?.Stop();
+            RamCleanIcon.Visibility = Visibility.Collapsed;
+            RamCheckIcon.Visibility = Visibility.Visible;
+
+            _ramFeedbackTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(1500)
+            };
+            _ramFeedbackTimer.Tick += (_, _) =>
+            {
+                _ramFeedbackTimer?.Stop();
+                if (!_isClosing)
+                {
+                    RamCheckIcon.Visibility = Visibility.Collapsed;
+                    RamCleanIcon.Visibility = Visibility.Visible;
+                }
+            };
+            _ramFeedbackTimer.Start();
+        }
+
+        private void UpdateMemoryBreakdownUi(HardwareSnapshot snapshot)
+        {
+            MemoryBreakdown? mem = snapshot.Memory;
+            if (mem == null && MemoryTelemetryService.TryReadBreakdown(out var live))
+            {
+                mem = live;
+            }
+
+            if (mem == null || mem.TotalUsableBytes == 0)
+            {
+                RamBarInUseCol.Width = new GridLength(0, GridUnitType.Star);
+                RamBarStandbyCol.Width = new GridLength(0, GridUnitType.Star);
+                RamBarFreeCol.Width = new GridLength(1, GridUnitType.Star);
+
+                TxtTipInstalled.Text = LocalizationService.Format("Ram_InstalledFormat", "--");
+                TxtTipInUse.Text = "--";
+                TxtTipAvailable.Text = "--";
+                TxtTipFree.Text = "--";
+                TxtTipStandby.Text = "--";
+                TxtTipModified.Text = "--";
+                TxtTipCached.Text = "--";
+                TxtTipReserved.Text = "--";
+                TipBarInUseCol.Width = new GridLength(0, GridUnitType.Star);
+                TipBarModifiedCol.Width = new GridLength(0, GridUnitType.Star);
+                TipBarStandbyCol.Width = new GridLength(0, GridUnitType.Star);
+                TipBarFreeCol.Width = new GridLength(1, GridUnitType.Star);
+                UpdateMemoryTooltipFooter();
+                return;
+            }
+
+            double totalUsable = mem.TotalUsableBytes;
+            double rowInUseRatio = mem.InUseBytes / totalUsable;
+            double rowStandbyRatio = mem.HasPageListBreakdown
+                ? Math.Min(mem.StandbyBytes / totalUsable, Math.Max(0.0, 1.0 - rowInUseRatio))
+                : 0.0;
+            double rowFreeRatio = Math.Max(0.0, 1.0 - rowInUseRatio - rowStandbyRatio);
+
+            RamBarInUseCol.Width = new GridLength(rowInUseRatio, GridUnitType.Star);
+            RamBarStandbyCol.Width = new GridLength(rowStandbyRatio, GridUnitType.Star);
+            RamBarFreeCol.Width = new GridLength(rowFreeRatio, GridUnitType.Star);
+
+            ulong barModified = mem.HasPageListBreakdown ? mem.ModifiedBytes : 0UL;
+            ulong barStandby = mem.HasPageListBreakdown ? mem.StandbyBytes : 0UL;
+            ulong barFree = mem.HasPageListBreakdown ? mem.FreeBytes : mem.AvailableBytes;
+            double barDenom = Math.Max(1.0, (double)mem.InUseBytes + barModified + barStandby + barFree);
+
+            TipBarInUseCol.Width = new GridLength(mem.InUseBytes / barDenom, GridUnitType.Star);
+            TipBarModifiedCol.Width = new GridLength(barModified / barDenom, GridUnitType.Star);
+            TipBarStandbyCol.Width = new GridLength(barStandby / barDenom, GridUnitType.Star);
+            TipBarFreeCol.Width = new GridLength(barFree / barDenom, GridUnitType.Star);
+
+            TxtTipInstalled.Text = LocalizationService.Format(
+                "Ram_InstalledFormat",
+                MemoryTelemetryService.FormatBytes(mem.InstalledBytes));
+
+            int inUsePct = (int)Math.Round(mem.InUsePercent);
+            int availPct = Math.Max(0, 100 - inUsePct);
+
+            TxtTipInUse.Text = $"{MemoryTelemetryService.FormatBytes(mem.InUseBytes)} ({inUsePct}%)";
+            TxtTipAvailable.Text = $"{MemoryTelemetryService.FormatBytes(mem.AvailableBytes)} ({availPct}%)";
+            TxtTipFree.Text = mem.HasPageListBreakdown ? MemoryTelemetryService.FormatBytes(mem.FreeBytes) : "--";
+            TxtTipStandby.Text = mem.HasPageListBreakdown ? MemoryTelemetryService.FormatBytes(mem.StandbyBytes) : "--";
+            TxtTipModified.Text = mem.HasPageListBreakdown ? MemoryTelemetryService.FormatBytes(mem.ModifiedBytes) : "--";
+            TxtTipCached.Text = mem.HasPageListBreakdown ? MemoryTelemetryService.FormatBytes(mem.CachedBytes) : "--";
+            TxtTipReserved.Text = MemoryTelemetryService.FormatBytes(mem.HardwareReservedBytes);
+
+            UpdateMemoryTooltipFooter();
+        }
+
+        private void UpdateMemoryTooltipFooter()
+        {
+            if (TxtTipFooter == null)
+            {
+                return;
+            }
+
+            TxtTipFooter.Inlines.Clear();
+            var optimizer = MemoryOptimizerService.Instance;
+
+            if (optimizer.IsOptimizing)
+            {
+                TxtTipFooter.Inlines.Add(new System.Windows.Documents.Run(
+                    LocalizationService.Get("Ram_FooterOptimizing"))
+                {
+                    Foreground = RamAccentBrush,
+                    FontWeight = FontWeights.SemiBold
+                });
+                return;
+            }
+
+            if (optimizer.LastResult is { RequiresElevation: true })
+            {
+                TxtTipFooter.Inlines.Add(new System.Windows.Documents.Run(
+                    LocalizationService.Get("Ram_FooterAdminRequired"))
+                {
+                    Foreground = RamWarnBrush
+                });
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            if ((!settings.RamFreeWorkingSets && !settings.RamClearStandby) ||
+                optimizer.LastResult is { NoScopeSelected: true })
+            {
+                TxtTipFooter.Inlines.Add(new System.Windows.Documents.Run(
+                    LocalizationService.Get("Ram_FooterNoScope"))
+                {
+                    Foreground = RamWarnBrush
+                });
+                return;
+            }
+
+            if (optimizer.LastSuccessfulResult is { } lastOk)
+            {
+                string prefix = LocalizationService.Get("Ram_LastFreedPrefix").TrimEnd();
+                string atTime = LocalizationService.Format(
+                    "Ram_LastFreedAt",
+                    lastOk.TimestampLocal.ToString("hh:mm tt", CultureInfo.CurrentCulture)).TrimStart();
+
+                TxtTipFooter.Inlines.Add(new System.Windows.Documents.Run($"{prefix} ")
+                {
+                    Foreground = RamFooterTextBrush
+                });
+                TxtTipFooter.Inlines.Add(new System.Windows.Documents.Run(
+                    MemoryTelemetryService.FormatBytes(lastOk.FreedBytes))
+                {
+                    Foreground = RamAccentBrush,
+                    FontWeight = FontWeights.SemiBold
+                });
+                TxtTipFooter.Inlines.Add(new System.Windows.Documents.Run($" {atTime}")
+                {
+                    Foreground = RamFooterTextBrush
+                });
+                return;
+            }
+
+            TxtTipFooter.Inlines.Add(new System.Windows.Documents.Run(
+                LocalizationService.Get("Ram_FooterHint"))
+            {
+                Foreground = RamFooterMutedBrush
+            });
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1639,28 +2811,53 @@ namespace CryoTray.Views
             return LocalizationService.Format("Main_PackagePower", value);
         }
 
-        private static string CompactGpuName(string fullName)
+        internal static string CompactGpuName(string fullName)
         {
-            if (fullName.StartsWith("NVIDIA ", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(fullName))
             {
-                return fullName["NVIDIA ".Length..].Trim();
+                return "";
             }
 
-            if (fullName.StartsWith("AMD ", StringComparison.OrdinalIgnoreCase))
+            string trimmed = fullName.Trim();
+            string[] prefixes =
             {
-                return fullName["AMD ".Length..].Trim();
+                "NVIDIA ",
+                "AMD ",
+                "Intel(R) ",
+                "Intel ",
+                "Qualcomm(R) ",
+                "Qualcomm "
+            };
+
+            foreach (string prefix in prefixes)
+            {
+                if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return trimmed[prefix.Length..].Trim();
+                }
             }
 
-            if (fullName.StartsWith("Intel ", StringComparison.OrdinalIgnoreCase))
-            {
-                return fullName["Intel ".Length..].Trim();
-            }
-
-            return fullName;
+            return trimmed;
         }
 
         private void ApplyTelemetryVisibility(AppSettings settings)
         {
+            CpuLargeChartContainer.Visibility = settings.ShowCpuGraph && !settings.CpuGraphSmall
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CpuSmallChartRow.Visibility = settings.ShowCpuGraph && settings.CpuGraphSmall
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CpuSmallChartSeparator.Visibility = CpuSmallChartRow.Visibility;
+
+            CpuSpeedRow.Visibility = settings.ShowCpuClock
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CpuSpeedSeparator.Visibility = CpuSpeedRow.Visibility;
+            SsdRowsContainer.Visibility = settings.ShowDiskTemp
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
             TxtCpuPackageWatts.Visibility = settings.ShowCpuPower
                 ? Visibility.Visible
                 : Visibility.Collapsed;

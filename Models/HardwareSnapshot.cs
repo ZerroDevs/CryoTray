@@ -50,9 +50,34 @@ namespace CryoTray.Models
         public bool IsHottest { get; set; }
     }
 
+    public class MemoryBreakdown
+    {
+        public ulong InstalledBytes { get; set; }
+        public ulong TotalUsableBytes { get; set; }
+        public ulong AvailableBytes { get; set; }
+        public ulong InUseBytes { get; set; }
+        public ulong HardwareReservedBytes { get; set; }
+        public uint MemoryLoadPercent { get; set; }
+        public bool HasPageListBreakdown { get; set; }
+        public ulong FreeBytes { get; set; }
+        public ulong StandbyBytes { get; set; }
+        public ulong ModifiedBytes { get; set; }
+
+        public ulong CachedBytes => StandbyBytes + ModifiedBytes;
+
+        public double InUsePercent => TotalUsableBytes > 0
+            ? (InUseBytes / (double)TotalUsableBytes) * 100.0
+            : double.NaN;
+
+        public double AvailablePercent => TotalUsableBytes > 0
+            ? (AvailableBytes / (double)TotalUsableBytes) * 100.0
+            : double.NaN;
+    }
+
     public class HardwareSnapshot
     {
         public string CpuName { get; set; } = "";
+        public string CpuVendor { get; set; } = "";
         public int CpuCores { get; set; }
         public double CpuTemp { get; set; } = double.NaN;
         public double PeakCpuTemp { get; set; } = double.NaN;
@@ -63,6 +88,11 @@ namespace CryoTray.Models
         public double CpuLoad { get; set; } = double.NaN;
         public int? CpuPackageWatts { get; set; }
         public List<CoreTelemetry> CpuCoresTelemetry { get; set; } = new();
+
+        public double RamUsedGb { get; set; } = double.NaN;
+        public double RamTotalGb { get; set; } = double.NaN;
+        public double RamUsagePercent { get; set; } = double.NaN;
+        public MemoryBreakdown? Memory { get; set; }
 
         public string GpuName { get; set; } = "";
         public string GpuVendor { get; set; } = "";

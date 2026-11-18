@@ -69,7 +69,6 @@ Filename: "{tmp}\PawnIO_setup.exe"; Parameters: "-install -silent"; StatusMsg: "
 Filename: "{app}\CryoTray.exe"; Description: "{cm:LaunchProgram,CryoTray}"; Flags: shellexec nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "powercfg.exe"; Parameters: "/setactive 381b4222-f694-41f0-9685-ff5bb260df2e"; Flags: runhidden; RunOnceId: "RestoreBalancedPowerPlan"
 Filename: "schtasks.exe"; Parameters: "/Delete /TN ""CryoTray"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
 
 [Code]
@@ -95,4 +94,21 @@ function InitializeUninstall: Boolean;
 begin
   StopCryoTray;
   Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+  ExePath: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    ExePath := ExpandConstant('{app}\CryoTray.exe');
+    if not FileExists(ExePath) or
+       not Exec(ExePath, '/uninstall-cleanup', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or
+       (ResultCode <> 0) then
+    begin
+      Exec(ExpandConstant('{sys}\powercfg.exe'), '/setactive 381b4222-f694-41f0-9685-ff5bb260df2e', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
+  end;
 end;

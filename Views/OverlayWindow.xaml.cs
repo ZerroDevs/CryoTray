@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using CryoTray.Models;
 using CryoTray.Services;
@@ -36,9 +37,38 @@ namespace CryoTray.Views
 
             ClampToWorkArea();
             ApplyMetricVisibility(s);
+            ApplyClickThrough(s.OverlayClickThrough);
             UpdateTelemetry(HardwareMonitorService.Instance.CurrentSnapshot);
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            ApplyClickThrough(SettingsService.Instance.Current.OverlayClickThrough);
+        }
+
+        /// <summary>Toggles Win32 WS_EX_TRANSPARENT so clicks pass straight through the overlay.</summary>
+        public void ApplyClickThrough(bool enabled)
+        {
+            BtnCloseOverlay.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
+
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            int exStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+            int targetStyle = enabled
+                ? exStyle | NativeMethods.WS_EX_LAYERED | NativeMethods.WS_EX_TRANSPARENT
+                : (exStyle | NativeMethods.WS_EX_LAYERED) & ~NativeMethods.WS_EX_TRANSPARENT;
+
+            if (targetStyle != exStyle)
+            {
+                NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, targetStyle);
+            }
         }
 
         private void OverlayWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -112,6 +142,12 @@ namespace CryoTray.Views
                 TxtGpuPower.Text = snapshot.GpuPowerWatts.HasValue
                     ? $"{snapshot.GpuPowerWatts.Value}W"
                     : "--W";
+                TxtRamUsed.Text = double.IsFinite(snapshot.RamUsedGb) && snapshot.RamUsedGb > 0
+                    ? $"{snapshot.RamUsedGb:0.0}G"
+                    : "--G";
+                TxtRamPercent.Text = double.IsFinite(snapshot.RamUsagePercent) && snapshot.RamUsagePercent >= 0
+                    ? $"{Math.Round(snapshot.RamUsagePercent)}%"
+                    : "--%";
             });
         }
 
@@ -124,6 +160,7 @@ namespace CryoTray.Views
             bool showGpu = settings.OverlayShowGpuTemp ||
                 settings.OverlayShowGpuLoad ||
                 settings.OverlayShowGpuPower;
+            bool showRam = settings.OverlayShowRam;
 
             CpuOverlayGroup.Visibility = showCpu
                 ? Visibility.Visible
@@ -131,6 +168,19 @@ namespace CryoTray.Views
             GpuOverlayGroup.Visibility = showGpu
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+            RamOverlayGroup.Visibility = showRam
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            RamOverlayGroup.Margin = (showCpu || showGpu) && showRam
+                ? new Thickness(12, 0, 0, 0)
+                : new Thickness(0);
+
+            double targetWidth = showCpu && showGpu && showRam ? 430 : 360;
+            if (Math.Abs(Width - targetWidth) > 0.5)
+            {
+                Width = targetWidth;
+                ClampToWorkArea();
+            }
 
             TxtCpuTemp.Visibility = settings.OverlayShowCpuTemp
                 ? Visibility.Visible
@@ -155,7 +205,7 @@ namespace CryoTray.Views
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
-            TxtOverlayEmpty.Visibility = showCpu || showGpu
+            TxtOverlayEmpty.Visibility = showCpu || showGpu || showRam
                 ? Visibility.Collapsed
                 : Visibility.Visible;
 
@@ -190,12 +240,23 @@ namespace CryoTray.Views
             }
 
             Dispatcher.BeginInvoke(new Action(() =>
-                ApplyMetricVisibility(SettingsService.Instance.Current)));
+            {
+                var current = SettingsService.Instance.Current;
+                ApplyMetricVisibility(current);
+                ApplyClickThrough(current.OverlayClickThrough);
+            }));
         }
 
         private void OnLanguageChanged()
         {
-            LocalizationService.Instance.ApplyWindow(this);
+            if (Dispatcher.CheckAccess())
+            {
+                LocalizationService.Instance.ApplyWindow(this);
+            }
+            else if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+            {
+                Dispatcher.BeginInvoke(new Action(() => LocalizationService.Instance.ApplyWindow(this)));
+            }
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

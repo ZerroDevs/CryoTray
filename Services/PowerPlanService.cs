@@ -325,6 +325,65 @@ namespace CryoTray.Services
             ApplyCpuCoolingParameters(99, 0);
         }
 
+        /// <summary>Restores a non-CryoTray power plan and removes CryoTray Cooling schemes on uninstall.</summary>
+        public void CleanupForUninstall()
+        {
+            var schemes = GetInstalledSchemes();
+            var coolingSchemes = schemes
+                .Where(s => s.Name.Equals(CryoTrayCoolingSchemeName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var coolingIds = coolingSchemes.Select(s => s.Guid).ToHashSet();
+
+            Guid fallback = BalancedGuid;
+            if (Guid.TryParse(SettingsService.Instance.Current.NormalPowerPlanGuid, out Guid configured) &&
+                !coolingIds.Contains(configured) &&
+                schemes.Any(s => s.Guid == configured))
+            {
+                fallback = configured;
+            }
+            else if (schemes.All(s => s.Guid != fallback) || coolingIds.Contains(fallback))
+            {
+                var other = schemes.FirstOrDefault(s => !coolingIds.Contains(s.Guid));
+                if (other != null)
+                {
+                    fallback = other.Guid;
+                }
+            }
+
+            NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref fallback);
+
+            foreach (var scheme in coolingSchemes)
+            {
+                Guid guid = scheme.Guid;
+                if (NativeMethods.PowerDeleteScheme(IntPtr.Zero, ref guid) != 0)
+                {
+                    TryDeleteSchemeViaPowerCfg(guid);
+                }
+            }
+
+            _cryoTrayCoolingGuid = null;
+            SetCoolingState(false);
+        }
+
+        private static void TryDeleteSchemeViaPowerCfg(Guid schemeGuid)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powercfg",
+                    Arguments = $"/delete {schemeGuid}",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var proc = Process.Start(psi);
+                proc?.WaitForExit();
+            }
+            catch
+            {
+            }
+        }
+
         private List<PowerSchemeInfo> ParsePowerCfgList()
         {
             var list = new List<PowerSchemeInfo>();
