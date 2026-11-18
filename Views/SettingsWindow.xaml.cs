@@ -99,6 +99,7 @@ namespace CryoTray.Views
             ChkLaunchStartup.IsChecked = s.LaunchOnStartup;
             ChkLaunchBackground.IsChecked = s.LaunchInBackground;
             ChkEnableCoolingOnLaunch.IsChecked = s.EnableCoolingOnLaunch;
+            ChkDisableCoolingOnExit.IsChecked = s.DisableCoolingModeOnExit;
             ChkPinToTaskbar.IsChecked = s.PinToTaskbar;
             ChkAlwaysOnTop.IsChecked = s.AlwaysOnTop;
             ChkHideOnFocusLoss.IsChecked = s.HideOnFocusLoss;
@@ -485,6 +486,7 @@ namespace CryoTray.Views
             s.LaunchOnStartup = ChkLaunchStartup.IsChecked == true;
             s.LaunchInBackground = ChkLaunchBackground.IsChecked == true;
             s.EnableCoolingOnLaunch = ChkEnableCoolingOnLaunch.IsChecked == true;
+            s.DisableCoolingModeOnExit = ChkDisableCoolingOnExit.IsChecked == true;
             s.PinToTaskbar = ChkPinToTaskbar.IsChecked == true;
             s.AlwaysOnTop = ChkAlwaysOnTop.IsChecked == true;
             s.HideOnFocusLoss = ChkHideOnFocusLoss.IsChecked == true;

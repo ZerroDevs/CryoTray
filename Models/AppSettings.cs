@@ -11,6 +11,7 @@ namespace CryoTray.Models
         public bool LaunchOnStartup { get; set; } = false;
         public bool LaunchInBackground { get; set; } = false;
         public bool EnableCoolingOnLaunch { get; set; } = false;
+        public bool DisableCoolingModeOnExit { get; set; } = true;
         public bool PinToTaskbar { get; set; } = true;
         public bool AlwaysOnTop { get; set; } = false;
         public bool HideOnFocusLoss { get; set; } = true;

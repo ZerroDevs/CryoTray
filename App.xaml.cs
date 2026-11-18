@@ -26,6 +26,7 @@ namespace CryoTray
         private TemperatureAlertService? _temperatureAlertService;
         private bool _updateCheckInProgress;
         private bool _isExiting;
+        private bool _isPrimaryInstance;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -52,6 +53,8 @@ namespace CryoTray
                 Shutdown();
                 return;
             }
+
+            _isPrimaryInstance = true;
 
             base.OnStartup(e);
 
@@ -501,6 +504,11 @@ namespace CryoTray
 
         private void ExitApplication()
         {
+            if (!ConfirmExitWithCoolingMode())
+            {
+                return;
+            }
+
             _isExiting = true;
             _startupTrimTimer?.Stop();
             _startupTrimTimer = null;
@@ -542,6 +550,66 @@ namespace CryoTray
             Shutdown();
         }
 
+        private bool ConfirmExitWithCoolingMode()
+        {
+            var settings = SettingsService.Instance.Current;
+            if (!settings.DisableCoolingModeOnExit ||
+                !PowerPlanService.Instance.IsCoolingModeActive)
+            {
+                return true;
+            }
+
+            var owner = _mainWindow != null &&
+                        _mainWindow.IsVisible &&
+                        _mainWindow.WindowState != WindowState.Minimized
+                ? _mainWindow
+                : null;
+            owner?.SetExitConfirmationOpen(true);
+
+            try
+            {
+                var dialog = new ConfirmExitWindow();
+                if (owner != null)
+                {
+                    dialog.Owner = owner;
+                    dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                }
+
+                if (dialog.ShowDialog() != true)
+                {
+                    return false;
+                }
+            }
+            finally
+            {
+                owner?.SetExitConfirmationOpen(false);
+            }
+
+            DisableCoolingForExit();
+            return true;
+        }
+
+        private void DisableCoolingForExit()
+        {
+            if (!_isPrimaryInstance)
+            {
+                return;
+            }
+
+            try
+            {
+                if (SettingsService.Instance.Current.DisableCoolingModeOnExit &&
+                    PowerPlanService.Instance.IsCoolingModeActive)
+                {
+                    PowerPlanService.Instance.SetCoolingMode(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to disable Cooling Mode on exit: {ex.Message}");
+            }
+        }
+
         private void ApplyWindowAccent(bool isCooling)
         {
             var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(
@@ -552,6 +620,7 @@ namespace CryoTray
 
         protected override void OnExit(ExitEventArgs e)
         {
+            DisableCoolingForExit();
             _isExiting = true;
             _startupTrimTimer?.Stop();
             _powerPlanWatchTimer?.Stop();

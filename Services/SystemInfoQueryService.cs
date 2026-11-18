@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Eventing.Reader;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
 using System.Net.NetworkInformation;
 using System.Text;
+using System.Xml.Linq;
 using CryoTray.Models;
 
 namespace CryoTray.Services
@@ -91,6 +93,11 @@ namespace CryoTray.Services
                 }
             }
             catch
+            {
+                info.GraphicsCard = LocalizationService.Get("Common_NotReported");
+            }
+
+            if (string.IsNullOrWhiteSpace(info.GraphicsCard))
             {
                 info.GraphicsCard = LocalizationService.Get("Common_NotReported");
             }
@@ -315,31 +322,30 @@ namespace CryoTray.Services
                 };
 
                 using var reader = new EventLogReader(eventQuery);
-                EventRecord? record = reader.ReadEvent();
-                if (record != null)
+                using EventRecord? record = reader.ReadEvent();
+                if (record == null)
                 {
-                    string xml = record.ToXml();
-                    int idx = xml.IndexOf("MainPathBootTime\">", StringComparison.Ordinal);
-                    if (idx > 0)
-                    {
-                        int end = xml.IndexOf("</Data>", idx, StringComparison.Ordinal);
-                        if (end > idx)
-                        {
-                            string msStr = xml.Substring(idx + 18, end - idx - 18);
-                            if (double.TryParse(msStr, out double ms))
-                            {
-                                return LocalizationService.Format("System_SecondsFormat", $"{ms / 1000.0:0.0}");
-                            }
-                        }
-                    }
+                    return LocalizationService.Get("Common_NotReported");
                 }
+
+                // Event 100 stores the total boot duration in milliseconds.
+                var document = XDocument.Parse(record.ToXml());
+                XElement? bootTimeData = document.Descendants()
+                    .FirstOrDefault(element =>
+                        element.Name.LocalName == "Data" &&
+                        string.Equals((string?)element.Attribute("Name"), "BootTime", StringComparison.Ordinal));
+                if (bootTimeData == null ||
+                    !double.TryParse(bootTimeData.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double milliseconds))
+                {
+                    return LocalizationService.Get("Common_NotReported");
+                }
+
+                return LocalizationService.Format("System_SecondsFormat", $"{milliseconds / 1000.0:0.0}");
             }
             catch
             {
-                // Fallback
+                return LocalizationService.Get("Common_NotReported");
             }
-
-            return LocalizationService.Get("Common_NotReported");
         }
 
         private string QueryMonitorNames()

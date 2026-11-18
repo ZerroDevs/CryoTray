@@ -68,7 +68,7 @@ The CPU section includes:
 - An underline on every core tied for the hottest reading.
 - Current CPU clock speed and, when the processor exposes it, package power.
 - A live CPU chart with 1, 5, 10, 30, and 60 minute timeframes.
-- Cooling Mode artwork that switches between ice blue and copper with the active power plan.
+- An animated six-petal cooling fan that spins faster in Cooling Mode and shifts from ice blue to copper with the active power plan.
 
 The GPU section includes:
 
@@ -241,6 +241,7 @@ Settings opens as a modeless companion window and includes seven tabs: General, 
 | Launch app on PC startup | Creates or removes the `CryoTray` Task Scheduler entry |
 | Launch app in background mode | Starts without opening the dashboard |
 | Enable Cooling Mode on app launch | Activates the cooling plan at startup |
+| Disable Cooling Mode on closing the app | When Cooling Mode is on, prompts before exit and switches to the normal power plan; enabled by default |
 | Pin window to taskbar | Controls whether the dashboard appears in the taskbar |
 | Always on top | Keeps the dashboard above other windows |
 | Hide on focus loss | Hides the dashboard when it loses focus, unless Always on top is enabled |

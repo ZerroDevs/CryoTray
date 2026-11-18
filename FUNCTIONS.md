@@ -9,6 +9,8 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 - `App.ToggleOverlay()`: creates and shows `OverlayWindow` on enable; closes and clears the field on disable.
 - `App.TrimWorkingSet()`: runs an aggressive GC, waits for finalizers, and calls `NativeMethods.EmptyWorkingSet` for the current process.
 - `App.RegisterHotkeyIfEnabled()`: creates a message-only `HwndSource` for the hotkey and registers it, or disposes the source when the hotkey is disabled.
+- `App.ExitApplication()`: asks `ConfirmExitWindow` when the setting is enabled and Cooling Mode is active; otherwise exits without changing the power plan.
+- `App.DisableCoolingForExit()`: safety net used by `OnExit` for other shutdown paths, including updates.
 - `MainWindow.OpenSettingsDialog()`, `OpenSystemInfoDialog()`, `OpenStressTestDialog()`: create one modal child at a time, set `_isChildDialogOpen`, and clear it when the dialog closes.
 
 ## Models
@@ -57,7 +59,9 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 
 - `MainWindow.CmbTimeframe_SelectionChanged(...)`: maps 1/5/10/30/60 min to 60/300/600/1800/3600 samples and redraws both charts. The initial XAML selection is guarded until all chart canvases exist.
 - `MainWindow.DrawCpuChart()` and `DrawGpuChart()`: both slice the ring buffer with `_timeframeSamples`.
-- `MainWindow.UpdateTheme(bool isCooling, bool animate)`: switches the Cooling ON/OFF artwork, updates the toggle colors and dashboard accent, and redraws the CPU chart.
+- `MainWindow.SetupFanAnimation()`: starts the six-petal rotor at 3.5 s per turn; `UpdateTheme` changes it to 0.9 s when cooling is active.
+- `MainWindow.ApplyFanTheme(bool)`: sets the ON/OFF tile, rim, petal, and glow colors for the vector fan.
+- `MainWindow.UpdateTheme(bool isCooling, bool animate)`: applies the fan theme, updates the toggle colors and dashboard accent, and redraws the CPU chart.
 
 ## Diagnostics
 

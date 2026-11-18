@@ -463,6 +463,7 @@
                     <CheckBox x:Name="ChkLaunchStartup" Content="{DynamicResource Settings_LaunchStartup}" Checked="ChkLaunchStartup_Changed" Unchecked="ChkLaunchStartup_Changed"/>
                     <CheckBox x:Name="ChkLaunchBackground" Content="{DynamicResource Settings_LaunchBackground}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkEnableCoolingOnLaunch" Content="{DynamicResource Settings_EnableCoolingOnLaunch}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkDisableCoolingOnExit" Content="{DynamicResource Settings_DisableCoolingOnExit}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkPinToTaskbar" Content="{DynamicResource Settings_PinToTaskbar}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkAlwaysOnTop" Content="{DynamicResource Settings_AlwaysOnTop}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkHideOnFocusLoss" Content="{DynamicResource Settings_HideOnFocusLoss}" Checked="SettingChanged" Unchecked="SettingChanged"/>

@@ -30,9 +30,13 @@ namespace CryoTray.Views
 
         public ObservableCollection<CoreReadout> CoreItems { get; } = new();
 
+        private readonly Storyboard _fanStoryboard = new();
+        private DoubleAnimation? _fanAnimation;
+        private bool _fanRunning;
         private int _timeframeSamples = 60; // Default 1 min
         private int _coreColumns = 4;
         private bool _isClosing;
+        private bool _isExitConfirmationOpen;
         private bool _showKeyboardFocusCues;
         private readonly double _expandedHeight;
 
@@ -93,10 +97,102 @@ namespace CryoTray.Views
             LocalizationService.Instance.ApplyWindow(this);
             DataContext = this;
             CpuCoresPopup.Opened += CpuCoresPopup_Opened;
+            SetupFanAnimation();
 
             Loaded += MainWindow_Loaded;
+            IsVisibleChanged += MainWindow_IsVisibleChanged;
+            Activated += MainWindow_Activated;
+            Deactivated += MainWindow_Deactivated;
+            StateChanged += MainWindow_StateChanged;
             Closing += MainWindow_Closing;
             Closed += MainWindow_Closed;
+        }
+
+        private void SetupFanAnimation()
+        {
+            _fanAnimation = new DoubleAnimation
+            {
+                From = 0,
+                To = 360,
+                Duration = TimeSpan.FromSeconds(3.5),
+                RepeatBehavior = RepeatBehavior.Forever
+            };
+
+            // The fan is decorative; 30 fps keeps it smooth with less render work.
+            Timeline.SetDesiredFrameRate(_fanAnimation, 30);
+            Storyboard.SetTarget(_fanAnimation, FanRotor);
+            Storyboard.SetTargetProperty(_fanAnimation, new PropertyPath("(UIElement.RenderTransform).(RotateTransform.Angle)"));
+            _fanStoryboard.Children.Add(_fanAnimation);
+        }
+
+        private void MainWindow_Activated(object? sender, EventArgs e)
+        {
+            StartFanAnimation();
+            if (IsLoaded)
+            {
+                UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+            }
+        }
+
+        private void MainWindow_Deactivated(object? sender, EventArgs e)
+        {
+            StopFanAnimation();
+        }
+
+        private void MainWindow_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (IsVisible)
+            {
+                StartFanAnimation();
+                if (IsLoaded)
+                {
+                    UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+                }
+            }
+            else
+            {
+                StopFanAnimation();
+            }
+        }
+
+        private void MainWindow_StateChanged(object? sender, EventArgs e)
+        {
+            if (WindowState == WindowState.Minimized)
+            {
+                StopFanAnimation();
+                return;
+            }
+
+            StartFanAnimation();
+            if (IsLoaded)
+            {
+                UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+            }
+        }
+
+        private bool CanAnimateFan =>
+            IsVisible && IsActive && WindowState != WindowState.Minimized;
+
+        private void StartFanAnimation()
+        {
+            if (_fanRunning || _fanAnimation == null || !CanAnimateFan)
+            {
+                return;
+            }
+
+            _fanStoryboard.Begin();
+            _fanRunning = true;
+        }
+
+        private void StopFanAnimation()
+        {
+            if (!_fanRunning)
+            {
+                return;
+            }
+
+            _fanStoryboard.Stop();
+            _fanRunning = false;
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -110,6 +206,7 @@ namespace CryoTray.Views
 
             UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
             UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+            StartFanAnimation();
         }
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -122,11 +219,16 @@ namespace CryoTray.Views
         private void MainWindow_Closed(object? sender, EventArgs e)
         {
             Loaded -= MainWindow_Loaded;
+            IsVisibleChanged -= MainWindow_IsVisibleChanged;
+            Activated -= MainWindow_Activated;
+            Deactivated -= MainWindow_Deactivated;
+            StateChanged -= MainWindow_StateChanged;
             CpuCoresPopup.Opened -= CpuCoresPopup_Opened;
             SettingsService.Instance.SettingsChanged -= ApplySettings;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingModeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
+            StopFanAnimation();
             DataContext = null;
             Content = null;
         }
@@ -226,7 +328,7 @@ namespace CryoTray.Views
 
         private void Window_Deactivated(object? sender, EventArgs e)
         {
-            if (_isChildDialogOpen || _isClosing) return;
+            if (_isChildDialogOpen || _isClosing || _isExitConfirmationOpen) return;
 
             var s = SettingsService.Instance.Current;
             if (!s.HideOnFocusLoss || s.AlwaysOnTop) return;
@@ -258,9 +360,7 @@ namespace CryoTray.Views
                 GradStop2.Color = target2;
             }
 
-            // Cooling Mode artwork
-            ImgCoolingOn.Visibility = isCooling ? Visibility.Visible : Visibility.Collapsed;
-            ImgCoolingOff.Visibility = isCooling ? Visibility.Collapsed : Visibility.Visible;
+            ApplyFanTheme(isCooling);
 
             if (isCooling)
             {
@@ -294,9 +394,57 @@ namespace CryoTray.Views
             DrawCpuChart();
         }
 
+        private void ApplyFanTheme(bool isCooling)
+        {
+            Color accent = (Color)ColorConverter.ConvertFromString(isCooling ? "#35D7FF" : "#F08A4B");
+            Color ring = (Color)ColorConverter.ConvertFromString(isCooling ? "#1A7A99" : "#8A4728");
+            Color circuits = (Color)ColorConverter.ConvertFromString(isCooling ? "#1F9FC4" : "#C56B3C");
+            Color dots = (Color)ColorConverter.ConvertFromString(isCooling ? "#8FF4FF" : "#FFD0A3");
+            Color tileTop = (Color)ColorConverter.ConvertFromString(isCooling ? "#071A2B" : "#1A0E0A");
+            Color tileMiddle = (Color)ColorConverter.ConvertFromString(isCooling ? "#0B2A40" : "#2A160F");
+            Color tileBottom = (Color)ColorConverter.ConvertFromString(isCooling ? "#071722" : "#140B08");
+            Color petalTop = (Color)ColorConverter.ConvertFromString(isCooling ? "#E9FDFF" : "#FFE3B5");
+            Color petalMiddle = (Color)ColorConverter.ConvertFromString(isCooling ? "#9DE8FF" : "#FFAD5C");
+            Color petalBottom = (Color)ColorConverter.ConvertFromString(isCooling ? "#3FAFD9" : "#C94A1E");
+            Color petalOutline = (Color)ColorConverter.ConvertFromString(isCooling ? "#C8F7FF" : "#FFC07A");
+            Color petalVein = (Color)ColorConverter.ConvertFromString(isCooling ? "#E8FFFF" : "#FFE2B8");
+
+            FanTile.BorderBrush = new SolidColorBrush(accent);
+            FanGlowEffect.Color = accent;
+            FanGlowEffect.Opacity = isCooling ? 0.55 : 0.5;
+            FanTileStop1.Color = tileTop;
+            FanTileStop2.Color = tileMiddle;
+            FanTileStop3.Color = tileBottom;
+            FanPetalStop1.Color = petalTop;
+            FanPetalStop2.Color = petalMiddle;
+            FanPetalStop3.Color = petalBottom;
+            FanPetals.Stroke = new SolidColorBrush(petalOutline);
+            FanPetalVeins.Stroke = new SolidColorBrush(petalVein);
+            FanOuterRing.Stroke = new SolidColorBrush(accent);
+            FanInnerRing.Stroke = new SolidColorBrush(ring);
+            FanCircuitTraces.Stroke = new SolidColorBrush(circuits);
+            FanRimDots.Fill = new SolidColorBrush(dots);
+            FanPetalGlint.Opacity = isCooling ? 0.8 : 0.6;
+
+            if (_fanAnimation != null)
+            {
+                StopFanAnimation();
+                _fanAnimation.Duration = TimeSpan.FromSeconds(isCooling ? 0.9 : 3.5);
+                StartFanAnimation();
+            }
+        }
+
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
         {
-            Dispatcher.Invoke(() => UpdateTelemetryUI(snapshot));
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!IsVisible || WindowState == WindowState.Minimized)
+                {
+                    return;
+                }
+
+                UpdateTelemetryUI(snapshot);
+            }));
         }
 
         private void UpdateTelemetryUI(HardwareSnapshot snapshot)
@@ -309,8 +457,12 @@ namespace CryoTray.Views
             double gpuT = isFahrenheit ? (snapshot.GpuTemp * 9 / 5 + 32) : snapshot.GpuTemp;
 
             // Hero Card
-            TxtCpuModel.Text = snapshot.CpuName;
-            TxtCpuCores.Text = LocalizationService.Format("Main_CpuProcessor", snapshot.CpuCores);
+            TxtCpuModel.Text = string.IsNullOrWhiteSpace(snapshot.CpuName)
+                ? LocalizationService.Get("Common_NotReported")
+                : snapshot.CpuName;
+            TxtCpuCores.Text = snapshot.CpuCores > 0
+                ? LocalizationService.Format("Main_CpuProcessor", snapshot.CpuCores)
+                : string.Empty;
             TxtHeroTemp.Text = $"{Math.Round(cpuT)}";
             TxtHeroUnit.Text = unit;
 
@@ -1316,6 +1468,11 @@ namespace CryoTray.Views
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        public void SetExitConfirmationOpen(bool isOpen)
+        {
+            _isExitConfirmationOpen = isOpen;
         }
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)

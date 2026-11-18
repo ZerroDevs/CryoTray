@@ -25,7 +25,7 @@ namespace CryoTray.Models
 
     public class HardwareSnapshot
     {
-        public string CpuName { get; set; } = "AMD Ryzen 7 5800X";
+        public string CpuName { get; set; } = "";
         public int CpuCores { get; set; } = 8;
         public double CpuTemp { get; set; } = 37.0;
         public double PeakCpuTemp { get; set; } = 37.0;
@@ -37,8 +37,8 @@ namespace CryoTray.Models
         public int? CpuPackageWatts { get; set; }
         public List<CoreTelemetry> CpuCoresTelemetry { get; set; } = new();
 
-        public string GpuName { get; set; } = "NVIDIA GeForce RTX 3060 Ti";
-        public string GpuVendor { get; set; } = "Nvidia";
+        public string GpuName { get; set; } = "";
+        public string GpuVendor { get; set; } = "";
         public double GpuTemp { get; set; } = 47.0;
         public double GpuLoad { get; set; } = 15.0;
         public int? GpuPowerWatts { get; set; }

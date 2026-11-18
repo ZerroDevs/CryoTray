@@ -36,11 +36,29 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; LICENSE, NOTICE and VERSION are copied explicitly below, so exclude them from the recursive copy to avoid duplicate destinations.
 ; Keep the full publish output for local debugging. The installer excludes framework language satellites
 ; CryoTray does not use and debugger-only runtime files. Remove a language folder from this list when it becomes supported.
-Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,LICENSE,NOTICE,VERSION,\cs\*,\de\*,\es\*,\fr\*,\it\*,\ja\*,\ko\*,\pl\*,\pt-BR\*,\ru\*,\tr\*,\zh-Hans\*,\zh-Hant\*,\mscordaccore.dll,\mscordaccore_amd64_amd64_*.dll,\mscordbi.dll,\Microsoft.DiaSymReader.Native.amd64.dll"
+; Do not add createallsubdirs: it recreates the excluded satellite folders as empty directories.
+Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs; Excludes: "*.pdb,LICENSE,NOTICE,VERSION,\cs\*,\de\*,\es\*,\fr\*,\it\*,\ja\*,\ko\*,\pl\*,\pt-BR\*,\ru\*,\tr\*,\zh-Hans\*,\zh-Hant\*,\mscordaccore.dll,\mscordaccore_amd64_amd64_*.dll,\mscordbi.dll,\Microsoft.DiaSymReader.Native.amd64.dll"
+
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\VERSION"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Resources\PawnIO_setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
+[InstallDelete]
+; Remove empty language folders left by earlier installers. dirifempty leaves non-empty folders alone.
+Type: dirifempty; Name: "{app}\cs"
+Type: dirifempty; Name: "{app}\de"
+Type: dirifempty; Name: "{app}\es"
+Type: dirifempty; Name: "{app}\fr"
+Type: dirifempty; Name: "{app}\it"
+Type: dirifempty; Name: "{app}\ja"
+Type: dirifempty; Name: "{app}\ko"
+Type: dirifempty; Name: "{app}\pl"
+Type: dirifempty; Name: "{app}\pt-BR"
+Type: dirifempty; Name: "{app}\ru"
+Type: dirifempty; Name: "{app}\tr"
+Type: dirifempty; Name: "{app}\zh-Hans"
+Type: dirifempty; Name: "{app}\zh-Hant"
 
 [Icons]
 Name: "{group}\CryoTray"; Filename: "{app}\CryoTray.exe"

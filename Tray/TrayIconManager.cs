@@ -45,6 +45,7 @@ namespace CryoTray.Tray
         private double _lastGpuTemp;
         private double _lastCpuTemp;
         private bool _lastCoolingModeActive;
+        private string _lastBadgeSignature = "";
         private bool _disposed;
         private readonly object _renderLock = new();
 
@@ -139,7 +140,7 @@ namespace CryoTray.Tray
                 return;
             }
 
-            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive);
+            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true);
         }
 
         public void ApplyLanguage()
@@ -156,7 +157,7 @@ namespace CryoTray.Tray
 
             if (_lastGpuTemp > 0 || _lastCpuTemp > 0)
             {
-                UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive);
+                UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true);
             }
         }
 
@@ -232,7 +233,7 @@ namespace CryoTray.Tray
             return menu;
         }
 
-        public void UpdateBadges(double gpuTemp, double cpuTemp, bool coolingModeActive)
+        public void UpdateBadges(double gpuTemp, double cpuTemp, bool coolingModeActive, bool force = false)
         {
             lock (_renderLock)
             {
@@ -256,11 +257,23 @@ namespace CryoTray.Tray
             string unit = isFahrenheit ? "°F" : "°C";
             int gpuInt = (int)Math.Round(displayGpuTemp);
             int cpuInt = (int)Math.Round(displayCpuTemp);
-            Color cpuColor = coolingModeActive ? CpuCyan : CpuAmber;
+            string signature = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}",
+                gpuInt, cpuInt, coolingModeActive, settings.MergeTrayIcons,
+                settings.ShowGpuBadge, settings.ShowCpuBadge, isFahrenheit, holdCpu, holdGpu);
 
             _lastGpuTemp = gpuTemp;
             _lastCpuTemp = cpuTemp;
             _lastCoolingModeActive = coolingModeActive;
+
+            if (!force && signature == _lastBadgeSignature)
+            {
+                return;
+            }
+
+            _lastBadgeSignature = signature;
+            Color cpuColor = coolingModeActive ? CpuCyan : CpuAmber;
 
             if (settings.MergeTrayIcons)
             {

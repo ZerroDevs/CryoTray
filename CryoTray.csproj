@@ -28,8 +28,6 @@
   <ItemGroup>
     <Resource Include="Images\CryoTray.ico" />
     <Resource Include="Images\CryoTray_Logo.png" />
-    <Resource Include="Images\Cooling_ON.png" />
-    <Resource Include="Images\Cooling_OFF.png" />
   </ItemGroup>
 
   <ItemGroup>

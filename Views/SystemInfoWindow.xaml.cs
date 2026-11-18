@@ -96,7 +96,9 @@ namespace CryoTray.Views
                     Text = label,
                     Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D6D6D6")),
                     FontSize = 13,
-                    VerticalAlignment = VerticalAlignment.Top
+                    VerticalAlignment = VerticalAlignment.Top,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 8, 0)
                 };
                 Grid.SetColumn(txtLabel, 0);
                 grid.Children.Add(txtLabel);
@@ -165,8 +167,14 @@ namespace CryoTray.Views
 
             AddRow(LocalizationService.Get("System_OperatingSystem"), _data.OperatingSystem);
             AddRow(LocalizationService.Get("System_Uptime"), _data.WindowsUptime, null, true);
-            AddRow(LocalizationService.Get("System_StartupSpeed"), _data.StartupSpeed);
-            AddRow(LocalizationService.Get("System_TempStats"), _data.TempStats);
+            AddRow(
+                LocalizationService.Get("System_StartupSpeed"),
+                _data.StartupSpeed,
+                detail: LocalizationService.Get("System_StartupSpeedDetail"));
+            AddRow(
+                LocalizationService.Get("System_TempStats"),
+                _data.TempStats,
+                detail: LocalizationService.Get("System_TempStatsDetail"));
             AddRow(LocalizationService.Get("System_Monitors"), _data.Monitors);
             AddRow(LocalizationService.Get("System_Network"), _data.Network);
             AddRow(LocalizationService.Get("System_SystemErrors"), _data.SystemErrors);

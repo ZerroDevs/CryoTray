@@ -3,8 +3,9 @@
 ## Architecture
 
 - `App.xaml.cs`: software-rendered, single-instance WPF shell, tray manager, message-only hotkey `HwndSource`, on-demand `MainWindow`, App-owned overlay, and working-set trimming; `/dump` bypasses the mutex and writes `cpu-sensors.txt`.
-- `Views/MainWindow`: 430 x 630 dashboard, hero CPU card, 7-blade animated cooling fan, CPU and GPU charts with hover cards, dedicated timeframe strip, cooling toggle, telemetry rows, per-core hover popup. Created per open and destroyed on close or deactivation.
+- `Views/MainWindow`: 430 x 630 dashboard, hero CPU card, six-petal animated vector cooling fan, CPU and GPU charts with hover cards, dedicated timeframe strip, cooling toggle, telemetry rows, per-core hover popup. Created per open and destroyed on close or deactivation.
 - `Views/OverlayWindow`, `SettingsWindow`, `StressTestWindow`, `SystemInfoWindow`: companion windows. Overlay is created only when toggled on; the other three are created per open.
+- `Views/ConfirmExitWindow`: app-styled Yes/No confirmation shown when exiting would disable Cooling Mode.
 - `Services/HardwareMonitorService`: 1 s background poll of LibreHardwareMonitor. Produces `HardwareSnapshot` and appends to a 3600-sample ring buffer. No WMI queries on the startup path; CPU name and base clock come from the registry and LHM names.
 - `Services/PowerPlanService`: imports and switches the CryoTray Cooling power scheme.
 - `Services/AutopilotService`: idle/busy load rules for cooling.

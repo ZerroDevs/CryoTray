@@ -422,7 +422,7 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="{DynamicResource Common_Cpu}" Foreground="#FFFFFF" FontSize="13" FontWeight="Bold"/>
                             <TextBlock x:Name="TxtCpuModel"
-                                       Text="AMD Ryzen 7 5800X"
+                                       Text="{DynamicResource Common_NotReported}"
                                        Foreground="#FFFFFF"
                                        FontSize="14"
                                        FontWeight="SemiBold"
@@ -586,17 +586,156 @@
                 <Grid>
                     <!-- Left: Fan Icon + Label -->
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- Cooling Mode artwork switches with the power plan. -->
-                        <Grid Width="40" Height="40" Margin="0,0,12,0"
-                              RenderOptions.BitmapScalingMode="HighQuality">
-                            <Image x:Name="ImgCoolingOff"
-                                   Source="/Images/Cooling_OFF.png"
-                                   Stretch="Uniform"/>
-                            <Image x:Name="ImgCoolingOn"
-                                   Source="/Images/Cooling_ON.png"
-                                   Stretch="Uniform"
-                                   Visibility="Collapsed"/>
-                        </Grid>
+                        <!-- Vector cooling fan, drawn at 80 px and scaled to 40 px. -->
+                        <Viewbox Width="40" Height="40" Margin="0,0,12,0">
+                            <Grid Width="80" Height="80">
+                                <Border x:Name="FanTile"
+                                        CornerRadius="18"
+                                        BorderThickness="2"
+                                        BorderBrush="#35D7FF">
+                                    <Border.Effect>
+                                        <DropShadowEffect x:Name="FanGlowEffect"
+                                                          BlurRadius="14"
+                                                          ShadowDepth="0"
+                                                          Opacity="0.55"
+                                                          Color="#35D7FF"/>
+                                    </Border.Effect>
+                                    <Border.Background>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                            <GradientStop x:Name="FanTileStop1" Color="#071A2B" Offset="0"/>
+                                            <GradientStop x:Name="FanTileStop2" Color="#0B2A40" Offset="0.55"/>
+                                            <GradientStop x:Name="FanTileStop3" Color="#071722" Offset="1"/>
+                                        </LinearGradientBrush>
+                                    </Border.Background>
+                                    <Grid>
+                                        <!-- Subtle corner traces keep the tile from reading as a plain badge. -->
+                                        <Path x:Name="FanCircuitTraces"
+                                              Data="M14,2 L14,9 L5,18 M66,2 L66,9 L75,18 M14,78 L14,71 L5,62 M66,78 L66,71 L75,62"
+                                              Stroke="#1F9FC4"
+                                              StrokeThickness="1"
+                                              Opacity="0.4"/>
+
+                                        <Ellipse x:Name="FanOuterRing"
+                                                 Margin="7"
+                                                 Stroke="#55E6FF"
+                                                 StrokeThickness="2"
+                                                 Opacity="0.9"/>
+                                        <Ellipse x:Name="FanInnerRing"
+                                                 Margin="12"
+                                                 Stroke="#1A7A99"
+                                                 StrokeThickness="1.4"/>
+
+                                        <Path x:Name="FanRimDots" Fill="#8FF4FF" Opacity="0.9">
+                                            <Path.Data>
+                                                <GeometryGroup>
+                                                    <EllipseGeometry Center="40,8.4" RadiusX="1.6" RadiusY="1.6"/>
+                                                    <EllipseGeometry Center="40,71.6" RadiusX="1.6" RadiusY="1.6"/>
+                                                    <EllipseGeometry Center="8.4,40" RadiusX="1.6" RadiusY="1.6"/>
+                                                    <EllipseGeometry Center="71.6,40" RadiusX="1.6" RadiusY="1.6"/>
+                                                </GeometryGroup>
+                                            </Path.Data>
+                                        </Path>
+
+                                        <Canvas x:Name="FanRotor"
+                                                Width="60" Height="60"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                RenderTransformOrigin="0.5,0.5">
+                                            <Canvas.RenderTransform>
+                                                <RotateTransform x:Name="FanRotation" Angle="0"/>
+                                            </Canvas.RenderTransform>
+
+                                            <Path x:Name="FanPetals"
+                                                  Stroke="#C8F7FF"
+                                                  StrokeThickness="0.9"
+                                                  StrokeLineJoin="Round">
+                                                <Path.Fill>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                        <GradientStop x:Name="FanPetalStop1" Color="#E9FDFF" Offset="0"/>
+                                                        <GradientStop x:Name="FanPetalStop2" Color="#9DE8FF" Offset="0.5"/>
+                                                        <GradientStop x:Name="FanPetalStop3" Color="#3FAFD9" Offset="1"/>
+                                                    </LinearGradientBrush>
+                                                </Path.Fill>
+                                                <Path.Data>
+                                                    <GeometryGroup FillRule="Nonzero">
+                                                        <PathGeometry Figures="M30,23.2 C20.4,18.0 19.2,8.8 26.0,4.0 C28.0,2.2 32.0,2.2 34.0,4.0 C40.8,8.8 39.6,18.0 30,23.2 Z">
+                                                            <PathGeometry.Transform><RotateTransform Angle="0" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,23.2 C20.4,18.0 19.2,8.8 26.0,4.0 C28.0,2.2 32.0,2.2 34.0,4.0 C40.8,8.8 39.6,18.0 30,23.2 Z">
+                                                            <PathGeometry.Transform><RotateTransform Angle="60" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,23.2 C20.4,18.0 19.2,8.8 26.0,4.0 C28.0,2.2 32.0,2.2 34.0,4.0 C40.8,8.8 39.6,18.0 30,23.2 Z">
+                                                            <PathGeometry.Transform><RotateTransform Angle="120" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,23.2 C20.4,18.0 19.2,8.8 26.0,4.0 C28.0,2.2 32.0,2.2 34.0,4.0 C40.8,8.8 39.6,18.0 30,23.2 Z">
+                                                            <PathGeometry.Transform><RotateTransform Angle="180" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,23.2 C20.4,18.0 19.2,8.8 26.0,4.0 C28.0,2.2 32.0,2.2 34.0,4.0 C40.8,8.8 39.6,18.0 30,23.2 Z">
+                                                            <PathGeometry.Transform><RotateTransform Angle="240" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,23.2 C20.4,18.0 19.2,8.8 26.0,4.0 C28.0,2.2 32.0,2.2 34.0,4.0 C40.8,8.8 39.6,18.0 30,23.2 Z">
+                                                            <PathGeometry.Transform><RotateTransform Angle="300" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                    </GeometryGroup>
+                                                </Path.Data>
+                                            </Path>
+
+                                            <Path x:Name="FanPetalVeins"
+                                                  Stroke="#E8FFFF"
+                                                  StrokeThickness="0.7"
+                                                  Opacity="0.55"
+                                                  StrokeLineJoin="Round">
+                                                <Path.Data>
+                                                    <GeometryGroup>
+                                                        <PathGeometry Figures="M30,22.0 L30,5.6">
+                                                            <PathGeometry.Transform><RotateTransform Angle="0" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,22.0 L30,5.6">
+                                                            <PathGeometry.Transform><RotateTransform Angle="60" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,22.0 L30,5.6">
+                                                            <PathGeometry.Transform><RotateTransform Angle="120" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,22.0 L30,5.6">
+                                                            <PathGeometry.Transform><RotateTransform Angle="180" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,22.0 L30,5.6">
+                                                            <PathGeometry.Transform><RotateTransform Angle="240" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                        <PathGeometry Figures="M30,22.0 L30,5.6">
+                                                            <PathGeometry.Transform><RotateTransform Angle="300" CenterX="30" CenterY="30"/></PathGeometry.Transform>
+                                                        </PathGeometry>
+                                                    </GeometryGroup>
+                                                </Path.Data>
+                                            </Path>
+
+                                            <Ellipse x:Name="FanHubOuter"
+                                                     Width="24" Height="24"
+                                                     Canvas.Left="18" Canvas.Top="18"
+                                                     Fill="#2A1A0C"
+                                                     Stroke="#F7B45E"
+                                                     StrokeThickness="2.4"/>
+                                            <Ellipse x:Name="FanHubInner"
+                                                     Width="14" Height="14"
+                                                     Canvas.Left="23" Canvas.Top="23"
+                                                     Fill="#070B10"
+                                                     Stroke="#F3C765"
+                                                     StrokeThickness="1.4"/>
+                                            <Ellipse x:Name="FanHubGlint"
+                                                     Width="3.4" Height="3.4"
+                                                     Canvas.Left="19.8" Canvas.Top="19.8"
+                                                     Fill="#FFFFFF"
+                                                     Opacity="0.45"/>
+                                            <Ellipse x:Name="FanPetalGlint"
+                                                     Width="3" Height="3"
+                                                     Canvas.Left="28.5" Canvas.Top="2.8"
+                                                     Fill="#FFFFFF"
+                                                     Opacity="0.8"/>
+                                        </Canvas>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Viewbox>
 
                         <TextBlock Text="{DynamicResource Main_CoolingMode}" Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     </StackPanel>

@@ -82,6 +82,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_LaunchStartup">Launch app on PC startup</sys:String>
     <sys:String x:Key="Settings_LaunchBackground">Launch app in background mode</sys:String>
     <sys:String x:Key="Settings_EnableCoolingOnLaunch">Enable Cooling Mode on app launch</sys:String>
+    <sys:String x:Key="Settings_DisableCoolingOnExit">Disable Cooling Mode on closing the app</sys:String>
     <sys:String x:Key="Settings_PinToTaskbar">Pin window to taskbar</sys:String>
     <sys:String x:Key="Settings_AlwaysOnTop">Always on top</sys:String>
     <sys:String x:Key="Settings_HideOnFocusLoss">Hide on focus loss</sys:String>
@@ -190,8 +191,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Stress_Stop">Stop Test</sys:String>
 
     <sys:String x:Key="System_Title">System Information</sys:String>
-    <sys:String x:Key="System_Header">System information</sys:String>
-    <sys:String x:Key="System_SaveTo">Save to..</sys:String>
+    <sys:String x:Key="System_Header">System Information</sys:String>
+    <sys:String x:Key="System_SaveTo">Save report</sys:String>
     <sys:String x:Key="System_CloseAutomation">Close system information</sys:String>
     <sys:String x:Key="System_Pc">PC</sys:String>
     <sys:String x:Key="System_Processor">Processor</sys:String>
@@ -200,9 +201,11 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="System_StorageDevice">Storage device</sys:String>
     <sys:String x:Key="System_OperatingSystem">Operating system</sys:String>
     <sys:String x:Key="System_Uptime">Windows uptime</sys:String>
-    <sys:String x:Key="System_StartupSpeed">Startup speed</sys:String>
+    <sys:String x:Key="System_StartupSpeed">Last boot</sys:String>
+    <sys:String x:Key="System_StartupSpeedDetail">Windows boot duration, Event 100</sys:String>
     <sys:String x:Key="System_TempStats">PC temperature with
 Cooling Mode on</sys:String>
+    <sys:String x:Key="System_TempStatsDetail">min / average / max</sys:String>
     <sys:String x:Key="System_Monitors">Monitors</sys:String>
     <sys:String x:Key="System_Network">Network</sys:String>
     <sys:String x:Key="System_SystemErrors">System errors</sys:String>
@@ -232,6 +235,11 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Tray_GpuTooltip">GPU: {0}{1}</sys:String>
     <sys:String x:Key="Tray_CpuTooltip">CPU: {0}{1} (Cooling: {2})</sys:String>
     <sys:String x:Key="Tray_MergedTooltip">CPU {0}{1} • GPU {2}{1}</sys:String>
+
+    <sys:String x:Key="Common_Yes">Yes</sys:String>
+    <sys:String x:Key="Common_No">No</sys:String>
+    <sys:String x:Key="ExitConfirm_Title">Are you sure you want to close the app?</sys:String>
+    <sys:String x:Key="ExitConfirm_Body">Closing the app will turn off Cooling Mode.</sys:String>
 
     <sys:String x:Key="Alert_Title">CryoTray temperature alert</sys:String>
     <sys:String x:Key="Alert_TestTitle">CryoTray test alert</sys:String>

@@ -82,6 +82,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_LaunchStartup">تشغيل التطبيق عند بدء الكمبيوتر</sys:String>
     <sys:String x:Key="Settings_LaunchBackground">تشغيل التطبيق في الخلفية</sys:String>
     <sys:String x:Key="Settings_EnableCoolingOnLaunch">تفعيل وضع التبريد عند تشغيل التطبيق</sys:String>
+    <sys:String x:Key="Settings_DisableCoolingOnExit">إيقاف وضع التبريد عند إغلاق التطبيق</sys:String>
     <sys:String x:Key="Settings_PinToTaskbar">تثبيت النافذة في شريط المهام</sys:String>
     <sys:String x:Key="Settings_AlwaysOnTop">دائماً في المقدمة</sys:String>
     <sys:String x:Key="Settings_HideOnFocusLoss">إخفاء عند فقدان التركيز</sys:String>
@@ -191,7 +192,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
 
     <sys:String x:Key="System_Title">معلومات النظام</sys:String>
     <sys:String x:Key="System_Header">معلومات النظام</sys:String>
-    <sys:String x:Key="System_SaveTo">حفظ إلى..</sys:String>
+    <sys:String x:Key="System_SaveTo">حفظ التقرير</sys:String>
     <sys:String x:Key="System_CloseAutomation">إغلاق معلومات النظام</sys:String>
     <sys:String x:Key="System_Pc">الكمبيوتر</sys:String>
     <sys:String x:Key="System_Processor">المعالج</sys:String>
@@ -200,9 +201,11 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="System_StorageDevice">جهاز التخزين</sys:String>
     <sys:String x:Key="System_OperatingSystem">نظام التشغيل</sys:String>
     <sys:String x:Key="System_Uptime">مدة تشغيل Windows</sys:String>
-    <sys:String x:Key="System_StartupSpeed">سرعة بدء التشغيل</sys:String>
+    <sys:String x:Key="System_StartupSpeed">آخر إقلاع</sys:String>
+    <sys:String x:Key="System_StartupSpeedDetail">مدة إقلاع Windows، الحدث 100</sys:String>
     <sys:String x:Key="System_TempStats">حرارة الكمبيوتر مع
 تشغيل وضع التبريد</sys:String>
+    <sys:String x:Key="System_TempStatsDetail">الأدنى / المتوسط / الأعلى</sys:String>
     <sys:String x:Key="System_Monitors">الشاشات</sys:String>
     <sys:String x:Key="System_Network">الشبكة</sys:String>
     <sys:String x:Key="System_SystemErrors">أخطاء النظام</sys:String>
@@ -232,6 +235,11 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Tray_GpuTooltip">كرت الرسومات: {0}{1}</sys:String>
     <sys:String x:Key="Tray_CpuTooltip">المعالج: {0}{1} (التبريد: {2})</sys:String>
     <sys:String x:Key="Tray_MergedTooltip">المعالج {0}{1} • الرسومات {2}{1}</sys:String>
+
+    <sys:String x:Key="Common_Yes">نعم</sys:String>
+    <sys:String x:Key="Common_No">لا</sys:String>
+    <sys:String x:Key="ExitConfirm_Title">هل أنت متأكد أنك تريد إغلاق التطبيق؟</sys:String>
+    <sys:String x:Key="ExitConfirm_Body">سيؤدي إغلاق التطبيق إلى إيقاف وضع التبريد.</sys:String>
 
     <sys:String x:Key="Alert_Title">تنبيه حرارة CryoTray</sys:String>
     <sys:String x:Key="Alert_TestTitle">تنبيه تجريبي من CryoTray</sys:String>
