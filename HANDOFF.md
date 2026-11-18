@@ -82,8 +82,13 @@
 - Elevated `/test`: `35 / 35 PASSED` (`>>> ALL VERIFICATION TESTS PASSED SUCCESSFULLY! <<<`), including `TestZeroHardcodedHardwareInfoAndCloneIntegrity`.
 - Installer build (`task-2028`): `Exit 0`, `Installer\Output\CryoTray-Setup-0.0.100.exe` (`52,482,163` bytes / `50.05 MB`).
 
+## GitHub Banner Candidates
+
+- Applied user-selected **Option 3 (Thermal Drop Proof: `-°C` / `-W` Delta)** to active `Images\Banner.jpg` (`1920x1072`, `560,935` bytes, referenced by `README.md`) and `Images\Banner.jfif` (`2752x1536`, `915,019` bytes).
+- Preserved previous originals (`Banner-Original.jpg`, `Banner-Original.jfif`) plus all 5 generated candidate banners at both `1920x1072` (`Banner-Option-1..5.jpg`) and `2752x1536` (`Banner-Option-1..5-2K.jpg`) inside `Images\Candidates\`.
+
 ## Next steps
 
-- Run `git add -A` before committing so all 36 uncommitted changes since `a105f83` (32 modified files, 3 new `Services/*.cs` files, 1 removed `cpu-sensors.txt`) are staged together.
+- Run `git add -A` before committing so all modified/new files (including updated `Images\Banner.jpg`, `Images\Banner.jfif`, `Images\Candidates\*`, 3 new `Services\*.cs` files, and removed `cpu-sensors.txt`) are staged together.
 - Launch updated app cleanly with `Start-Process .\bin\Release\net8.0-windows\CryoTray.exe` (or run `Installer\Output\CryoTray-Setup-0.0.100.exe`).
 - Restart Antigravity normally (without Administrator rights) once testing finishes.
