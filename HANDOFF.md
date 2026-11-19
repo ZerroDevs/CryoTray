@@ -8,7 +8,7 @@
 
 - Bumped `VERSION`, `app.manifest`, and the Inno default `AppVersion` to `0.0.103`; updated the baseline lines in `CONTRIBUTING.md` and `SECURITY.md`.
 - Verification: Release build passed with `0 Warning(s), 0 Error(s)`; the full `/test` suite passed 38/38 and `/test-updates` passed 11/11 in an elevated shell. From Git Bash the switches need `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`, otherwise `/test` is converted into a Windows path and the app exits through the single-instance branch with code 0.
-- The pushed `VERSION` change triggers `.github/workflows/release.yml`, which builds, tests, and publishes a stable `v0.0.103` release. The old `v0.0.102` prerelease is removed after the new release is verified.
+- Published `v0.0.103` from commit `aa2d167` with Release run `44629021389` (`2m42s`, success). The release is the latest, not a prerelease, and carries the setup (`52.5 MB`), portable zip (`78.2 MB`), update archive (`78.3 MB`), and matching `.sha256` files. The `v0.0.102` prerelease and its tag were deleted afterward.
 
 ## Developer launch from build output (2026-11-19)
 
