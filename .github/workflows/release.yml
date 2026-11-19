@@ -184,8 +184,10 @@ jobs:
             $commits = @("- No code changes recorded.")
           }
 
+          $setupHashName = "$setupName.sha256"
+          $zipHashName = "$zipName.sha256"
           $notes = @"
-          # CryoTray $version
+          # CryoTray v$version
 
           ## Changes
 
@@ -193,8 +195,8 @@ jobs:
 
           ## Download
 
-          - **Installer (Recommended):** Download `CryoTray-Setup-$version.exe` (includes bundled PawnIO driver setup) and verify against `$setupName.sha256`.
-          - **Portable Zip:** Download `$zipName`, verify against `$zipName.sha256`, extract, run `PawnIO_setup.exe` if the driver is missing, then run `CryoTray.exe`.
+          - **Installer (Recommended):** Download ``CryoTray-Setup-$version.exe`` (includes bundled PawnIO driver setup) and verify against ``$setupHashName``.
+          - **Portable Zip:** Download ``$zipName``, verify against ``$zipHashName``, extract, run ``PawnIO_setup.exe`` if the driver is missing, then run ``CryoTray.exe``.
           "@
 
           Set-Content -LiteralPath "release\notes.md" -Value $notes -Encoding utf8
