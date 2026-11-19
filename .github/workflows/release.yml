@@ -212,8 +212,9 @@ jobs:
           }
           New-Item -ItemType Directory -Path $updateStage -Force | Out-Null
           Copy-Item -Path "publish\win-x64\*" -Destination $updateStage -Recurse -Force
-          $updateFiles = @(Get-ChildItem -LiteralPath $updateStage -Recurse -File | ForEach-Object {
-            $_.FullName.Substring($updateStage.Length + 1).Replace('\', '/')
+          $updateStagePath = (Resolve-Path -LiteralPath $updateStage).Path
+          $updateFiles = @(Get-ChildItem -LiteralPath $updateStagePath -Recurse -File | ForEach-Object {
+            $_.FullName.Substring($updateStagePath.Length + 1).Replace('\', '/')
           })
           $previousTag = ""
           try {
@@ -258,8 +259,9 @@ jobs:
                 $previousAssets += @($previousManifest.delete)
               }
             } else {
-              $previousAssets = @(Get-ChildItem -LiteralPath $previousPayload -Recurse -File | ForEach-Object {
-                $_.FullName.Substring($previousPayload.Length + 1).Replace('\', '/')
+              $previousPayloadPath = (Resolve-Path -LiteralPath $previousPayload).Path
+              $previousAssets = @(Get-ChildItem -LiteralPath $previousPayloadPath -Recurse -File | ForEach-Object {
+                $_.FullName.Substring($previousPayloadPath.Length + 1).Replace('\', '/')
               })
             }
           }
@@ -274,7 +276,7 @@ jobs:
 
           $hashes = [ordered]@{}
           foreach ($file in $updateFiles) {
-            $hashes[$file] = (Get-FileHash -LiteralPath (Join-Path $updateStage $file) -Algorithm SHA256).Hash.ToLowerInvariant()
+            $hashes[$file] = (Get-FileHash -LiteralPath (Join-Path $updateStagePath $file) -Algorithm SHA256).Hash.ToLowerInvariant()
           }
           [ordered]@{
             version = $version
