@@ -4,12 +4,13 @@
 
 - Do not add unsolicited features. When the user explicitly asks for suggestions, give a short prioritized list first; implement only the items they approve.
 
-## Latest pass (Release-readiness opinion, 2026-11-19)
+## Latest pass (v0.0.101 published and real upgrade test, 2026-11-19)
 
-- The local 0.0.101 code is a release candidate: no known critical or high issue remains in the reviewed updater and installer paths. The final setup, portable zip, in-place install, custom-install cleanup, rollback-root regression, archive updater helper, and full test suite passed.
-- It is not yet fully update-verified. The latest published GitHub release is still `v0.0.100`, so no real in-app `0.0.100 -> 0.0.101` update has run. Inno handles install, upgrade identity, uninstall, and Program Files ACLs; it does not provide the update check, download, checksum verification, helper launch, rollback, or success marker. Those remain app-owned paths.
-- Current installer policy remains `DisableDirPage=yes` and `UsePreviousAppDir=no`: it installs to Program Files rather than reusing a custom folder. It detects and removes a previously registered Inno custom install after a successful install, but portable or unregistered copies need manual removal. Inno has no separate Update mode; the app's About view is where Update appears.
-- Recommendation: publish `0.0.101` as the next release candidate, then test the real update from an installed `0.0.100` before calling the update flow fully proven. No commit or push was made.
+- Published `v0.0.101` from commit `b3d1387` after packaging fixes `71bcac7` and `b91cd3f`. Main was pushed and manual Release run `44596953838` completed successfully. Release: https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.101. Assets: setup, portable ZIP, update ZIP, and matching `.sha256` files. Assets are unsigned because signing secrets are not configured.
+- Verified the published setup and update-archive checksums. The update archive contains 477 files with matching hashes and one delete entry, `mscordaccore_amd64_amd64_8.0.3326.52219.dll`.
+- Real old-version test: `v0.0.100` was installed and registered at `E:\CryoTray`, running as PID `54340`. About correctly detected `0.0.101`. Clicking **Download and install** downloaded the release, but the old updater selected a ZIP instead of the setup and copied it over E. It failed with `Access is denied`, left E partly overwritten, and closed the app. **The v0.0.100 in-app upgrade path is not working.**
+- Recovery: downloaded the published `CryoTray-Setup-0.0.101.exe`, verified its SHA-256, and installed it silently. E was removed, the Program Files install completed, the uninstall key now points to `C:\Program Files\CryoTray`, no `PawnIO_setup.exe` remains in the app folder, and ProgramData is still owned by Administrators. The startup task initially retained the deleted E path; it was updated to `C:\Program Files\CryoTray\CryoTray.exe /autostart` and the app was started from there as PID `42840`.
+- Compatibility rule: the already-published `v0.0.100` updater cannot distinguish installed from portable copies and always prefers the first `.zip` asset. The new `0.0.101` updater selects the setup for installed copies and the update archive for portable copies, so future updates do not have this defect. Existing `v0.0.100` users must use the setup once; no change to the current release can alter the old client's asset choice.
 
 ## Latest pass (Rollback-root audit and update verification, 2026-11-19)
 

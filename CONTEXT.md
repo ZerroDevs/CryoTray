@@ -1,5 +1,12 @@
 # CONTEXT
 
+## Release status (2026-11-19)
+
+- `v0.0.101` is published at https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.101 from commit `b3d1387`. The release includes the setup, portable ZIP, update archive, and SHA-256 files; signing is not configured.
+- The update archive has 477 hashed files and one cumulative delete entry. Published checksums and every payload hash were verified.
+- The old `v0.0.100` updater at `E:\CryoTray` detected `0.0.101` but chose a ZIP over the setup and failed with `Access is denied`. It was recovered with the published setup. The app is now installed at `C:\Program Files\CryoTray`, running as PID `42840`, with the startup task pointing there.
+- Existing `v0.0.100` users need one manual setup run. `v0.0.101` fixes installed-versus-portable asset selection for future releases, but the old client cannot be changed after publication.
+
 ## Architecture
 
 - `App.xaml.cs`: software-rendered, single-instance WPF shell with named `EventWaitHandle` (`CryoTray-Show-Dashboard-Event-99210`) second-launch window activation, `SystemEvents.PowerModeChanged` battery auto-cooling and fan-health suspend/resume rules, `/uninstall-cleanup` CLI mode, tray manager, message-only hotkey `HwndSource`, on-demand `MainWindow`, App-owned overlay, and working-set trimming; `/dump` bypasses the mutex and writes `cpu-sensors.txt`.

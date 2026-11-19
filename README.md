@@ -118,6 +118,8 @@ All temperature displays, thresholds, charts, and notifications honor the select
 
 Settings > About checks the latest GitHub release and can download and install a newer build in place. Automatic checks are enabled by default: every 5 minutes while the dashboard is open, every 30 minutes in the tray, and immediately after startup, resume, or a network reconnect. Updates require the release's SHA-256 checksum, the manifest version, and every per-file hash to match; Authenticode is checked when present but a signature is not required. About shows the release notes, last checked time and result, download speed, ETA, and a Cancel button. Startup creates and secures the update and rollback roots before any rollback metadata is read. Before installing, CryoTray saves a hash-verified rollback point under `%ProgramData%\CryoTray` and verifies it before launch; if the new build does not work, About can restore the previous version.
 
+If you are upgrading from `v0.0.100`, use the setup manually once. That release's updater prefers ZIP assets and can fail before the new installer runs. `v0.0.101` and later correctly choose the setup for installed copies.
+
 ## Cooling Mode
 
 Cooling Mode activates a Windows power scheme named `CryoTray Cooling`. The scheme is embedded in the application as `Resources\CryoTray.pow` and imported automatically on first use when it is not already installed.
