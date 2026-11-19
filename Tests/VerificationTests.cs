@@ -201,7 +201,7 @@ namespace CryoTray.Tests
                     diagnostics.Contains("SERIAL-SECRET") ||
                     diagnostics.Contains("PATH-SECRET"))
                 {
-                    throw new Exception("Diagnostics snapshot content or privacy mismatch.");
+                    throw new Exception($"Diagnostics snapshot content or privacy mismatch.\n{diagnostics}");
                 }
 
                 Console.WriteLine($"PASSED (PC: {info.PcName}, CPU: {info.ProcessorName}, RAM: {info.Memory}, GPU: {info.GraphicsCard})");
