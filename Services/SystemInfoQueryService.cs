@@ -780,7 +780,8 @@ namespace CryoTray.Services
                     string status = string.IsNullOrWhiteSpace(drive.StatusText)
                         ? "Unknown"
                         : drive.StatusText.Trim();
-                    sb.AppendLine($"  {driveName}: {health} ({status})");
+                    string separator = driveName.EndsWith(":", StringComparison.Ordinal) ? " " : ": ";
+                    sb.AppendLine($"  {driveName}{separator}{health} ({status})");
                 }
             }
 
