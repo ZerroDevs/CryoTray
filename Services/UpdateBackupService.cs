@@ -173,6 +173,66 @@ namespace CryoTray.Services
             return info != null && VerifyBackup(info);
         }
 
+        public static long GetSizeBytes(UpdateBackupInfo info)
+        {
+            try
+            {
+                if (info == null ||
+                    !Directory.Exists(info.Path) ||
+                    !IsInsideRollbackRoot(info.Path))
+                {
+                    return 0;
+                }
+
+                UpdateStorage.EnsureNoReparsePoints(info.Path);
+                if (ContainsReparsePoint(info.Path))
+                {
+                    return 0;
+                }
+
+                long total = 0;
+                foreach (string file in Directory.EnumerateFiles(
+                    info.Path, "*", SearchOption.AllDirectories))
+                {
+                    total += new FileInfo(file).Length;
+                }
+
+                return total;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        public static bool DeleteCurrent()
+        {
+            UpdateStorage.EnsureRollbackRoot();
+            var info = GetCurrent();
+            if (info == null)
+            {
+                return false;
+            }
+
+            if (!IsInsideRollbackRoot(info.Path) ||
+                !Directory.Exists(info.Path))
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Get("Update_BackupMissing"));
+            }
+
+            UpdateStorage.EnsureNoReparsePoints(info.Path);
+            if (ContainsReparsePoint(info.Path))
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Get("Update_SecureStorageFailed"));
+            }
+
+            DeleteDirectory(info.Path);
+            File.Delete(ManifestPath);
+            return true;
+        }
+
         private static bool IsInsideRollbackRoot(string path)
         {
             string root = Path.GetFullPath(RollbackRoot)
@@ -258,6 +318,38 @@ namespace CryoTray.Services
                 string destination = Path.Combine(destinationDirectory, Path.GetFileName(directory));
                 CopyDirectory(directory, destination);
             }
+        }
+
+        private static void DeleteDirectory(string path)
+        {
+            foreach (string entry in Directory.EnumerateFileSystemEntries(path))
+            {
+                FileAttributes attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    if ((attributes & FileAttributes.Directory) != 0)
+                    {
+                        Directory.Delete(entry, recursive: false);
+                    }
+                    else
+                    {
+                        File.Delete(entry);
+                    }
+
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    DeleteDirectory(entry);
+                }
+                else
+                {
+                    File.Delete(entry);
+                }
+            }
+
+            Directory.Delete(path, recursive: false);
         }
 
         private static void TryDeleteDirectory(string path)

@@ -60,9 +60,14 @@ dotnet bin\Release\net8.0-windows\CryoTray.dll /dump
 ```
 
 ### Launch the Application
-Because `app.manifest` requires Administrator privileges for kernel-level sensor access, launch via PowerShell:
+`app.manifest` requires Administrator privileges for kernel-level sensor access, and Release builds refuse to start from a user-writable folder such as the project output. Use the Debug build for IDE runs and launch via PowerShell:
 ```powershell
-Start-Process .\bin\Release\net8.0-windows\CryoTray.exe
+dotnet build -c Debug
+Start-Process .\bin\Debug\net8.0-windows\CryoTray.exe
+```
+To run the Release configuration from the project folder instead, create the developer marker once from an elevated shell; delete it to restore the guard:
+```powershell
+New-Item -ItemType File -Force "$env:ProgramData\CryoTray\dev-mode" | Out-Null
 ```
 
 ---
@@ -121,8 +126,8 @@ fix(tray): prevent tooltip cutoff when merged badge is active
 
 ### 7. Versioning Scheme (`VERSION`)
 CryoTray uses three-part semantic versioning rooted at `0.0.100`:
-- **Current Baseline**: `0.0.102` (defined in the root `VERSION` file).
-- **Subsequent Updates**: Increment sequentially (`0.0.102`, `0.0.103`, `0.0.104`, etc.).
+- **Current Baseline**: `0.0.103` (defined in the root `VERSION` file).
+- **Subsequent Updates**: Increment sequentially (`0.0.103`, `0.0.104`, `0.0.105`, etc.).
 - **Automatic Stamping**: `CryoTray.csproj` dynamically reads `VERSION` to stamp `AssemblyVersion`, `FileVersion`, and `InformationalVersion` on build.
 - **Automated Releases**: The release workflow (`.github/workflows/release.yml`) monitors changes to `VERSION` on `main` and creates matching tags (e.g., `v0.0.100`, `v0.0.101`) and release artifacts with SHA-256 digests.
 

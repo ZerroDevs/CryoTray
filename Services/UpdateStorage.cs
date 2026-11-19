@@ -8,6 +8,7 @@ namespace CryoTray.Services
     public static class UpdateStorage
     {
         private const long MaxLogBytes = 1024 * 1024;
+        private const string DeveloperModeMarker = "dev-mode";
         private static readonly SecurityIdentifier AdministratorsSid = new(
             WellKnownSidType.BuiltinAdministratorsSid, null);
         private static readonly SecurityIdentifier LocalSystemSid = new(
@@ -52,6 +53,20 @@ namespace CryoTray.Services
         }
 
         public static string RootPath => Root;
+
+        public static bool IsDeveloperModeEnabled
+        {
+            get
+            {
+                lock (RootGate)
+                {
+                    // Secure the root first so a marker planted by a standard user is cleared.
+                    EnsureUpdateRoot();
+                    return File.Exists(Path.Combine(Root, DeveloperModeMarker));
+                }
+            }
+        }
+
         public static string UpdateRoot => Path.Combine(Root, "Update");
         public static string DownloadsRoot => Path.Combine(UpdateRoot, "Downloads");
         public static string RollbackRoot => Path.Combine(Root, "Rollback");

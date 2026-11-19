@@ -1260,6 +1260,15 @@
                                FontSize="11"
                                TextWrapping="Wrap"
                                Margin="0,4,0,4"/>
+                    <CheckBox x:Name="ChkSaveRollbackOnUpdate"
+                              Content="{DynamicResource Settings_SaveRollbackOnUpdate}"
+                              Checked="SettingChanged"
+                              Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_SaveRollbackOnUpdateDesc}"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,6"/>
                     <TextBlock x:Name="TxtUpdateStatus"
                                Text="{DynamicResource Settings_UpdateDefault}"
                                Foreground="{DynamicResource TextSecondaryBrush}"
@@ -1309,7 +1318,24 @@
                                 Style="{StaticResource SettingsFooterButton}"
                                 HorizontalAlignment="Left"
                                 Visibility="Collapsed"/>
+                        <Button x:Name="BtnClearDownloads"
+                                Content="{DynamicResource Settings_ClearDownloads}"
+                                Click="BtnClearDownloads_Click"
+                                Style="{StaticResource SettingsFooterButton}"
+                                FontSize="11.5"
+                                Padding="9,4"
+                                HorizontalAlignment="Left"
+                                Margin="8,0,0,0"
+                                Visibility="Collapsed"
+                                ToolTip="{DynamicResource Settings_DownloadCacheClearTooltip}"
+                                AutomationProperties.Name="{DynamicResource Settings_ClearDownloads}"/>
                     </StackPanel>
+                    <TextBlock x:Name="TxtDownloadCacheStatus"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,0"
+                               Visibility="Collapsed"/>
 
                     <TextBlock x:Name="TxtRollbackStatus"
                                Foreground="{DynamicResource TextSecondaryBrush}"
@@ -1317,13 +1343,25 @@
                                TextWrapping="Wrap"
                                Margin="0,10,0,0"
                                Visibility="Collapsed"/>
-                    <Button x:Name="BtnRollback"
-                            Content="{DynamicResource Settings_RollbackButton}"
-                            Click="BtnRollback_Click"
-                            Style="{StaticResource SettingsFooterButton}"
-                            HorizontalAlignment="Left"
-                            Margin="0,4,0,0"
-                            Visibility="Collapsed"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button x:Name="BtnRollback"
+                                Content="{DynamicResource Settings_RollbackButton}"
+                                Click="BtnRollback_Click"
+                                Style="{StaticResource SettingsFooterButton}"
+                                HorizontalAlignment="Left"
+                                Margin="0,0,8,0"
+                                Visibility="Collapsed"/>
+                        <Button x:Name="BtnDeleteRollback"
+                                Content="{DynamicResource Settings_RollbackDeleteButton}"
+                                Click="BtnDeleteRollback_Click"
+                                Style="{StaticResource SettingsFooterButton}"
+                                FontSize="11.5"
+                                Padding="9,4"
+                                HorizontalAlignment="Left"
+                                Visibility="Collapsed"
+                                ToolTip="{DynamicResource Settings_RollbackDeleteConfirmTitle}"
+                                AutomationProperties.Name="{DynamicResource Settings_RollbackDeleteButton}"/>
+                    </StackPanel>
 
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,20,0,18"/>
 

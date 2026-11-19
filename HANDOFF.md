@@ -4,6 +4,44 @@
 
 - Do not add unsolicited features. When the user explicitly asks for suggestions, give a short prioritized list first; implement only the items they approve.
 
+## v0.0.103 release preparation (2026-11-19)
+
+- Bumped `VERSION`, `app.manifest`, and the Inno default `AppVersion` to `0.0.103`; updated the baseline lines in `CONTRIBUTING.md` and `SECURITY.md`.
+- Verification: Release build passed with `0 Warning(s), 0 Error(s)`; the full `/test` suite passed 38/38 and `/test-updates` passed 11/11 in an elevated shell. From Git Bash the switches need `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`, otherwise `/test` is converted into a Windows path and the app exits through the single-instance branch with code 0.
+- The pushed `VERSION` change triggers `.github/workflows/release.yml`, which builds, tests, and publishes a stable `v0.0.103` release. The old `v0.0.102` prerelease is removed after the new release is verified.
+
+## Developer launch from build output (2026-11-19)
+
+- The installed-copy location guard compiles only into non-Debug builds (`#if !DEBUG` around the check and `EnsureApplicationDirectoryProtected` in `App.OnStartup`). Debug builds start from `bin\Debug\net8.0-windows` for IDE work.
+- `UpdateStorage.IsDeveloperModeEnabled` lets a Release build skip the same guard when an administrator has created `%ProgramData%\CryoTray\dev-mode`. The check secures the ProgramData root first, so a marker planted by a standard user in an untrusted root is cleared. Update installation still refuses a user-writable app folder.
+- `EnsureUpdateRoot()` and `EnsureRollbackRoot()` still run in every configuration, so update and rollback storage stays protected during development.
+- README, CONTRIBUTING, and SECURITY document the Debug path and the developer marker. Verification: Debug and Release builds passed with `0 Warning(s), 0 Error(s)`; the elevated `/test-updates` suite passed 11/11, including `Developer mode marker`. The marker was created in `%ProgramData%\CryoTray\dev-mode` on this machine.
+- Verification gotcha: Git Bash rewrites `/test` and `/test-updates` into Windows paths, so the app sees no switch and exits through the single-instance branch with code 0. Run the switches from PowerShell, or prefix them with `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'` in Git Bash. The suites also require an elevated process because they create administrator-owned ProgramData ACLs.
+
+## Update cache and rollback metadata (2026-11-19)
+
+- Added **Clear downloads** in About, shown only when `%ProgramData%\CryoTray\Update\Downloads` contains files. The status line shows the current cache size; clearing removes download directories and lock files without touching the update or rollback roots. The action is disabled while an update operation is running.
+- `UpdateService.GetDownloadCacheSizeBytes()` and `ClearDownloadCache()` provide the cache size and safe cleanup. `UpdateBackupService.GetSizeBytes()` supplies the rollback size; About now shows the backup creation date and size in `Settings_RollbackAvailable`.
+- Added `TestDownloadCacheClear` and rollback-size assertions. Release build passed with `0 Warning(s), 0 Error(s)`; `/test-updates` and the full `/test` both exited `0`. The installed `0.0.102` app was not replaced, and no version or release was changed.
+
+## Rollback save setting (2026-11-19)
+
+- Added `AppSettings.SaveRollbackOnUpdate` (default `true`) and a **Save rollback on update** checkbox under Settings > About. The install flow snapshots the setting before download, disables the checkbox for the operation, and calls `CreateBackup()` only when enabled. When disabled, `LaunchUpdater` receives an empty backup path; the helper logs that no verified backup is available and skips automatic restore on failure. Existing rollback copies remain until deleted or replaced.
+- Verification: `dotnet build CryoTray.csproj -c Release -o build-check -p:UseSharedCompilation=false` passed with `0 Warning(s), 0 Error(s)`; `/test-updates` and the full `/test` both exited `0`. The installed `0.0.102` app was not replaced, and no version or release was changed.
+
+## Rollback delete control (2026-11-19)
+
+- Added a compact **Delete backup** button beside **Restore previous version** in Settings > About. It asks for confirmation, deletes the current rollback directory plus `backup.json`, and shows success or failure inline. The restore and delete actions are disabled while an update operation is running.
+- `UpdateBackupService.DeleteCurrent()` deletes only the manifest-selected backup inside the protected rollback root, rejects missing or inconsistent paths, verifies there are no reparse points, and removes nested files safely before deleting the manifest.
+- Added `TestRollbackDeletion` to `Tests/UpdateVerificationTests.cs` using an isolated temporary update root. `dotnet build CryoTray.csproj -c Release -o build-check -p:UseSharedCompilation=false` passed with `0 Warning(s), 0 Error(s)`, and `/test-updates` exited successfully (exit code `0`) after adding the check. The installed `0.0.102` app was not replaced, the version was not bumped, and no release was created.
+
+## Audit result (v0.0.102 live update, 2026-11-19)
+
+- Rollback retention: `UpdateBackupService.CreateBackup()` writes the new `backup.json` and then deletes every other backup directory under `%ProgramData%\CryoTray\Rollback`. Successful updates, app restarts, and launching a rollback do not delete the current backup. It is replaced only when the next update reaches the backup step; the seven-day cleanup applies to Update downloads, not rollback backups.
+- The installed update path itself passed inspection. The helper log shows the completion marker applied, the silent installer completed, and the app restarted. The rollback tree contains a complete backup of `0.0.101` with `backup.json`; the update work directory contains the verified setup and download lock under the protected update root. About reports `0.0.102` and `up to date`; the startup task points to Program Files with the correct working directory; no `PawnIO_setup.exe` remains in the app folder; ProgramData is owned by Administrators with only SYSTEM and Administrators full-control entries.
+- No code defect was found in the update test, so no code change or second update run is needed. The test only covered the successful installed path; rollback and failure recovery were not exercised live. The backup exists and the rollback code paths remain covered by the updater tests.
+- Caveats outside the passed path: `v0.0.102` is intentionally a prerelease no-op test build, so the machine currently runs an unreleased build while `v0.0.101` remains public latest. The old `v0.0.100` automatic update remains incompatible and still needs the manual setup. The downloaded setup is retained under ProgramData by the existing seven-day cleanup policy.
+
 ## Latest pass (v0.0.102 test release and live installed update, 2026-11-19)
 
 - Built and published `v0.0.102` from commit `7285c33` as a prerelease. Release run `44599727897` completed successfully with the setup, portable ZIP, update ZIP, and SHA-256 assets. It remains a test build with no functional changes. `v0.0.101` remains the public latest release.

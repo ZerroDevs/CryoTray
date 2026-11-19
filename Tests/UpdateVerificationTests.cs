@@ -24,6 +24,9 @@ namespace CryoTray.Tests
             allPassed &= TestStatusService();
             allPassed &= TestCompletionState();
             allPassed &= TestRollbackHashVerification();
+            allPassed &= TestRollbackDeletion();
+            allPassed &= TestDownloadCacheClear();
+            allPassed &= TestDeveloperModeMarker();
             allPassed &= TestProtectedStorageAcl();
             allPassed &= TestUntrustedRollbackRootIsRejected();
             allPassed &= TestApplicationDirectoryProtection();
@@ -168,6 +171,161 @@ namespace CryoTray.Tests
                     if (Directory.Exists(testDirectory))
                     {
                         Directory.Delete(testDirectory, true);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static bool TestRollbackDeletion()
+        {
+            Console.Write("[TEST] Rollback deletion... ");
+            string? previousRoot = UpdateStorage.RootPathOverride;
+            string testRoot = Path.Combine(
+                Path.GetTempPath(), "cryotray-rollback-delete-" + Guid.NewGuid().ToString("N"));
+            string backupDirectory = Path.Combine(testRoot, "Rollback", "previous");
+
+            try
+            {
+                UpdateStorage.RootPathOverride = testRoot;
+                UpdateStorage.EnsureRollbackRoot();
+                Directory.CreateDirectory(backupDirectory);
+
+                string file = Path.Combine(backupDirectory, "CryoTray.exe");
+                File.WriteAllText(file, "rollback payload");
+                string hash = Convert.ToHexString(
+                    SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
+                var info = new UpdateBackupInfo
+                {
+                    Version = "0.0.100",
+                    Path = backupDirectory,
+                    CreatedUtc = DateTime.UtcNow,
+                    Files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["CryoTray.exe"] = hash
+                    }
+                };
+
+                string manifest = Path.Combine(UpdateStorage.RollbackRoot, "backup.json");
+                File.WriteAllText(manifest, JsonSerializer.Serialize(info));
+
+                var current = UpdateBackupService.GetCurrent();
+                Assert(current != null);
+                Assert(current!.CreatedUtc != default);
+                Assert(UpdateBackupService.GetSizeBytes(current) > 0);
+                Assert(UpdateBackupService.DeleteCurrent());
+                Assert(!Directory.Exists(backupDirectory));
+                Assert(!File.Exists(manifest));
+                Assert(UpdateBackupService.GetCurrent() == null);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                UpdateStorage.RootPathOverride = previousRoot;
+                try
+                {
+                    if (Directory.Exists(testRoot))
+                    {
+                        Directory.Delete(testRoot, true);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static bool TestDownloadCacheClear()
+        {
+            Console.Write("[TEST] Download cache clear... ");
+            string? previousRoot = UpdateStorage.RootPathOverride;
+            string testRoot = Path.Combine(
+                Path.GetTempPath(), "cryotray-download-cache-" + Guid.NewGuid().ToString("N"));
+            string cacheDirectory = Path.Combine(
+                testRoot, "Update", "Downloads", "cache-test");
+
+            try
+            {
+                UpdateStorage.RootPathOverride = testRoot;
+                UpdateStorage.EnsureUpdateRoot();
+                Directory.CreateDirectory(cacheDirectory);
+                File.WriteAllText(Path.Combine(cacheDirectory, "update.exe"), "update payload");
+                File.WriteAllText(Path.Combine(cacheDirectory, "download.lock"), "");
+
+                Assert(UpdateService.GetDownloadCacheSizeBytes() > 0);
+                UpdateService.ClearDownloadCache();
+                Assert(UpdateService.GetDownloadCacheSizeBytes() == 0);
+                Assert(!Directory.Exists(cacheDirectory));
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                UpdateStorage.RootPathOverride = previousRoot;
+                try
+                {
+                    if (Directory.Exists(testRoot))
+                    {
+                        Directory.Delete(testRoot, true);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static bool TestDeveloperModeMarker()
+        {
+            Console.Write("[TEST] Developer mode marker... ");
+            string? previousRoot = UpdateStorage.RootPathOverride;
+            string testRoot = Path.Combine(
+                Path.GetTempPath(), "cryotray-dev-mode-" + Guid.NewGuid().ToString("N"));
+            string marker = Path.Combine(testRoot, "dev-mode");
+
+            try
+            {
+                UpdateStorage.RootPathOverride = testRoot;
+                UpdateStorage.EnsureUpdateRoot();
+                Assert(!UpdateStorage.IsDeveloperModeEnabled);
+
+                File.WriteAllText(marker, string.Empty);
+                Assert(UpdateStorage.IsDeveloperModeEnabled);
+
+                File.Delete(marker);
+                Assert(!UpdateStorage.IsDeveloperModeEnabled);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                UpdateStorage.RootPathOverride = previousRoot;
+                try
+                {
+                    if (Directory.Exists(testRoot))
+                    {
+                        Directory.Delete(testRoot, true);
                     }
                 }
                 catch

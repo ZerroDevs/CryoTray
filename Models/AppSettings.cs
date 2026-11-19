@@ -114,6 +114,7 @@ namespace CryoTray.Models
 
         // Updates
         public bool AutomaticUpdateChecks { get; set; } = true;
+        public bool SaveRollbackOnUpdate { get; set; } = true;
         public DateTime? LastUpdateCheckUtc { get; set; }
         public string LastUpdateOutcome { get; set; } = "";
         public string LastUpdateVersion { get; set; } = "";

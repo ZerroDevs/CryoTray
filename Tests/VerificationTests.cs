@@ -1925,6 +1925,7 @@ namespace CryoTray.Tests
                     },
                     StorageHealthAlertsEnabled = false,
                     AutopilotForegroundOnly = true,
+                    SaveRollbackOnUpdate = false,
                     CpuTrayBadgeMetric = "Load",
                     GpuTrayBadgeMetric = "Ram"
                 };
@@ -1951,6 +1952,7 @@ namespace CryoTray.Tests
                     roundTrip.FanAliases["gpu"] != "Aux fan" ||
                     roundTrip.StorageHealthAlertsEnabled ||
                     !roundTrip.AutopilotForegroundOnly ||
+                    roundTrip.SaveRollbackOnUpdate ||
                     roundTrip.CpuTrayBadgeMetric != "Load" ||
                     roundTrip.GpuTrayBadgeMetric != "Ram" ||
                     roundTrip.Theme != "System")
@@ -1964,12 +1966,13 @@ namespace CryoTray.Tests
                     !defaults.ShowBatteryStatus ||
                     defaults.FanAliases.Count != 0 ||
                     !defaults.StorageHealthAlertsEnabled ||
+                    !defaults.SaveRollbackOnUpdate ||
                     defaults.Theme != "Dark" ||
                     ThemeService.Normalize("Light") != "Light" ||
                     ThemeService.Normalize("system") != "System" ||
                     ThemeService.Normalize("unsupported") != "Dark")
                 {
-                    throw new Exception("Unexpected default health, tray metric, or theme settings.");
+                    throw new Exception("Unexpected default health, tray metric, rollback, or theme settings.");
                 }
 
                 if (GlobalHotkeyService.CoolingHotkeyId == GlobalHotkeyService.RamOptimizeHotkeyId)

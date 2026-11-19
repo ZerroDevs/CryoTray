@@ -689,6 +689,92 @@ namespace CryoTray.Services
             }
         }
 
+        public static long GetDownloadCacheSizeBytes()
+        {
+            try
+            {
+                UpdateStorage.EnsureUpdateRoot();
+                return Directory.Exists(UpdateStorage.DownloadsRoot)
+                    ? GetDirectorySize(UpdateStorage.DownloadsRoot)
+                    : 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        public static void ClearDownloadCache()
+        {
+            UpdateStorage.EnsureUpdateRoot();
+            if (!Directory.Exists(UpdateStorage.DownloadsRoot))
+            {
+                return;
+            }
+
+            foreach (string entry in Directory.EnumerateFileSystemEntries(
+                UpdateStorage.DownloadsRoot))
+            {
+                DeleteCacheEntry(entry);
+            }
+        }
+
+        private static long GetDirectorySize(string directory)
+        {
+            long total = 0;
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+            {
+                FileAttributes attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    total += GetDirectorySize(entry);
+                }
+                else
+                {
+                    total += new FileInfo(entry).Length;
+                }
+            }
+
+            return total;
+        }
+
+        private static void DeleteCacheEntry(string path)
+        {
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    Directory.Delete(path, recursive: false);
+                }
+                else
+                {
+                    File.Delete(path);
+                }
+
+                return;
+            }
+
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                foreach (string entry in Directory.EnumerateFileSystemEntries(path))
+                {
+                    DeleteCacheEntry(entry);
+                }
+
+                Directory.Delete(path, recursive: false);
+            }
+            else
+            {
+                File.Delete(path);
+            }
+        }
+
         private static void CleanupStaleDownloads(string currentWorkDirectory)
         {
             try

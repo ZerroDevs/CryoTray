@@ -273,6 +273,7 @@ namespace CryoTray.Views
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             ChkAutomaticUpdates.IsChecked = s.AutomaticUpdateChecks;
+            ChkSaveRollbackOnUpdate.IsChecked = s.SaveRollbackOnUpdate;
             UpdateNotificationControlStates();
 
             // View Tab
@@ -383,6 +384,7 @@ namespace CryoTray.Views
             UpdateTrayBadgeSampleTexts();
             ApplyUpdateState();
             RefreshLastCheckedText();
+            RefreshDownloadCacheUi();
             RefreshAutopilotWhitelist();
             RefreshDiskDriveListSafely();
             RefreshFanAliasListSafely();
@@ -788,6 +790,7 @@ namespace CryoTray.Views
             s.StorageHealthAlertsEnabled = ChkStorageHealthAlerts.IsChecked == true;
             s.ShowBatteryStatus = ChkShowBatteryStatus.IsChecked == true;
             s.AutomaticUpdateChecks = ChkAutomaticUpdates.IsChecked == true;
+            s.SaveRollbackOnUpdate = ChkSaveRollbackOnUpdate.IsChecked == true;
 
             s.ShowGpuBadge = ChkShowGpuBadge.IsChecked == true;
             s.GpuTrayWhiteDigits = RdoGpuWhiteDigits.IsChecked == true;
@@ -2199,7 +2202,13 @@ namespace CryoTray.Views
             bool updateLaunched = false;
             bool backingUp = false;
             bool markerRecorded = false;
+            bool saveRollback = SettingsService.Instance.Current.SaveRollbackOnUpdate;
             string? backupDirectory = null;
+
+            if (ChkSaveRollbackOnUpdate != null)
+            {
+                ChkSaveRollbackOnUpdate.IsEnabled = false;
+            }
 
             try
             {
@@ -2250,17 +2259,20 @@ namespace CryoTray.Views
                     BtnCancelUpdate.Visibility = Visibility.Collapsed;
                 }
 
-                backingUp = true;
-                SetUpdateState("Settings_Backup", "Settings_DownloadInstall");
-                UpdateBackupService.CreateBackup(UpdateService.CurrentVersion);
-                var backup = UpdateBackupService.GetCurrent();
-                if (backup == null || !UpdateBackupService.VerifyBackup(backup))
+                if (saveRollback)
                 {
-                    throw new InvalidOperationException(
-                        LocalizationService.Get("Update_BackupTampered"));
+                    backingUp = true;
+                    SetUpdateState("Settings_Backup", "Settings_DownloadInstall");
+                    UpdateBackupService.CreateBackup(UpdateService.CurrentVersion);
+                    var backup = UpdateBackupService.GetCurrent();
+                    if (backup == null || !UpdateBackupService.VerifyBackup(backup))
+                    {
+                        throw new InvalidOperationException(
+                            LocalizationService.Get("Update_BackupTampered"));
+                    }
+                    backupDirectory = backup.Path;
+                    backingUp = false;
                 }
-                backupDirectory = backup.Path;
-                backingUp = false;
 
                 SetUpdateState("Settings_Restarting", "Settings_DownloadingButton");
                 string? updateId = null;
@@ -2319,6 +2331,10 @@ namespace CryoTray.Views
                 {
                     UpdateCompletionService.Clear();
                 }
+                if (!_isClosed && ChkSaveRollbackOnUpdate != null)
+                {
+                    ChkSaveRollbackOnUpdate.IsEnabled = true;
+                }
                 if (!_isClosed && !updateLaunched)
                 {
                     FinishUpdateOperation();
@@ -2354,6 +2370,59 @@ namespace CryoTray.Views
             }
             RefreshLastCheckedText();
             RefreshRollbackUi();
+            RefreshDownloadCacheUi();
+        }
+
+        private void RefreshDownloadCacheUi()
+        {
+            if (BtnClearDownloads == null || TxtDownloadCacheStatus == null)
+            {
+                return;
+            }
+
+            long size = UpdateService.GetDownloadCacheSizeBytes();
+            if (size <= 0)
+            {
+                BtnClearDownloads.Visibility = Visibility.Collapsed;
+                TxtDownloadCacheStatus.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            BtnClearDownloads.Visibility = Visibility.Visible;
+            BtnClearDownloads.IsEnabled = !_updateBusy;
+            TxtDownloadCacheStatus.Text = LocalizationService.Format(
+                "Settings_DownloadCacheSize", FormatByteSize(size));
+            TxtDownloadCacheStatus.Visibility = Visibility.Visible;
+        }
+
+        private void BtnClearDownloads_Click(object sender, RoutedEventArgs e)
+        {
+            if (_updateBusy)
+            {
+                return;
+            }
+
+            long size = UpdateService.GetDownloadCacheSizeBytes();
+            if (size <= 0)
+            {
+                RefreshDownloadCacheUi();
+                return;
+            }
+
+            try
+            {
+                UpdateService.ClearDownloadCache();
+                BtnClearDownloads.Visibility = Visibility.Collapsed;
+                TxtDownloadCacheStatus.Text = LocalizationService.Format(
+                    "Settings_DownloadCacheCleared", FormatByteSize(size));
+                TxtDownloadCacheStatus.Visibility = Visibility.Visible;
+            }
+            catch
+            {
+                TxtDownloadCacheStatus.Text = LocalizationService.Get(
+                    "Settings_DownloadCacheClearFailed");
+                TxtDownloadCacheStatus.Visibility = Visibility.Visible;
+            }
         }
 
         private static string FormatByteSize(double bytes)
@@ -2397,7 +2466,7 @@ namespace CryoTray.Views
 
         private void RefreshRollbackUi()
         {
-            if (TxtRollbackStatus == null || BtnRollback == null)
+            if (TxtRollbackStatus == null || BtnRollback == null || BtnDeleteRollback == null)
             {
                 return;
             }
@@ -2407,13 +2476,71 @@ namespace CryoTray.Views
             {
                 TxtRollbackStatus.Visibility = Visibility.Collapsed;
                 BtnRollback.Visibility = Visibility.Collapsed;
+                BtnDeleteRollback.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            TxtRollbackStatus.Text = LocalizationService.Format("Settings_RollbackAvailable", backup.Version);
+            string createdText = backup.CreatedUtc == default
+                ? LocalizationService.Get("Common_Unknown")
+                : backup.CreatedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+            long size = UpdateBackupService.GetSizeBytes(backup);
+            string sizeText = size > 0
+                ? FormatByteSize(size)
+                : LocalizationService.Get("Common_Unknown");
+            TxtRollbackStatus.Text = LocalizationService.Format(
+                "Settings_RollbackAvailable", backup.Version, createdText, sizeText);
             TxtRollbackStatus.Visibility = Visibility.Visible;
             BtnRollback.Visibility = Visibility.Visible;
             BtnRollback.IsEnabled = !_updateBusy;
+            BtnDeleteRollback.Visibility = Visibility.Visible;
+            BtnDeleteRollback.IsEnabled = !_updateBusy;
+        }
+
+        private void BtnDeleteRollback_Click(object sender, RoutedEventArgs e)
+        {
+            if (_updateBusy)
+            {
+                return;
+            }
+
+            var backup = UpdateBackupService.GetCurrent();
+            if (backup == null)
+            {
+                RefreshRollbackUi();
+                return;
+            }
+
+            var result = MessageBox.Show(
+                LocalizationService.Format("Settings_RollbackDeleteConfirm", backup.Version),
+                LocalizationService.Get("Settings_RollbackDeleteConfirmTitle"),
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                BtnRollback.IsEnabled = false;
+                BtnDeleteRollback.IsEnabled = false;
+                if (!UpdateBackupService.DeleteCurrent())
+                {
+                    throw new InvalidOperationException();
+                }
+
+                TxtRollbackStatus.Text = LocalizationService.Get("Settings_RollbackDeleted");
+                TxtRollbackStatus.Visibility = Visibility.Visible;
+                BtnRollback.Visibility = Visibility.Collapsed;
+                BtnDeleteRollback.Visibility = Visibility.Collapsed;
+            }
+            catch
+            {
+                RefreshRollbackUi();
+                TxtRollbackStatus.Text = LocalizationService.Get("Settings_RollbackDeleteFailed");
+                TxtRollbackStatus.Visibility = Visibility.Visible;
+            }
         }
 
         private void BtnRollback_Click(object sender, RoutedEventArgs e)
@@ -2468,6 +2595,10 @@ namespace CryoTray.Views
             if (BtnRollback != null)
             {
                 BtnRollback.IsEnabled = false;
+            }
+            if (BtnClearDownloads != null)
+            {
+                BtnClearDownloads.IsEnabled = false;
             }
             if (BtnCancelUpdate != null)
             {

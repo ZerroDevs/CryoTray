@@ -116,7 +116,7 @@ All temperature displays, thresholds, charts, and notifications honor the select
 
 ### Updates
 
-Settings > About checks the latest GitHub release and can download and install a newer build in place. Automatic checks are enabled by default: every 5 minutes while the dashboard is open, every 30 minutes in the tray, and immediately after startup, resume, or a network reconnect. Updates require the release's SHA-256 checksum, the manifest version, and every per-file hash to match; Authenticode is checked when present but a signature is not required. About shows the release notes, last checked time and result, download speed, ETA, and a Cancel button. Startup creates and secures the update and rollback roots before any rollback metadata is read. Before installing, CryoTray saves a hash-verified rollback point under `%ProgramData%\CryoTray` and verifies it before launch; if the new build does not work, About can restore the previous version.
+Settings > About checks the latest GitHub release and can download and install a newer build in place. Automatic checks are enabled by default: every 5 minutes while the dashboard is open, every 30 minutes in the tray, and immediately after startup, resume, or a network reconnect. Updates require the release's SHA-256 checksum, the manifest version, and every per-file hash to match; Authenticode is checked when present but a signature is not required. About shows the release notes, last checked time and result, download speed, ETA, a Cancel button, and the downloaded-update cache size with a **Clear downloads** action. Startup creates and secures the update and rollback roots before any rollback metadata is read. Before installing, CryoTray saves a hash-verified rollback point under `%ProgramData%\CryoTray` and verifies it before launch; if the new build does not work, About can restore the previous version or delete that rollback copy to reclaim its disk space.
 
 If you are upgrading from `v0.0.100`, use the setup manually once. That release's updater prefers ZIP assets and can fail before the new installer runs. `v0.0.101` and later correctly choose the setup for installed copies.
 
@@ -319,7 +319,7 @@ Enable Autopilot, toggle automatic pause during fullscreen 3D games and apps, ch
 
 ### About
 
-The About tab shows the installed version, update status and release notes, last checked time and result, automatic update option, manual update button, download progress with speed/ETA and Cancel, rollback button when a backup exists, copyright and license details, and a link to the repository.
+The About tab shows the installed version, update status and release notes, last checked time and result, automatic update and save-rollback options, manual update button, download progress with speed/ETA and Cancel, the downloaded-update cache size with a **Clear downloads** action, and a rollback button plus a compact delete-backup action when a backup exists. The rollback status includes the backup date and disk size. **Save rollback on update** is enabled by default; turning it off installs future updates without creating a new rollback copy. Existing backups are kept until deleted or replaced.
 
 ## Install and run
 
@@ -381,13 +381,21 @@ The executable is written to:
 bin\Release\net8.0-windows\CryoTray.exe
 ```
 
-Run it from an elevated terminal, or launch it normally and approve the UAC prompt:
+For local UI work, build the Debug configuration and start it from an elevated terminal, or launch it normally and approve the UAC prompt:
 
 ```powershell
-Start-Process .\bin\Release\net8.0-windows\CryoTray.exe
+dotnet build CryoTray.csproj -c Debug
+Start-Process .\bin\Debug\net8.0-windows\CryoTray.exe
 ```
 
-The normal app startup guard rejects this build output because it is inside a user-writable project folder. Use the installer, or copy `publish\win-x64` to an administrator-protected folder before launching the UI. The `/test`, `/test-updates`, `/dump`, and `/uninstall-cleanup` command-line modes still run directly.
+Debug builds skip the installed-copy location guard so the app can run from the project folder. Release builds keep that guard unless the machine has a developer marker, which an administrator creates once:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:ProgramData\CryoTray" | Out-Null
+New-Item -ItemType File -Force "$env:ProgramData\CryoTray\dev-mode" | Out-Null
+```
+
+The marker lives in the administrator-protected CryoTray data folder, so a standard user cannot create it. It relaxes only the startup location guard; update installation still refuses a user-writable app folder. Delete `%ProgramData%\CryoTray\dev-mode` to restore the guard. Without the marker, run a Release build only from an administrator-protected location (the installer, or a copied `publish\win-x64` folder). The `/test`, `/test-updates`, `/dump`, and `/uninstall-cleanup` command-line modes still run directly from any build output.
 
 ### Local publish
 
@@ -472,7 +480,7 @@ https://api.github.com/repos/ZerroDevs/CryoTray/releases/latest
 
 Automatic checks run immediately when the app opens, every 5 minutes while the dashboard is visible, every 30 minutes in the tray, and after resume or a network reconnect. When a newer release is found, the dashboard shows a translucent strip with the version, **Update**, **About**, **Later**, and **Skip**. Later hides it for 24 hours; Skip keeps that version hidden until a newer release appears. Update opens Settings > About and starts the verified install; About opens the tab without installing. About shows the GitHub release notes and the last check result.
 
-A downloaded update is verified against the release's SHA-256 checksum. Authenticode is checked when present but is not required. Downloads retry transient failures and resume with HTTP Range and a `.part` file in a stable locked work directory; a 512 MiB cap and free-space check prevent runaway downloads. Installed copies run `CryoTray-Setup-<version>.exe` silently and wait for it before restarting. Portable copies use the `CryoTray-Update-<version>-win-x64.zip` archive, whose manifest carries the version, every file SHA-256, and a cumulative stale-file delete list. The updater and rollback files live in `%ProgramData%\CryoTray` with an Administrators owner, a protected Administrators/SYSTEM ACL, recursive reparse rejection, and untrusted-content clearing; the elevated helper validates the manifest, rejects reparse destinations, restores the verified rollback copy if a write fails, and only then records the one-time applied marker. The app itself must run from an administrator-protected folder; startup rejects user-writable locations and secures the application folder before continuing. The rollback copy has a SHA-256 file manifest that is verified before restore. After an actual update, the new version shows a green **CryoTray was successfully updated from vX to vY** strip with an X; it auto-hides after 20 seconds and is never shown for a fresh install. If About was left on a persisted **Available** result, it offers **Check again** until the release info is fetched again.
+A downloaded update is verified against the release's SHA-256 checksum. Authenticode is checked when present but is not required. Downloads retry transient failures and resume with HTTP Range and a `.part` file in a stable locked work directory; a 512 MiB cap and free-space check prevent runaway downloads. Installed copies run `CryoTray-Setup-<version>.exe` silently and wait for it before restarting. Portable copies use the `CryoTray-Update-<version>-win-x64.zip` archive, whose manifest carries the version, every file SHA-256, and a cumulative stale-file delete list. The updater and rollback files live in `%ProgramData%\CryoTray` with an Administrators owner, a protected Administrators/SYSTEM ACL, recursive reparse rejection, and untrusted-content clearing; the elevated helper validates the manifest, rejects reparse destinations, restores the verified rollback copy if a write fails, and only then records the one-time applied marker. Downloaded update files are retained for seven days by default and can be cleared immediately from About. The app itself must run from an administrator-protected folder; startup rejects user-writable locations and secures the application folder before continuing. The rollback copy has a SHA-256 file manifest that is verified before restore. After an actual update, the new version shows a green **CryoTray was successfully updated from vX to vY** strip with an X; it auto-hides after 20 seconds and is never shown for a fresh install. If About was left on a persisted **Available** result, it offers **Check again** until the release info is fetched again.
 
 No setting, sensor log, machine name, or usage data is sent to the update service. Only the standard HTTP request needed to fetch the latest release is made.
 

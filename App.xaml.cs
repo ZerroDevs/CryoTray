@@ -140,20 +140,27 @@ namespace CryoTray
             LocalizationService.Instance.Apply(settings.Language);
             try
             {
-                string applicationDirectory = AppContext.BaseDirectory.TrimEnd(
-                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (!UpdateStorage.IsSafeApplicationLocation(applicationDirectory))
+#if !DEBUG
+                // Debug builds and an administrator-created dev-mode marker may run from
+                // user-writable output; release and published copies stay protected.
+                if (!UpdateStorage.IsDeveloperModeEnabled)
                 {
-                    MessageBox.Show(
-                        LocalizationService.Get("Update_UnsafeLocation"),
-                        LocalizationService.Get("Error_Title"),
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
-                    Shutdown(1);
-                    return;
-                }
+                    string applicationDirectory = AppContext.BaseDirectory.TrimEnd(
+                        Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (!UpdateStorage.IsSafeApplicationLocation(applicationDirectory))
+                    {
+                        MessageBox.Show(
+                            LocalizationService.Get("Update_UnsafeLocation"),
+                            LocalizationService.Get("Error_Title"),
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        Shutdown(1);
+                        return;
+                    }
 
-                UpdateStorage.EnsureApplicationDirectoryProtected(applicationDirectory);
+                    UpdateStorage.EnsureApplicationDirectoryProtected(applicationDirectory);
+                }
+#endif
                 UpdateStorage.EnsureUpdateRoot();
                 UpdateStorage.EnsureRollbackRoot();
             }
