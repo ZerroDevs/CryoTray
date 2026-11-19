@@ -210,14 +210,22 @@ jobs:
           if (Test-Path -LiteralPath $updateStage) {
             Remove-Item -LiteralPath $updateStage -Recurse -Force
           }
+          New-Item -ItemType Directory -Path $updateStage -Force | Out-Null
           Copy-Item -Path "publish\win-x64\*" -Destination $updateStage -Recurse -Force
           $updateFiles = @(Get-ChildItem -LiteralPath $updateStage -Recurse -File | ForEach-Object {
             $_.FullName.Substring($updateStage.Length + 1).Replace('\', '/')
           })
           $previousTag = ""
           try {
-            $previousTag = (git describe --tags --abbrev=0 "HEAD^" 2>$null).Trim()
+            $previousTag = (git describe --tags --abbrev=0 2>$null).Trim()
           } catch {
+          }
+          if ($previousTag -eq "v$version") {
+            try {
+              $previousTag = (git describe --tags --abbrev=0 "HEAD^" 2>$null).Trim()
+            } catch {
+              $previousTag = ""
+            }
           }
 
           $previousAssets = @()
@@ -283,8 +291,15 @@ jobs:
 
           $previousTag = ""
           try {
-            $previousTag = (git describe --tags --abbrev=0 "HEAD^" 2>$null).Trim()
+            $previousTag = (git describe --tags --abbrev=0 2>$null).Trim()
           } catch {
+          }
+          if ($previousTag -eq "v$version") {
+            try {
+              $previousTag = (git describe --tags --abbrev=0 "HEAD^" 2>$null).Trim()
+            } catch {
+              $previousTag = ""
+            }
           }
 
           $range = if ($previousTag) { "$previousTag..HEAD" } else { "HEAD" }
