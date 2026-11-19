@@ -4,6 +4,13 @@
 
 - Do not add unsolicited features. When the user explicitly asks for suggestions, give a short prioritized list first; implement only the items they approve.
 
+## Latest pass (v0.0.102 test release and live installed update, 2026-11-19)
+
+- Built and published `v0.0.102` from commit `7285c33` as a prerelease. Release run `44599727897` completed successfully with the setup, portable ZIP, update ZIP, and SHA-256 assets. It remains a test build with no functional changes. `v0.0.101` remains the public latest release.
+- Live update test: the installed `v0.0.101` app at `C:\Program Files\CryoTray` detected `0.0.102`, downloaded `50.1 MB`, closed, and handed off to the setup from `C:\ProgramData\CryoTray\Update\Downloads`. The setup ran silently, the completion log recorded `Update completion marker applied`, and the app restarted as `0.0.102` under PID `52180`. About reports `Version 0.0.102` and `up to date`; the uninstall key and startup task both point to Program Files.
+- The test confirms the installed-copy updater selects the setup instead of an archive and completes the helper, installer, completion-marker, and restart path. The `v0.0.100` caveat still applies: that older client prefers a ZIP asset and needs the setup once manually.
+- Release status: `v0.0.101` is still the latest public release; `v0.0.102` is intentionally marked prerelease so the no-op test build is not offered as an update to users. No functional source changes are included in `v0.0.102`.
+
 ## Latest pass (v0.0.101 published and real upgrade test, 2026-11-19)
 
 - Published `v0.0.101` from commit `b3d1387` after packaging fixes `71bcac7` and `b91cd3f`. Main was pushed and manual Release run `44596953838` completed successfully. Release: https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.101. Assets: setup, portable ZIP, update ZIP, and matching `.sha256` files. Assets are unsigned because signing secrets are not configured.
