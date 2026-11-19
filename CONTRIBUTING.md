@@ -121,7 +121,7 @@ fix(tray): prevent tooltip cutoff when merged badge is active
 
 ### 7. Versioning Scheme (`VERSION`)
 CryoTray uses three-part semantic versioning rooted at `0.0.100`:
-- **Current Baseline**: `0.0.101` (defined in the root `VERSION` file).
+- **Current Baseline**: `0.0.102` (defined in the root `VERSION` file).
 - **Subsequent Updates**: Increment sequentially (`0.0.102`, `0.0.103`, `0.0.104`, etc.).
 - **Automatic Stamping**: `CryoTray.csproj` dynamically reads `VERSION` to stamp `AssemblyVersion`, `FileVersion`, and `InformationalVersion` on build.
 - **Automated Releases**: The release workflow (`.github/workflows/release.yml`) monitors changes to `VERSION` on `main` and creates matching tags (e.g., `v0.0.100`, `v0.0.101`) and release artifacts with SHA-256 digests.
