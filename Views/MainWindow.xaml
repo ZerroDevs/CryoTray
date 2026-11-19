@@ -327,6 +327,50 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="UpdateBannerButtonStyle" TargetType="Button">
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="BannerButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="BannerButtonBorder" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="BannerButtonBorder" Property="Opacity" Value="0.65"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="BannerButtonBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="BannerButtonBorder" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="UpdateBannerCloseStyle" TargetType="Button" BasedOn="{StaticResource UpdateBannerButtonStyle}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="MinWidth" Value="24"/>
+            <Setter Property="MinHeight" Value="24"/>
+        </Style>
     </Window.Resources>
 
     <!-- Outer Border -->
@@ -430,9 +474,58 @@
                 </StackPanel>
             </Grid>
 
-            <!-- 1B. PAWNIO DRIVER NOTICE (Shown only when driver is missing) -->
+            <!-- 1B. TOP NOTICES (PawnIO and update banner) -->
+            <StackPanel Grid.Row="1">
+            <Border x:Name="UpdateSuccessBanner"
+                    Height="44"
+                    Background="#B31E4A2A"
+                    BorderBrush="#663FAE5A"
+                    BorderThickness="0,0,0,1"
+                    Visibility="Collapsed">
+                <Grid Margin="12,0,8,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Path Grid.Column="0"
+                          Data="M1,6 L5,10 L11,2"
+                          Stroke="#7EDB8A"
+                          StrokeThickness="1.8"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          Width="13"
+                          Height="13"
+                          Stretch="Uniform"
+                          VerticalAlignment="Center"
+                          Margin="0,0,8,0"/>
+                    <TextBlock x:Name="TxtUpdateSuccess"
+                               Grid.Column="1"
+                               Foreground="#E6FFFFFF"
+                               FontSize="11.5"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               AutomationProperties.LiveSetting="Assertive"/>
+                    <Button x:Name="BtnUpdateSuccessClose"
+                            Grid.Column="2"
+                            Click="BtnUpdateSuccessClose_Click"
+                            Style="{StaticResource UpdateBannerCloseStyle}"
+                            Width="24"
+                            Height="24"
+                            VerticalAlignment="Center"
+                            ToolTip="{DynamicResource Update_SuccessClose}"
+                            AutomationProperties.Name="{DynamicResource Update_SuccessClose}">
+                        <Path Data="M2,2 L10,10 M10,2 L2,10"
+                              Stroke="#E6FFFFFF"
+                              StrokeThickness="1.4"
+                              Width="11"
+                              Height="11"
+                              Stretch="Uniform"/>
+                    </Button>
+                </Grid>
+            </Border>
+
             <Border x:Name="PawnIoBanner"
-                    Grid.Row="1"
                     Height="38"
                     Background="{DynamicResource PawnIoBackgroundBrush}"
                     BorderBrush="{DynamicResource PawnIoBorderBrush}"
@@ -498,6 +591,87 @@
                     </Button>
                 </Grid>
             </Border>
+
+            <Border x:Name="UpdateBanner"
+                    Height="44"
+                    Background="#B31B4B63"
+                    BorderBrush="#662B88D8"
+                    BorderThickness="0,0,0,1"
+                    Visibility="Collapsed">
+                <Grid Margin="12,0,8,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="{DynamicResource Update_BannerTitle}"
+                                   Foreground="#E6FFFFFF"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtUpdateBannerVersion"
+                                   Foreground="#FFFFFF"
+                                   FontSize="11.5"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Margin="6,0,0,0"
+                                   AutomationProperties.LiveSetting="Polite"/>
+                    </StackPanel>
+                    <Button x:Name="BtnUpdateBannerUpdate"
+                            Grid.Column="1"
+                            Content="{DynamicResource Update_BannerUpdate}"
+                            Click="BtnUpdateBannerUpdate_Click"
+                            Style="{StaticResource UpdateBannerButtonStyle}"
+                            Background="#2B88D8"
+                            Foreground="#FFFFFF"
+                            Padding="10,3"
+                            Height="26"
+                            VerticalAlignment="Center"
+                            Margin="0,0,6,0"/>
+                    <Button x:Name="BtnUpdateBannerAbout"
+                            Grid.Column="2"
+                            Content="{DynamicResource Update_BannerAbout}"
+                            Click="BtnUpdateBannerAbout_Click"
+                            Style="{StaticResource UpdateBannerButtonStyle}"
+                            Background="Transparent"
+                            Foreground="#E6FFFFFF"
+                            BorderBrush="#33FFFFFF"
+                            Padding="10,3"
+                            Height="26"
+                            VerticalAlignment="Center"
+                            Margin="0,0,4,0"/>
+                    <Button x:Name="BtnUpdateBannerLater"
+                            Grid.Column="3"
+                            Content="{DynamicResource Update_BannerLater}"
+                            Click="BtnUpdateBannerLater_Click"
+                            Style="{StaticResource UpdateBannerButtonStyle}"
+                            Background="Transparent"
+                            Foreground="#E6FFFFFF"
+                            BorderBrush="#33FFFFFF"
+                            Padding="8,3"
+                            Height="26"
+                            VerticalAlignment="Center"
+                            Margin="0,0,4,0"
+                            ToolTip="{DynamicResource Update_BannerLaterTooltip}"
+                            AutomationProperties.Name="{DynamicResource Update_BannerLaterTooltip}"/>
+                    <Button x:Name="BtnUpdateBannerSkip"
+                            Grid.Column="4"
+                            Content="{DynamicResource Update_BannerSkip}"
+                            Click="BtnUpdateBannerSkip_Click"
+                            Style="{StaticResource UpdateBannerButtonStyle}"
+                            Background="Transparent"
+                            Foreground="#E6FFFFFF"
+                            BorderBrush="Transparent"
+                            Padding="6,3"
+                            Height="26"
+                            VerticalAlignment="Center"
+                            ToolTip="{DynamicResource Update_BannerSkipTooltip}"
+                            AutomationProperties.Name="{DynamicResource Update_BannerSkipTooltip}"/>
+                </Grid>
+            </Border>
+            </StackPanel>
 
             <!-- 2. HERO CPU HEADER CARD -->
             <Border Grid.Row="2"

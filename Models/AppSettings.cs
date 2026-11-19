@@ -106,6 +106,7 @@ namespace CryoTray.Models
         public int HighTempThresholdCpu { get; set; } = 85;
         public int HighTempThresholdGpu { get; set; } = 80;
         public int HighTempThresholdDisk { get; set; } = 60;
+        public bool DisableAllNotifications { get; set; } = false;
         public bool MuteTemperatureAlerts { get; set; } = false;
         public bool FanHealthAlertsEnabled { get; set; } = true;
         public Dictionary<string, string> FanAliases { get; set; } = new();
@@ -114,7 +115,13 @@ namespace CryoTray.Models
         // Updates
         public bool AutomaticUpdateChecks { get; set; } = true;
         public DateTime? LastUpdateCheckUtc { get; set; }
+        public string LastUpdateOutcome { get; set; } = "";
+        public string LastUpdateVersion { get; set; } = "";
+        public string LastUpdateDetail { get; set; } = "";
         public string LastNotifiedUpdateVersion { get; set; } = "";
+        public string DismissedUpdateVersion { get; set; } = "";
+        public string UpdateSnoozedVersion { get; set; } = "";
+        public DateTime? UpdateSnoozedUntilUtc { get; set; }
 
         public List<string> ExcludedDrives { get; set; } = new();
     }

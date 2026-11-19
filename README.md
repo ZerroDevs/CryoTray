@@ -104,7 +104,7 @@ CryoTray can raise a tray notification when the CPU, GPU, or a storage drive cro
 - GPU: default 80 °C.
 - Storage: default 60 °C.
 
-An alert fires once when a sensor crosses its threshold. The same sensor will not alert again for 10 minutes, and it must fall at least 3 °C below the threshold before it can re-arm. Notifications can be muted entirely, and Settings includes a test notification button.
+An alert fires once when a sensor crosses its threshold. The same sensor will not alert again for 10 minutes, and it must fall at least 3 °C below the threshold before it can re-arm. Notifications can be muted by category or disabled entirely, and Settings includes a test notification button.
 
 Fan Health Watch is a separate optional notification. A fan header is armed only after spinning continuously above 300 RPM for one minute. If an armed fan then reports 0 RPM for 30 seconds while the CPU or GPU is under sustained load and at or above 60 °C, CryoTray shows a tray warning. Headers that never reported motion are ignored, state is cleared across sleep and resume with a 60 second grace period, and each fan has a 10 minute alert cooldown. The guard is deliberate: idle fan curves that stop fans at 0 RPM never arm the alert. Fan Health Watch is on by default and can be disabled under Settings > General.
 
@@ -116,7 +116,7 @@ All temperature displays, thresholds, charts, and notifications honor the select
 
 ### Updates
 
-Settings > About checks the latest GitHub release and can download and install a newer build in place. Automatic checks are enabled by default and run at most once per day. Updates require the release's SHA-256 checksum to match; signed builds are also checked with Authenticode when a signature is available. Before installing, CryoTray saves the current version as a rollback point. If the new build does not work, About can restore the previous version.
+Settings > About checks the latest GitHub release and can download and install a newer build in place. Automatic checks are enabled by default: every 5 minutes while the dashboard is open, every 30 minutes in the tray, and immediately after startup, resume, or a network reconnect. Updates require the release's SHA-256 checksum, the manifest version, and every per-file hash to match; Authenticode is checked when present but a signature is not required. About shows the release notes, last checked time and result, download speed, ETA, and a Cancel button. Startup creates and secures the update and rollback roots before any rollback metadata is read. Before installing, CryoTray saves a hash-verified rollback point under `%ProgramData%\CryoTray` and verifies it before launch; if the new build does not work, About can restore the previous version.
 
 ## Cooling Mode
 
@@ -250,6 +250,7 @@ Settings opens as a modeless companion window and includes eight tabs: General, 
 | Language | Switches all windows between English and Arabic, including right-to-left layout |
 | Temperature units | Celsius or Fahrenheit for readouts, charts, thresholds, and alerts |
 | Mute temperature alerts | Suppresses CPU, GPU, and drive notifications |
+| Disable all notifications | Stops every tray notification, including temperature, fan, storage, update, and memory alerts |
 | Warn when a running fan stops | Enables Fan Health Watch for armed fans that stop under sustained load (enabled by default) |
 | Fan names | Renames motherboard and GPU fan headers for the panel, fan alerts, and diagnostics; leave a field blank to use the sensor name |
 | Send test notification | Verifies that tray notifications are visible |
@@ -263,7 +264,7 @@ Settings opens as a modeless companion window and includes eight tabs: General, 
 | Always on top | Keeps the dashboard above other windows |
 | Hide on focus loss | Hides the dashboard when it loses focus, unless Always on top is enabled |
 | Use a key combo | Enables the custom cooling hotkey supporting `Ctrl`, `Alt`, `Shift`, `Win` plus `A-Z`, `0-9`, or `F1-F12` with conflict detection |
-| Automatic update checks | Checks GitHub Releases at most once per day |
+| Automatic update checks | Checks GitHub Releases at startup, every 5 minutes with the dashboard open, and every 30 minutes in the tray |
 
 ### View
 
@@ -316,7 +317,7 @@ Enable Autopilot, toggle automatic pause during fullscreen 3D games and apps, ch
 
 ### About
 
-The About tab shows the installed version, update status, automatic update option, manual update button, rollback button when a backup exists, copyright and license details, and a link to the repository.
+The About tab shows the installed version, update status and release notes, last checked time and result, automatic update option, manual update button, download progress with speed/ETA and Cancel, rollback button when a backup exists, copyright and license details, and a link to the repository.
 
 ## Install and run
 
@@ -331,7 +332,15 @@ The About tab shows the installed version, update status, automatic update optio
    ```
 
    The hash must match the value in the checksum file.
-4. For the portable zip, extract the archive to a writable folder. It includes `PawnIO_setup.exe`; run it if PawnIO 2.x is not already installed, then run `CryoTray.exe` (approving UAC). The installer runs silent PawnIO setup automatically when missing.
+4. For the portable zip, extract the archive to an administrator-protected folder (for example, under `C:\Program Files`). Portable copies run elevated and refuse to start from Downloads, the Desktop, a user profile, or a user-writable data volume, because standard users could replace the executable before launch. If you extracted it under an elevated account, set the folder owner before launching:
+
+   ```powershell
+   icacls "C:\Program Files\CryoTrayPortable" /setowner *S-1-5-32-544 /T /C /Q
+   ```
+
+   It includes `PawnIO_setup.exe`; run it if PawnIO 2.x is not already installed, then run `CryoTray.exe` (approving UAC). The installer always uses the default Program Files location, sets the protected owner itself, and runs silent PawnIO setup automatically when missing.
+
+The installer does not reuse a custom folder; it always installs to the protected Program Files location. If a previous Inno installation is registered in the uninstall key and its folder contains both `CryoTray.exe` and `unins000.exe`, it removes that old folder after the new install succeeds, and only when the old path is not the new folder, an ancestor or child of it, or an exact Windows or System folder. Portable copies and unregistered custom copies are not detected, so remove those manually.
 
 The release package is self-contained for win-x64, so a separate .NET runtime installation is not required.
 
@@ -376,6 +385,8 @@ Run it from an elevated terminal, or launch it normally and approve the UAC prom
 Start-Process .\bin\Release\net8.0-windows\CryoTray.exe
 ```
 
+The normal app startup guard rejects this build output because it is inside a user-writable project folder. Use the installer, or copy `publish\win-x64` to an administrator-protected folder before launching the UI. The `/test`, `/test-updates`, `/dump`, and `/uninstall-cleanup` command-line modes still run directly.
+
 ### Local publish
 
 The release workflow produces a self-contained win-x64 folder, an Inno Setup installer, and a portable zip (`build-installer.ps1`):
@@ -397,9 +408,9 @@ Copy the whole `publish\win-x64` folder, or run `.\build-installer.ps1` to gener
 The version is stored in the `VERSION` file as three numeric parts. The project reads that value into the assembly and file version. Pushing a change to `VERSION` on `main`, or running the Release workflow manually, triggers `.github/workflows/release.yml`. The workflow:
 
 1. Builds the Release binary and runs the `/test` verification suite.
-2. Publishes the self-contained `publish\win-x64` payload and compiles `Installer\CryoTray.iss` into `CryoTray-Setup-<version>.exe`.
-3. Signs both `CryoTray.exe` and `CryoTray-Setup-<version>.exe` when repository signing secrets are configured.
-4. Creates checksummed release assets (`CryoTray-Setup-<version>.exe`, `CryoTray-<version>-win-x64.zip`, and their `.sha256` files) and publishes a GitHub release unless that tag already exists.
+2. Publishes the self-contained `publish\win-x64` payload and signs `CryoTray.exe` when repository signing secrets are configured, then compiles `Installer\CryoTray.iss` into `CryoTray-Setup-<version>.exe` and signs the setup afterward.
+3. Creates checksummed release assets (`CryoTray-Setup-<version>.exe`, `CryoTray-<version>-win-x64.zip`, `CryoTray-Update-<version>-win-x64.zip`, and their `.sha256` files). The update archive contains versioned per-file SHA-256 hashes and a cumulative delete list derived from the previous release's owned-file history.
+4. Publishes a GitHub release unless that tag already exists.
 
 To publish the current `VERSION` without editing it again, trigger the workflow manually from **Actions > Release > Run workflow**, or with the GitHub CLI:
 
@@ -457,7 +468,9 @@ Update checks contact the GitHub Releases API:
 https://api.github.com/repos/ZerroDevs/CryoTray/releases/latest
 ```
 
-Automatic checks occur at most once per day when enabled. A downloaded update is verified against the release's SHA-256 checksum. If an Authenticode signature is present, it is verified before installation. The updater stores a backup of the previous installation in its working area, and Settings > About offers to restore it.
+Automatic checks run immediately when the app opens, every 5 minutes while the dashboard is visible, every 30 minutes in the tray, and after resume or a network reconnect. When a newer release is found, the dashboard shows a translucent strip with the version, **Update**, **About**, **Later**, and **Skip**. Later hides it for 24 hours; Skip keeps that version hidden until a newer release appears. Update opens Settings > About and starts the verified install; About opens the tab without installing. About shows the GitHub release notes and the last check result.
+
+A downloaded update is verified against the release's SHA-256 checksum. Authenticode is checked when present but is not required. Downloads retry transient failures and resume with HTTP Range and a `.part` file in a stable locked work directory; a 512 MiB cap and free-space check prevent runaway downloads. Installed copies run `CryoTray-Setup-<version>.exe` silently and wait for it before restarting. Portable copies use the `CryoTray-Update-<version>-win-x64.zip` archive, whose manifest carries the version, every file SHA-256, and a cumulative stale-file delete list. The updater and rollback files live in `%ProgramData%\CryoTray` with an Administrators owner, a protected Administrators/SYSTEM ACL, recursive reparse rejection, and untrusted-content clearing; the elevated helper validates the manifest, rejects reparse destinations, restores the verified rollback copy if a write fails, and only then records the one-time applied marker. The app itself must run from an administrator-protected folder; startup rejects user-writable locations and secures the application folder before continuing. The rollback copy has a SHA-256 file manifest that is verified before restore. After an actual update, the new version shows a green **CryoTray was successfully updated from vX to vY** strip with an X; it auto-hides after 20 seconds and is never shown for a fresh install. If About was left on a persisted **Available** result, it offers **Check again** until the release info is fetched again.
 
 No setting, sensor log, machine name, or usage data is sent to the update service. Only the standard HTTP request needed to fetch the latest release is made.
 

@@ -10,6 +10,7 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 - `App.ToggleOverlay()`: creates and shows `OverlayWindow` on enable; closes and clears the field on disable.
 - `App.ToggleOverlayClickThrough()`: toggles `Settings.OverlayClickThrough`, saves settings, applies `WS_EX_TRANSPARENT` to `OverlayWindow` if open, and updates the tray menu state.
 - `App.TrimWorkingSet()`: runs an aggressive GC, waits for finalizers, and calls `NativeMethods.EmptyWorkingSet` for the current process.
+- `App.AvailableUpdate`, `PendingUpdateSuccess`, `UpdateAvailabilityChanged`, `ScheduleAutomaticUpdateCheck(bool)`, `TryRunAutomaticUpdateCheck(TimeSpan)`, `RunAutomaticUpdateCheckAsync()`, `OnDashboardVisibilityChanged(bool)`, `SetAvailableUpdate(ReleaseInfo?)`, `ConsumeUpdateSuccess()`: run a 5-minute dashboard check or 30-minute tray check, check immediately on startup, resume, and network reconnect, record `UpdateStatusService`, deep-link the tray notice to About with the release, and consume the one-time success marker.
 - `App.RegisterHotkeyIfEnabled()`: creates a message-only `HwndSource` (`CryoTrayHotkey`) when Cooling Mode or RAM hotkey is enabled and registers/unregisters `CoolingHotkeyId` (`9001`) and `RamOptimizeHotkeyId` (`9002`).
 - `App.TrySignalExistingInstance()`: signals the named `EventWaitHandle` (`CryoTray-Show-Dashboard-Event-99210`) when a non-`/autostart` second `CryoTray.exe` launch finds an active primary instance.
 - `App.RegisterActivationWaitHandle()`, `UnregisterActivationWaitHandle()`, `ActivateDashboardFromSignal()`: listen for second-launch activation signals on a thread-pool wait handle and foreground `MainWindow`.
@@ -68,8 +69,23 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 - `TryGetMonitorWorkArea(out Rect)`: monitor work area in DIPs via `Screen.FromHandle` and `VisualTreeHelper.GetDpi`.
 - `CpuCoresPopup_Opened`: runs positioning after the popup lays out.
 - `OnPropertyChanged`: `INotifyPropertyChanged` helper.
-- `MainWindow.UpdateWindowHeight()`: adjusts height dynamically across `673` baseline, `PawnIoBanner`, `RamRow`, `GpuHealthRow`, `OverlayRow`, and `AutopilotRow`.
+- `MainWindow.UpdateWindowHeight()`: adjusts height dynamically across the `673` baseline, `PawnIoBanner`, `UpdateBanner`, `UpdateSuccessBanner`, `RamRow`, `GpuHealthRow`, `OverlayRow`, and `AutopilotRow`.
+- `MainWindow.RefreshUpdateBanner()`, `RefreshSuccessBanner()`, `BtnUpdateBannerUpdate_Click`, `BtnUpdateBannerAbout_Click`, `BtnUpdateBannerLater_Click`, `BtnUpdateBannerSkip_Click`, `BtnUpdateSuccessClose_Click`: show the 44 px update strip from `App.AvailableUpdate`, apply the 24-hour snooze or persistent skip, show the 44 px success strip from `App.PendingUpdateSuccess` with a 20-second auto-hide, and open Settings > About with or without starting the installer.
 - `MainWindow.ExportRingBufferCsv()` / `ToggleLiveCsvLogging()`: exports recent ring-buffer telemetry or starts/stops 1 Hz CSV file recording from `Tools`.
+- `SettingsWindow.ShowAvailableUpdate(ReleaseInfo)`, `BeginUpdateInstall(ReleaseInfo)`, `PendingUpdate`, `PendingUpdateInstall`: route a banner action into the About tab and reuse `InstallUpdateAsync` without duplicating download or verification code.
+- `SettingsWindow.OnUpdateStatusChanged()`, `RefreshLastCheckedText()`, `SetUpdateNotes(string?)`, `ApplyStoredUpdateStatus()`, `BtnCancelUpdate_Click`: keep About synchronized with `UpdateStatusService`, show the release body and last result, and cancel the active check/download.
+
+## Updates and storage
+
+- Release-readiness note (2026-11-19): no new shared functions were added for the release opinion. The updater functions remain the only path for checks, downloads, helper launch, rollback, and completion markers; Inno is not a substitute for them.
+- `UpdateStorage.EnsureUpdateRoot()`, `EnsureRollbackRoot()`, `SecureDirectory(string)`, `EnsureNoReparsePoints(string)`: create `%ProgramData%\CryoTray` with an Administrators owner and protected Administrators/SYSTEM DACL, reject reparse points, recursively secure children, clear untrusted root contents, rotate the log, and expose protected paths.
+- `UpdateStorage.IsSafeApplicationLocation(string)`, `EnsureApplicationDirectoryProtected(string)`: reject an elevated app location whose folder owner is untrusted, whose folder or parent chain grants standard users write/delete/change-permission/take-ownership rights, or which contains a reparse point; then set an Administrators owner and protected Administrators/SYSTEM/Users-read-execute DACL on the app folder and every child.
+- `UpdateService.GetLatestReleaseAsync()`, `DownloadAsync()`, `LaunchUpdater()`, `LaunchRollback()`: conditional GitHub API checks with transient retry, release notes, stable locked work directories with retry/Range downloads and speed/ETA, installed/portable asset selection, per-file manifest hashes, absolute PowerShell, preflighted staging, backup restore, and silent installer waiting.
+- `UpdateBackupService.CreateBackup()`, `GetCurrent()`, `VerifyBackup()`, `VerifyCurrent()`: write rollback copies with a SHA-256 file manifest, reject unexpected or modified files, and verify before restore.
+- Rollback safety: call `UpdateStorage.EnsureRollbackRoot()` before reading or launching a rollback, and `EnsureUpdateRoot()` before reading the completion marker. `GetCurrent()` and `LaunchRollback()` now enforce the rollback guard; `ReadPending()` enforces the update guard. `SecureDirectory()` rechecks reparse points after creating a missing directory.
+- `UpdateCompletionService.RecordPending()`, `ReadPending()`, `MarkApplied()`, `Clear()`: store the from/to versions and one-time update ID in protected ProgramData and expose the success marker only after the helper records `AppliedUtc` and the new version matches.
+- `UpdateInstallationService.IsInstalled()`, `IsInstalledAt(string)`: choose installer or portable updates from a matching Inno uninstall key, or an Inno `unins000.exe` marker under Program Files; a portable copy under Program Files without the marker remains portable.
+- `UpdateStatusService.Restore()`, `Record()`: restore and persist the last checked time, outcome, version, and detail in `AppSettings`, then raise `Changed` for About.
 - `MainWindow.BtnToolsMenu_Click`, `ToolsContextMenu_Opened`, `MenuToolsStress_Click`, `MenuToolsExportCsv_Click`, `MenuToolsRecordCsv_Click`, `MenuToolsAbout_Click`, `RenderWpfContextMenusForTest()`: drive declarative dark `ToolsContextMenu` (`RamDarkContextMenuStyle` + `DarkMenuSeparatorStyle`), sync RTL `FlowDirection` and recording label state, open dark `Settings > About`, and support pixel verification alongside `RamScopeMenu`.
 
 ## Chart hover
@@ -131,3 +147,16 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 - `SystemInfoQueryService.FormatUptime(TimeSpan)`: `d h m s` text.
 - `SystemInfoQueryService.GenerateTextReport(SystemInfoData)`: save-to text report.
 - `SystemInfoQueryService.GenerateDiagnosticsSnapshot(SystemInfoData, HardwareSnapshot, IReadOnlyList<FanHealthStatus>?, bool isFahrenheit)`: short support snapshot with app version, OS, CPU/GPU names and live temperature/load/power/fan, RAM, fan states using aliases, and drive health. It intentionally does not include serial numbers, PC names, hardware identifiers, or file paths.
+
+## GPU control (deferred)
+
+- No GPU power-control functions were added. Do not create a parallel GPU service. If this is approved later, extend `HardwareMonitorService` and reuse `ResolveGpuVendor` / `GpuDeviceOption` for adapter selection instead of re-enumerating GPUs.
+- Reserved surface: `IGpuPowerControl` (`IsSupported`, `MinWatts`, `MaxWatts`, `DefaultWatts`, `ReadWatts`, `TrySetWatts`, `RestoreDefault`) with `NvmlPowerControl`, `IgclPowerControl`, and an `AdlxPowerControl` backed by a native x64 shim. Readouts stay in `GpuTelemetry`; do not duplicate the 1 Hz sensor poll.
+- Future GPU work extends `GpuTelemetry` and `TelemetrySample` rather than adding a second poll. If per-GPU history is approved, key samples by `GpuTelemetry.Identifier`; do not add a parallel ring buffer.
+- Reuse `TemperatureAlertService` for hotspot, VRAM, and delta alerts; `TrayIconManager.ResolveBadgeValue` for any new badge source; and `SystemInfoQueryService` for driver/TDR diagnostics.
+
+## Notifications & Fan Names Disclosure
+
+- `App.ShowTrayNotification(title, message, onClick, icon)`: central tray-notification gate; returns early when `AppSettings.DisableAllNotifications` is true. Every alert and test path uses it instead of calling `TrayIconManager.ShowNotification` directly.
+- `SettingsWindow.ChkDisableAllNotifications`, `UpdateNotificationControlStates()`, `FanNamesToggle_Changed(...)`: persist the master switch, disable `BtnTestAlert` while it is on, and toggle `PnlFanNamesContent` with the `›` / `▾` chevron. `PnlFanAliases` still refreshes while collapsed.
+- `SystemInfoWindow.OnNotificationSettingsChanged()`: keeps `_fanHealthTestButton` disabled while notifications are off.

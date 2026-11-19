@@ -1,9 +1,9 @@
 ; CryoTray installer script (Inno Setup 6)
 ; Build from the repository root with build-installer.ps1, or directly:
-;   ISCC.exe /DAppVersion=0.0.100 Installer\CryoTray.iss
+;   ISCC.exe /DAppVersion=0.0.101 Installer\CryoTray.iss
 
 #ifndef AppVersion
-#define AppVersion "0.0.100"
+#define AppVersion "0.0.101"
 #endif
 
 [Setup]
@@ -17,6 +17,9 @@ AppSupportURL=https://github.com/ZerroDevs/CryoTray/issues
 AppUpdatesURL=https://github.com/ZerroDevs/CryoTray/releases
 DefaultDirName={autopf}\CryoTray
 DefaultGroupName=CryoTray
+; Installed copies must be elevated from a location standard users cannot modify.
+DisableDirPage=yes
+UsePreviousAppDir=no
 LicenseFile=..\LICENSE
 SetupIconFile=..\Images\CryoTray.ico
 UninstallDisplayIcon={app}\CryoTray.exe
@@ -37,15 +40,19 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Keep the full publish output for local debugging. The installer excludes framework language satellites
 ; CryoTray does not use and debugger-only runtime files. Remove a language folder from this list when it becomes supported.
 ; Do not add createallsubdirs: it recreates the excluded satellite folders as empty directories.
-Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs; Excludes: "*.pdb,LICENSE,NOTICE,VERSION,\cs\*,\de\*,\es\*,\fr\*,\it\*,\ja\*,\ko\*,\pl\*,\pt-BR\*,\ru\*,\tr\*,\zh-Hans\*,\zh-Hant\*,\mscordaccore.dll,\mscordaccore_amd64_amd64_*.dll,\mscordbi.dll,\Microsoft.DiaSymReader.Native.amd64.dll"
+Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs; Excludes: "*.pdb,PawnIO_setup.exe,LICENSE,NOTICE,VERSION,\cs\*,\de\*,\es\*,\fr\*,\it\*,\ja\*,\ko\*,\pl\*,\pt-BR\*,\ru\*,\tr\*,\zh-Hans\*,\zh-Hant\*,\mscordaccore.dll,\mscordaccore_amd64_amd64_*.dll,\mscordbi.dll,\Microsoft.DiaSymReader.Native.amd64.dll"
 
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\VERSION"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Resources\PawnIO_setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
+[Dirs]
+Name: "{app}"; Permissions: admins-full system-full users-readexec
+
 [InstallDelete]
 ; Remove empty language folders left by earlier installers. dirifempty leaves non-empty folders alone.
+Type: files; Name: "{app}\PawnIO_setup.exe"
 Type: dirifempty; Name: "{app}\cs"
 Type: dirifempty; Name: "{app}\de"
 Type: dirifempty; Name: "{app}\es"
@@ -66,15 +73,103 @@ Name: "{autodesktop}\CryoTray"; Filename: "{app}\CryoTray.exe"; Tasks: desktopic
 
 [Run]
 Filename: "{tmp}\PawnIO_setup.exe"; Parameters: "-install -silent"; StatusMsg: "Installing PawnIO hardware sensor driver..."; Flags: runhidden waituntilterminated; Check: not PawnIOInstalled
+Filename: "{sys}\icacls.exe"; Parameters: """{app}"" /setowner *S-1-5-32-544 /T /C /Q"; StatusMsg: "Protecting the CryoTray application folder..."; Flags: runhidden waituntilterminated
 Filename: "{app}\CryoTray.exe"; Description: "{cm:LaunchProgram,CryoTray}"; Flags: shellexec nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "schtasks.exe"; Parameters: "/Delete /TN ""CryoTray"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
 
 [Code]
+var
+  PreviousAppDir: String;
+
 function PawnIOInstalled: Boolean;
 begin
   Result := RegKeyExists(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Services\PawnIO');
+end;
+
+function GetPreviousInstallLocation: String;
+var
+  Value: String;
+begin
+  Result := '';
+  if IsWin64 and
+     RegQueryStringValue(HKLM64,
+       'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F3B9A12-4D6E-4C2B-9A1F-7E5D3C1B8A90}_is1',
+       'InstallLocation', Value) then
+  begin
+    Result := RemoveBackslash(Value);
+    Exit;
+  end;
+
+  if IsWin64 and
+     RegQueryStringValue(HKLM32,
+       'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F3B9A12-4D6E-4C2B-9A1F-7E5D3C1B8A90}_is1',
+       'InstallLocation', Value) then
+  begin
+    Result := RemoveBackslash(Value);
+    Exit;
+  end;
+
+  if RegQueryStringValue(HKLM,
+       'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F3B9A12-4D6E-4C2B-9A1F-7E5D3C1B8A90}_is1',
+       'InstallLocation', Value) then
+  begin
+    Result := RemoveBackslash(Value);
+  end;
+end;
+
+function IsPathInside(const ChildPath, ParentPath: String): Boolean;
+var
+  Child, Parent: String;
+begin
+  Child := RemoveBackslash(ChildPath);
+  Parent := RemoveBackslash(ParentPath);
+  if Length(Child) <= Length(Parent) then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  Result := CompareText(Copy(Child, 1, Length(Parent)), Parent) = 0;
+  if Result then
+    Result := Child[Length(Parent) + 1] = '\';
+end;
+
+function IsSafePreviousInstall(const Path: String): Boolean;
+var
+  Candidate, AppDir, WindowsDir, SystemDir: String;
+begin
+  Result := False;
+  Candidate := RemoveBackslash(Path);
+  if Candidate = '' then
+    Exit;
+
+  if not FileExists(AddBackslash(Candidate) + 'CryoTray.exe') or
+     not FileExists(AddBackslash(Candidate) + 'unins000.exe') then
+  begin
+    Log('Previous location rejected: executable or uninstaller missing: ' + Candidate);
+    Exit;
+  end;
+
+  AppDir := RemoveBackslash(ExpandConstant('{app}'));
+  WindowsDir := RemoveBackslash(ExpandConstant('{win}'));
+  SystemDir := RemoveBackslash(ExpandConstant('{sys}'));
+
+  if (CompareText(Candidate, AppDir) = 0) or
+     (CompareText(Candidate, WindowsDir) = 0) or
+     (CompareText(Candidate, SystemDir) = 0) or
+     IsPathInside(Candidate, WindowsDir) or
+     IsPathInside(Candidate, SystemDir) or
+     IsPathInside(AppDir, Candidate) or
+     IsPathInside(Candidate, AppDir) then
+  begin
+    Log('Previous location rejected: protected, root, or overlapping path: ' + Candidate);
+    Exit;
+  end;
+
+  Log('Previous location accepted for cleanup: ' + Candidate);
+  Result := True;
 end;
 
 procedure StopCryoTray;
@@ -84,10 +179,44 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM CryoTray.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
+function IsUpdateInstall: Boolean;
+var
+  Index: Integer;
+begin
+  Result := False;
+  for Index := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(Index), '/PRESERVEUPDATE') = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
 function InitializeSetup: Boolean;
 begin
+  PreviousAppDir := GetPreviousInstallLocation;
+  Log('Previous CryoTray install location: ' + PreviousAppDir);
   StopCryoTray;
+  if not IsUpdateInstall then
+  begin
+    DeleteFile(ExpandConstant('{commonappdata}\CryoTray\Update\last-update.json'));
+  end;
   Result := True;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    Log('Post-install previous location: ' + PreviousAppDir);
+    if IsSafePreviousInstall(PreviousAppDir) then
+    begin
+      Log('Removing previous CryoTray installation: ' + PreviousAppDir);
+      DelTree(PreviousAppDir, True, True, True);
+    end;
+  end;
 end;
 
 function InitializeUninstall: Boolean;

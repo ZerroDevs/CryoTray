@@ -306,7 +306,8 @@ namespace CryoTray.Services
             bool freeWorkingSets = settings.RamFreeWorkingSets;
             bool clearStandby = settings.RamClearStandby;
             bool clearClipboard = settings.RamClearClipboard;
-            bool showNotification = settings.RamShowNotification && !settings.MuteTemperatureAlerts;
+            bool showNotification = settings.RamShowNotification && !settings.MuteTemperatureAlerts &&
+                                    !settings.DisableAllNotifications;
 
             if (!freeWorkingSets && !clearStandby)
             {

@@ -56,12 +56,14 @@ namespace CryoTray.Views
             Closed += SystemInfoWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
+            SettingsService.Instance.SettingsChanged += OnNotificationSettingsChanged;
         }
 
         private void SystemInfoWindow_Closed(object? sender, EventArgs e)
         {
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
+            SettingsService.Instance.SettingsChanged -= OnNotificationSettingsChanged;
             _uptimeTimer.Stop();
             _uptimeTextBlock = null;
             _fanHealthRowsPanel = null;
@@ -309,6 +311,7 @@ namespace CryoTray.Views
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(12, 4, 12, 10),
                 FontSize = 12.5,
+                IsEnabled = !SettingsService.Instance.Current.DisableAllNotifications,
                 Visibility = _fanHealthExpanded ? Visibility.Visible : Visibility.Collapsed
             };
             AutomationProperties.SetAutomationId(_fanHealthTestButton, "FanHealthTestButton");
@@ -623,11 +626,25 @@ namespace CryoTray.Views
 
         private void BtnTestFanNotification_Click(object sender, RoutedEventArgs e)
         {
+            if (SettingsService.Instance.Current.DisableAllNotifications)
+            {
+                return;
+            }
+
             (System.Windows.Application.Current as App)?.ShowTrayNotification(
                 LocalizationService.Get("Alert_FanTitle"),
                 LocalizationService.Get("Alert_FanTestBody"),
                 null,
                 System.Windows.Forms.ToolTipIcon.Info);
+        }
+
+        private void OnNotificationSettingsChanged()
+        {
+            if (_fanHealthTestButton != null)
+            {
+                _fanHealthTestButton.IsEnabled =
+                    !SettingsService.Instance.Current.DisableAllNotifications;
+            }
         }
 
         private void BtnSaveTo_Click(object sender, RoutedEventArgs e)

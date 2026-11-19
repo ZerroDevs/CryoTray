@@ -41,6 +41,9 @@ namespace CryoTray.Views
         private bool _isExitConfirmationOpen;
         private bool _showKeyboardFocusCues;
         private bool _isApplyingSettings;
+        private ReleaseInfo? _visibleUpdate;
+        private DispatcherTimer? _updateSuccessTimer;
+        private DispatcherTimer? _updateSnoozeTimer;
         private readonly double _expandedHeight;
         private const double BaselineSsdSectionHeight = 79;
 
@@ -176,6 +179,8 @@ namespace CryoTray.Views
 
         private void MainWindow_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
+            (System.Windows.Application.Current as App)?.OnDashboardVisibilityChanged(IsVisible);
+
             if (IsVisible)
             {
                 StartFanAnimation();
@@ -233,6 +238,13 @@ namespace CryoTray.Views
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             ApplySettings();
+            if (System.Windows.Application.Current is App app)
+            {
+                app.UpdateAvailabilityChanged += RefreshUpdateBanner;
+            }
+            UpdateStatusService.Instance.Changed += OnUpdateStatusChanged;
+            RefreshUpdateBanner();
+            RefreshSuccessBanner();
             SettingsService.Instance.SettingsChanged += ApplySettings;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
@@ -272,6 +284,22 @@ namespace CryoTray.Views
             Deactivated -= MainWindow_Deactivated;
             StateChanged -= MainWindow_StateChanged;
             CpuCoresPopup.Opened -= CpuCoresPopup_Opened;
+            if (System.Windows.Application.Current is App app)
+            {
+                app.UpdateAvailabilityChanged -= RefreshUpdateBanner;
+            }
+            UpdateStatusService.Instance.Changed -= OnUpdateStatusChanged;
+            _updateSnoozeTimer?.Stop();
+            _updateSnoozeTimer = null;
+            if (UpdateSuccessBanner.Visibility == Visibility.Visible)
+            {
+                HideUpdateSuccessBanner(consume: true);
+            }
+            else
+            {
+                _updateSuccessTimer?.Stop();
+                _updateSuccessTimer = null;
+            }
             SettingsService.Instance.SettingsChanged -= ApplySettings;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
@@ -413,6 +441,14 @@ namespace CryoTray.Views
             if (PawnIoBanner.Visibility == Visibility.Visible)
             {
                 height += PawnIoBanner.Height;
+            }
+            if (UpdateBanner.Visibility == Visibility.Visible)
+            {
+                height += UpdateBanner.Height;
+            }
+            if (UpdateSuccessBanner.Visibility == Visibility.Visible)
+            {
+                height += UpdateSuccessBanner.Height;
             }
 
             double maxWorkHeight = Math.Max(260, SystemParameters.WorkArea.Height - 24);
@@ -2138,6 +2174,192 @@ namespace CryoTray.Views
             OpenStressTestDialog();
         }
 
+        private void RefreshUpdateBanner()
+        {
+            if (UpdateBanner == null)
+            {
+                return;
+            }
+
+            var release = (System.Windows.Application.Current as App)?.AvailableUpdate;
+            var settings = SettingsService.Instance.Current;
+            _updateSnoozeTimer?.Stop();
+            _updateSnoozeTimer = null;
+
+            bool dismissed = release != null &&
+                string.Equals(settings.DismissedUpdateVersion, release.Version, StringComparison.Ordinal);
+            bool snoozed = release != null &&
+                string.Equals(settings.UpdateSnoozedVersion, release.Version, StringComparison.Ordinal) &&
+                settings.UpdateSnoozedUntilUtc.HasValue &&
+                settings.UpdateSnoozedUntilUtc.Value > DateTime.UtcNow;
+
+            if (!snoozed && release != null &&
+                string.Equals(settings.UpdateSnoozedVersion, release.Version, StringComparison.Ordinal) &&
+                settings.UpdateSnoozedUntilUtc.HasValue)
+            {
+                settings.UpdateSnoozedVersion = "";
+                settings.UpdateSnoozedUntilUtc = null;
+                SettingsService.Instance.Save();
+            }
+
+            if (release == null || dismissed || snoozed)
+            {
+                _visibleUpdate = null;
+                UpdateBanner.Visibility = Visibility.Collapsed;
+
+                if (snoozed && settings.UpdateSnoozedUntilUtc.HasValue)
+                {
+                    TimeSpan remaining = settings.UpdateSnoozedUntilUtc.Value - DateTime.UtcNow;
+                    if (remaining > TimeSpan.Zero)
+                    {
+                        _updateSnoozeTimer = new DispatcherTimer { Interval = remaining };
+                        _updateSnoozeTimer.Tick += UpdateSnoozeTimer_Tick;
+                        _updateSnoozeTimer.Start();
+                    }
+                }
+            }
+            else
+            {
+                _visibleUpdate = release;
+                TxtUpdateBannerVersion.Text = LocalizationService.Format("Update_BannerVersion", release.Version);
+                UpdateBanner.Visibility = Visibility.Visible;
+            }
+
+            UpdateWindowHeight(settings.ShowOverlayRow, settings.ShowAutopilotRow);
+        }
+
+        private void UpdateSnoozeTimer_Tick(object? sender, EventArgs e)
+        {
+            _updateSnoozeTimer?.Stop();
+            _updateSnoozeTimer = null;
+            RefreshUpdateBanner();
+        }
+
+        private void OnUpdateStatusChanged()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(OnUpdateStatusChanged));
+                return;
+            }
+
+            RefreshUpdateBanner();
+        }
+
+        private void RefreshSuccessBanner()
+        {
+            if (UpdateSuccessBanner == null || TxtUpdateSuccess == null)
+            {
+                return;
+            }
+
+            var completion = (System.Windows.Application.Current as App)?.PendingUpdateSuccess;
+            if (completion == null)
+            {
+                if (UpdateSuccessBanner.Visibility == Visibility.Visible)
+                {
+                    HideUpdateSuccessBanner(consume: false);
+                }
+                return;
+            }
+
+            TxtUpdateSuccess.Text = LocalizationService.Format(
+                "Update_SuccessBanner", completion.FromVersion, completion.ToVersion);
+
+            if (UpdateSuccessBanner.Visibility == Visibility.Visible)
+            {
+                return;
+            }
+
+            UpdateSuccessBanner.Visibility = Visibility.Visible;
+            _updateSuccessTimer?.Stop();
+            _updateSuccessTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(20)
+            };
+            _updateSuccessTimer.Tick += UpdateSuccessTimer_Tick;
+            _updateSuccessTimer.Start();
+            UpdateWindowHeight(
+                SettingsService.Instance.Current.ShowOverlayRow,
+                SettingsService.Instance.Current.ShowAutopilotRow);
+        }
+
+        private void UpdateSuccessTimer_Tick(object? sender, EventArgs e)
+        {
+            HideUpdateSuccessBanner(consume: true);
+        }
+
+        private void HideUpdateSuccessBanner(bool consume)
+        {
+            _updateSuccessTimer?.Stop();
+            _updateSuccessTimer = null;
+
+            if (UpdateSuccessBanner.Visibility == Visibility.Visible)
+            {
+                UpdateSuccessBanner.Visibility = Visibility.Collapsed;
+                UpdateWindowHeight(
+                    SettingsService.Instance.Current.ShowOverlayRow,
+                    SettingsService.Instance.Current.ShowAutopilotRow);
+            }
+
+            if (consume)
+            {
+                (System.Windows.Application.Current as App)?.ConsumeUpdateSuccess();
+            }
+        }
+
+        private void BtnUpdateSuccessClose_Click(object sender, RoutedEventArgs e)
+        {
+            HideUpdateSuccessBanner(consume: true);
+        }
+
+        private void BtnUpdateBannerUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            if (_visibleUpdate != null)
+            {
+                OpenSettingsDialog(true, _visibleUpdate, true);
+            }
+        }
+
+        private void BtnUpdateBannerAbout_Click(object sender, RoutedEventArgs e)
+        {
+            if (_visibleUpdate != null)
+            {
+                OpenSettingsDialog(true, _visibleUpdate, false);
+            }
+            else
+            {
+                OpenSettingsDialog(true);
+            }
+        }
+
+        private void BtnUpdateBannerLater_Click(object sender, RoutedEventArgs e)
+        {
+            if (_visibleUpdate != null)
+            {
+                var settings = SettingsService.Instance.Current;
+                settings.UpdateSnoozedVersion = _visibleUpdate.Version;
+                settings.UpdateSnoozedUntilUtc = DateTime.UtcNow.AddHours(24);
+                SettingsService.Instance.Save();
+            }
+
+            RefreshUpdateBanner();
+        }
+
+        private void BtnUpdateBannerSkip_Click(object sender, RoutedEventArgs e)
+        {
+            if (_visibleUpdate != null)
+            {
+                var settings = SettingsService.Instance.Current;
+                settings.DismissedUpdateVersion = _visibleUpdate.Version;
+                settings.UpdateSnoozedVersion = "";
+                settings.UpdateSnoozedUntilUtc = null;
+                SettingsService.Instance.Save();
+            }
+
+            RefreshUpdateBanner();
+        }
+
         public void OpenSettingsDialog()
         {
             OpenSettingsDialog(false);
@@ -2146,6 +2368,11 @@ namespace CryoTray.Views
         public void OpenSettingsDialog(bool openAbout)
         {
             ShowSettingsWindow(openAbout, false);
+        }
+
+        public void OpenSettingsDialog(bool openAbout, ReleaseInfo? update, bool installUpdate)
+        {
+            ShowSettingsWindow(openAbout, false, update, installUpdate);
         }
 
         public void OpenAutopilotSettingsDialog()
@@ -2164,13 +2391,19 @@ namespace CryoTray.Views
             ShowSettingsWindow(false, false);
         }
 
-        private void ShowSettingsWindow(bool openAbout, bool openAutopilot)
+        private void ShowSettingsWindow(bool openAbout, bool openAutopilot,
+            ReleaseInfo? update = null, bool installUpdate = false)
         {
             if (_settingsWindow != null)
             {
                 if (openAbout) _settingsWindow.SelectAboutTab();
                 if (openAutopilot) _settingsWindow.SelectAutopilotTab();
                 _settingsWindow.Activate();
+                if (update != null)
+                {
+                    if (installUpdate) _settingsWindow.BeginUpdateInstall(update);
+                    else _settingsWindow.ShowAvailableUpdate(update);
+                }
                 return;
             }
 
@@ -2178,7 +2411,9 @@ namespace CryoTray.Views
             {
                 Owner = this,
                 OpenAboutOnLoad = openAbout,
-                OpenAutopilotOnLoad = openAutopilot
+                OpenAutopilotOnLoad = openAutopilot,
+                PendingUpdate = update,
+                PendingUpdateInstall = installUpdate
             };
             DockSideBySide(win);
             _settingsWindow = win;

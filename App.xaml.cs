@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.NetworkInformation;
 using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
@@ -32,6 +33,10 @@ namespace CryoTray
         private TemperatureAlertService? _temperatureAlertService;
         private FanHealthService? _fanHealthService;
         private StorageHealthAlertService? _storageHealthAlertService;
+        private static readonly TimeSpan DashboardUpdateInterval = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan TrayUpdateInterval = TimeSpan.FromMinutes(30);
+        private DateTime _lastAutomaticUpdateCheckUtc = DateTime.MinValue;
+        private bool _dashboardVisible;
         private bool _updateCheckInProgress;
         private bool _coolingEnabledByBattery;
         private bool _isExiting;
@@ -41,6 +46,10 @@ namespace CryoTray
         public bool IsCoolingPausedByTimer =>
             CoolingPausedUntilUtc.HasValue && CoolingPausedUntilUtc.Value > DateTime.UtcNow;
 
+        public ReleaseInfo? AvailableUpdate { get; private set; }
+        public UpdateCompletionInfo? PendingUpdateSuccess { get; private set; }
+        public event Action? UpdateAvailabilityChanged;
+
         protected override void OnStartup(StartupEventArgs e)
         {
             RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
@@ -48,6 +57,14 @@ namespace CryoTray
             if (e.Args.Length > 0 && e.Args[0].Equals("/test", StringComparison.OrdinalIgnoreCase))
             {
                 int exitCode = Tests.VerificationTests.RunAll();
+                Environment.Exit(exitCode);
+                return;
+            }
+
+            if (e.Args.Length > 0 &&
+                e.Args[0].Equals("/test-updates", StringComparison.OrdinalIgnoreCase))
+            {
+                int exitCode = Tests.UpdateVerificationTests.RunAll();
                 Environment.Exit(exitCode);
                 return;
             }
@@ -121,7 +138,39 @@ namespace CryoTray
 
             var settings = SettingsService.Instance.Current;
             LocalizationService.Instance.Apply(settings.Language);
+            try
+            {
+                string applicationDirectory = AppContext.BaseDirectory.TrimEnd(
+                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!UpdateStorage.IsSafeApplicationLocation(applicationDirectory))
+                {
+                    MessageBox.Show(
+                        LocalizationService.Get("Update_UnsafeLocation"),
+                        LocalizationService.Get("Error_Title"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                    Shutdown(1);
+                    return;
+                }
+
+                UpdateStorage.EnsureApplicationDirectoryProtected(applicationDirectory);
+                UpdateStorage.EnsureUpdateRoot();
+                UpdateStorage.EnsureRollbackRoot();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    ex.Message,
+                    LocalizationService.Get("Error_Title"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                Shutdown(1);
+                return;
+            }
+
             ThemeService.Initialize(settings.Theme);
+            UpdateStatusService.Instance.Restore(settings);
+            PendingUpdateSuccess = UpdateCompletionService.ReadPending(UpdateService.CurrentVersion);
             ThemeService.ThemeChanged += OnThemeChanged;
             StartupTaskService.EnsureSynchronized(settings.LaunchOnStartup);
 
@@ -140,6 +189,7 @@ namespace CryoTray
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
+            NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
 
             _temperatureAlertService = new TemperatureAlertService();
             _temperatureAlertService.AlertRaised += OnTemperatureAlertRaised;
@@ -188,7 +238,7 @@ namespace CryoTray
             };
             _startupTrimTimer.Start();
 
-            ScheduleAutomaticUpdateCheck();
+            ScheduleAutomaticUpdateCheck(checkNow: true);
         }
 
         internal static bool TrySignalExistingInstance(string eventName)
@@ -298,6 +348,11 @@ namespace CryoTray
             if (e.Mode == PowerModes.Resume)
             {
                 _fanHealthService?.Resume();
+                if (!_isExiting)
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                        TryRunAutomaticUpdateCheck(TimeSpan.FromSeconds(30))));
+                }
                 return;
             }
 
@@ -734,6 +789,11 @@ namespace CryoTray
         public void ShowTrayNotification(string title, string message, Action? onClick = null,
             System.Windows.Forms.ToolTipIcon icon = System.Windows.Forms.ToolTipIcon.Info)
         {
+            if (SettingsService.Instance.Current.DisableAllNotifications)
+            {
+                return;
+            }
+
             _trayManager?.ShowNotification(title, message, onClick, icon);
         }
 
@@ -746,52 +806,115 @@ namespace CryoTray
             return $"{Math.Round(value)}°{(isFahrenheit ? "F" : "C")}";
         }
 
-        private void ScheduleAutomaticUpdateCheck()
+        private void ScheduleAutomaticUpdateCheck(bool checkNow = false)
         {
             var settings = SettingsService.Instance.Current;
-            if (!settings.AutomaticUpdateChecks || _updateCheckInProgress)
+            if (!settings.AutomaticUpdateChecks)
             {
-                if (!settings.AutomaticUpdateChecks)
+                if (_updateCheckTimer != null)
                 {
-                    _updateCheckTimer?.Stop();
+                    _updateCheckTimer.Stop();
+                    _updateCheckTimer.Tick -= UpdateCheckTimer_Tick;
                     _updateCheckTimer = null;
                 }
-
                 return;
             }
 
-            if (_updateCheckTimer != null)
+            TimeSpan interval = _dashboardVisible ? DashboardUpdateInterval : TrayUpdateInterval;
+            bool hadTimer = _updateCheckTimer != null;
+            if (hadTimer && _updateCheckTimer!.Interval == interval)
             {
+                if (checkNow)
+                {
+                    TryRunAutomaticUpdateCheck(TimeSpan.Zero);
+                }
                 return;
             }
 
-            DateTime now = DateTime.UtcNow;
-            DateTime? lastCheck = settings.LastUpdateCheckUtc?.ToUniversalTime();
-            TimeSpan delay = lastCheck.HasValue
-                ? lastCheck.Value.AddHours(24) - now
-                : TimeSpan.Zero;
-
-            if (delay < TimeSpan.FromSeconds(20))
-            {
-                delay = TimeSpan.FromSeconds(20);
-            }
-
-            _updateCheckTimer = new DispatcherTimer { Interval = delay };
-            _updateCheckTimer.Tick += UpdateCheckTimer_Tick;
-            _updateCheckTimer.Start();
-        }
-
-        private async void UpdateCheckTimer_Tick(object? sender, EventArgs e)
-        {
             if (_updateCheckTimer != null)
             {
                 _updateCheckTimer.Stop();
                 _updateCheckTimer.Tick -= UpdateCheckTimer_Tick;
-                _updateCheckTimer = null;
             }
 
-            await RunAutomaticUpdateCheckAsync();
+            _updateCheckTimer = new DispatcherTimer { Interval = interval };
+            _updateCheckTimer.Tick += UpdateCheckTimer_Tick;
+            _updateCheckTimer.Start();
+
+            if (checkNow || !hadTimer)
+            {
+                TryRunAutomaticUpdateCheck(TimeSpan.Zero);
+            }
+        }
+
+        private void UpdateCheckTimer_Tick(object? sender, EventArgs e)
+        {
+            TryRunAutomaticUpdateCheck(TimeSpan.Zero);
+        }
+
+        private void TryRunAutomaticUpdateCheck(TimeSpan minimumGap)
+        {
+            if (_isExiting || _updateCheckInProgress)
+            {
+                return;
+            }
+
+            if (!SettingsService.Instance.Current.AutomaticUpdateChecks)
+            {
+                return;
+            }
+
+            if (minimumGap > TimeSpan.Zero &&
+                DateTime.UtcNow - _lastAutomaticUpdateCheckUtc < minimumGap)
+            {
+                return;
+            }
+
+            _lastAutomaticUpdateCheckUtc = DateTime.UtcNow;
+            _ = RunAutomaticUpdateCheckAsync();
+        }
+
+        public void OnDashboardVisibilityChanged(bool visible)
+        {
+            if (_isExiting || _dashboardVisible == visible)
+            {
+                return;
+            }
+
+            _dashboardVisible = visible;
             ScheduleAutomaticUpdateCheck();
+            if (visible)
+            {
+                TryRunAutomaticUpdateCheck(DashboardUpdateInterval);
+            }
+        }
+
+        private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+        {
+            if (!e.IsAvailable || _isExiting)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+                TryRunAutomaticUpdateCheck(TimeSpan.FromSeconds(30))));
+        }
+
+        public void SetAvailableUpdate(ReleaseInfo? release)
+        {
+            if (string.Equals(AvailableUpdate?.Version, release?.Version, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            AvailableUpdate = release;
+            UpdateAvailabilityChanged?.Invoke();
+        }
+
+        public void ConsumeUpdateSuccess()
+        {
+            PendingUpdateSuccess = null;
+            UpdateCompletionService.Clear();
         }
 
         private async System.Threading.Tasks.Task RunAutomaticUpdateCheckAsync()
@@ -808,31 +931,51 @@ namespace CryoTray
                     System.Threading.CancellationToken.None);
                 var settings = SettingsService.Instance.Current;
 
-                if (release != null &&
-                    UpdateService.IsNewer(release.Version, UpdateService.CurrentVersion) &&
-                    !string.Equals(settings.LastNotifiedUpdateVersion, release.Version, StringComparison.Ordinal))
+                ReleaseInfo? available = release != null &&
+                    UpdateService.IsNewer(release.Version, UpdateService.CurrentVersion)
+                    ? release
+                    : null;
+
+                SetAvailableUpdate(available);
+
+                if (release == null)
                 {
-                    settings.LastNotifiedUpdateVersion = release.Version;
+                    UpdateStatusService.Instance.Record(UpdateCheckOutcome.NoReleases, "");
+                }
+                else if (available == null)
+                {
+                    UpdateStatusService.Instance.Record(
+                        UpdateCheckOutcome.UpToDate, UpdateService.CurrentVersion);
+                }
+                else
+                {
+                    UpdateStatusService.Instance.Record(
+                        UpdateCheckOutcome.Available, available.Version);
+                }
+
+                bool notified = false;
+                if (available != null &&
+                    !string.Equals(settings.LastNotifiedUpdateVersion, available.Version, StringComparison.Ordinal) &&
+                    !settings.DisableAllNotifications)
+                {
+                    settings.LastNotifiedUpdateVersion = available.Version;
+                    notified = true;
                     ShowTrayNotification(
                         LocalizationService.Get("Update_NotificationTitle"),
-                        LocalizationService.Format("Update_NotificationBody", release.Version),
-                        () => ShowDashboard()?.OpenSettingsDialog(true),
+                        LocalizationService.Format("Update_NotificationBody", available.Version),
+                        () => ShowDashboard()?.OpenSettingsDialog(true, available, false),
                         System.Windows.Forms.ToolTipIcon.Info);
                 }
 
-                settings.LastUpdateCheckUtc = DateTime.UtcNow;
-                SettingsService.Instance.Save();
-            }
-            catch
-            {
-                try
+                if (notified)
                 {
-                    SettingsService.Instance.Current.LastUpdateCheckUtc = DateTime.UtcNow;
                     SettingsService.Instance.Save();
                 }
-                catch
-                {
-                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatusService.Instance.Record(
+                    UpdateCheckOutcome.Failed, string.Empty, ex.Message);
             }
             finally
             {
@@ -875,6 +1018,7 @@ namespace CryoTray
             GlobalHotkeyService.Instance.Unregister();
             GlobalHotkeyService.Instance.UnregisterRamHotkey();
             SystemEvents.PowerModeChanged -= OnSystemPowerModeChanged;
+            NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnPowerPlanCoolingChanged;
             UnregisterActivationWaitHandle();
             AutopilotService.Instance.ExternalPauseHoldCheck = null;

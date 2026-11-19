@@ -73,6 +73,38 @@
             </Setter>
         </Style>
 
+        <Style x:Key="SettingsDisclosureToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0,4"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="HeaderSurface"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="HeaderSurface" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="HeaderSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="SettingsRadioButtonStyle" TargetType="RadioButton">
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
             <Setter Property="FontSize" Value="13"/>
@@ -607,15 +639,17 @@
                         </ComboBox>
                     </Grid>
 
+                    <!-- Notifications -->
+                    <TextBlock Text="{DynamicResource Settings_Notifications}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="ChkDisableAllNotifications" Content="{DynamicResource Settings_DisableAllNotifications}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_DisableAllNotificationsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,10"/>
+
                     <!-- Temperature alerts are grouped here so the mute and test controls sit together. -->
                     <TextBlock Text="{DynamicResource Settings_TemperatureAlerts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkMuteTemperatureAlerts" Content="{DynamicResource Settings_MuteAlerts}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <Button x:Name="BtnTestAlert" Content="{DynamicResource Settings_TestAlert}" Click="BtnTestAlert_Click" Style="{StaticResource SettingsFooterButton}" HorizontalAlignment="Left" Margin="0,4,0,6"/>
                     <CheckBox x:Name="ChkFanHealthAlerts" Content="{DynamicResource Settings_FanHealthAlerts}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <TextBlock Text="{DynamicResource Settings_FanHealthAlertsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,10"/>
-                    <TextBlock Text="{DynamicResource Settings_FanNames}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,8,0,4"/>
-                    <TextBlock Text="{DynamicResource Settings_FanNamesDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                    <StackPanel x:Name="PnlFanAliases" Margin="0,0,0,10"/>
 
                     <!-- Checkboxes -->
                     <CheckBox x:Name="ChkShowComputerName" Content="{DynamicResource Settings_ShowComputerName}" Checked="SettingChanged" Unchecked="SettingChanged"/>
@@ -656,6 +690,40 @@
                                    FontSize="11"
                                    TextWrapping="Wrap"
                                    Margin="0,5,0,0"/>
+                    </StackPanel>
+
+                    <!-- Fan names (collapsed by default) -->
+                    <ToggleButton x:Name="FanNamesToggle"
+                                  Style="{StaticResource SettingsDisclosureToggleStyle}"
+                                  IsChecked="False"
+                                  Checked="FanNamesToggle_Changed"
+                                  Unchecked="FanNamesToggle_Changed"
+                                  Margin="0,16,0,0"
+                                  AutomationProperties.Name="{DynamicResource Settings_FanNames}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TxtFanNamesChevron"
+                                       Grid.Column="0"
+                                       Text="›"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{DynamicResource Settings_FanNames}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </ToggleButton>
+                    <StackPanel x:Name="PnlFanNamesContent" Visibility="Collapsed" Margin="0,4,0,0">
+                        <TextBlock Text="{DynamicResource Settings_FanNamesDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                        <StackPanel x:Name="PnlFanAliases" Margin="0,0,0,4"/>
                     </StackPanel>
                 </StackPanel>
 
@@ -1172,7 +1240,7 @@
 
                 <!-- ABOUT TAB -->
                 <StackPanel x:Name="PanelAbout" Visibility="Collapsed">
-                    <Image Source="/Images/CryoTray_Logo.png"
+                    <Image Source="pack://application:,,,/Images/CryoTray_Logo.png"
                            Width="72" Height="72"
                            HorizontalAlignment="Left"
                            Margin="0,0,0,10"
@@ -1186,6 +1254,12 @@
                     <TextBlock Text="{DynamicResource Settings_Updates}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,6"/>
                     <TextBlock Text="{DynamicResource Settings_UpdatesDesc}" Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"/>
                     <CheckBox x:Name="ChkAutomaticUpdates" Content="{DynamicResource Settings_AutomaticUpdates}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock x:Name="TxtUpdateCadence"
+                               Text="{DynamicResource Settings_UpdateCadence}"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,4"/>
                     <TextBlock x:Name="TxtUpdateStatus"
                                Text="{DynamicResource Settings_UpdateDefault}"
                                Foreground="{DynamicResource TextSecondaryBrush}"
@@ -1193,12 +1267,49 @@
                                TextWrapping="Wrap"
                                MinHeight="34"
                                AutomationProperties.LiveSetting="Polite"/>
-                    <Button x:Name="BtnUpdate"
-                            Content="{DynamicResource Settings_CheckUpdates}"
-                            Click="BtnUpdate_Click"
-                            Style="{StaticResource SettingsFooterButton}"
-                            HorizontalAlignment="Left"
-                            Margin="0,2,0,0"/>
+                    <TextBlock x:Name="TxtUpdateLastChecked"
+                               Text="{DynamicResource Settings_LastCheckedNever}"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,6"/>
+                    <Border x:Name="PnlUpdateNotes"
+                            Visibility="Collapsed"
+                            Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="10,8"
+                            Margin="0,0,0,6"
+                            MaxHeight="150">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Settings_WhatsNew}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="110">
+                                <TextBlock x:Name="TxtUpdateNotes"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"/>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                        <Button x:Name="BtnUpdate"
+                                Content="{DynamicResource Settings_CheckUpdates}"
+                                Click="BtnUpdate_Click"
+                                Style="{StaticResource SettingsFooterButton}"
+                                HorizontalAlignment="Left"
+                                Margin="0,0,8,0"/>
+                        <Button x:Name="BtnCancelUpdate"
+                                Content="{DynamicResource Settings_CancelUpdate}"
+                                Click="BtnCancelUpdate_Click"
+                                Style="{StaticResource SettingsFooterButton}"
+                                HorizontalAlignment="Left"
+                                Visibility="Collapsed"/>
+                    </StackPanel>
 
                     <TextBlock x:Name="TxtRollbackStatus"
                                Foreground="{DynamicResource TextSecondaryBrush}"

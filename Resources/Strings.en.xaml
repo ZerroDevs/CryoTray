@@ -143,6 +143,9 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_HotkeyHint">Click the box and press a shortcut (Ctrl, Alt, Shift, Win + A-Z, 0-9, or F1-F12). Press Esc to cancel.</sys:String>
     <sys:String x:Key="Settings_HotkeyListening">Press shortcut keys...</sys:String>
     <sys:String x:Key="Settings_HotkeyConflict">Could not register {0}. Another app already uses it.</sys:String>
+    <sys:String x:Key="Settings_Notifications">Notifications</sys:String>
+    <sys:String x:Key="Settings_DisableAllNotifications">Disable all notifications</sys:String>
+    <sys:String x:Key="Settings_DisableAllNotificationsDesc">Stops every tray notification, including temperature, fan, storage, update, and memory alerts.</sys:String>
     <sys:String x:Key="Settings_TemperatureAlerts">Temperature alerts</sys:String>
     <sys:String x:Key="Settings_MuteAlerts">Mute temperature alerts</sys:String>
     <sys:String x:Key="Settings_FanHealthAlerts">Warn when a running fan stops</sys:String>
@@ -270,6 +273,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_UpdateDefault">Check GitHub Releases for a newer version.</sys:String>
     <sys:String x:Key="Settings_CheckUpdates">Check for updates</sys:String>
     <sys:String x:Key="Settings_AutomaticUpdates">Check for updates automatically</sys:String>
+    <sys:String x:Key="Settings_UpdateCadence">Checks at startup, every 5 minutes while the dashboard is open, and every 30 minutes in the tray. Also checks after resume or a network reconnect.</sys:String>
     <sys:String x:Key="Settings_Checking">Checking...</sys:String>
     <sys:String x:Key="Settings_CheckingReleases">Checking GitHub Releases...</sys:String>
     <sys:String x:Key="Settings_NoReleases">No releases are published yet.</sys:String>
@@ -280,6 +284,15 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_DownloadingButton">Downloading...</sys:String>
     <sys:String x:Key="Settings_Downloading">Downloading version {0}...</sys:String>
     <sys:String x:Key="Settings_DownloadingPercent">Downloading version {0}... {1}%</sys:String>
+    <sys:String x:Key="Settings_DownloadingDetail">Downloading version {0}... {1}% of {2} at {3}/s, {4} left.</sys:String>
+    <sys:String x:Key="Settings_DownloadingDetailNoTotal">Downloading version {0}... {1} at {2}/s.</sys:String>
+    <sys:String x:Key="Settings_RemainingUnknown">an unknown time</sys:String>
+    <sys:String x:Key="Settings_CancelUpdate">Cancel</sys:String>
+    <sys:String x:Key="Settings_UpdateCancelled">Update cancelled.</sys:String>
+    <sys:String x:Key="Settings_CheckCancelled">Check cancelled.</sys:String>
+    <sys:String x:Key="Settings_LastChecked">Last checked: {0}</sys:String>
+    <sys:String x:Key="Settings_LastCheckedNever">Not checked yet.</sys:String>
+    <sys:String x:Key="Settings_WhatsNew">What's new</sys:String>
     <sys:String x:Key="Settings_Restarting">Restarting to install...</sys:String>
     <sys:String x:Key="Settings_Backup">Saving a backup before install...</sys:String>
     <sys:String x:Key="Settings_DownloadFailed">Could not download the update. Try again.</sys:String>
@@ -418,6 +431,17 @@ Cooling Mode on</sys:String>
 
     <sys:String x:Key="Update_NotificationTitle">CryoTray update available</sys:String>
     <sys:String x:Key="Update_NotificationBody">Version {0} is ready. Open Settings to install it.</sys:String>
+    <sys:String x:Key="Update_BannerTitle">Update available</sys:String>
+    <sys:String x:Key="Update_BannerVersion">v{0}</sys:String>
+    <sys:String x:Key="Update_BannerUpdate">Update</sys:String>
+    <sys:String x:Key="Update_BannerAbout">About</sys:String>
+    <sys:String x:Key="Update_BannerLater">Later</sys:String>
+    <sys:String x:Key="Update_BannerLaterTooltip">Hide for 24 hours</sys:String>
+    <sys:String x:Key="Update_BannerSkip">Skip</sys:String>
+    <sys:String x:Key="Update_BannerSkipTooltip">Skip this version</sys:String>
+    <sys:String x:Key="Update_BannerClose">Close update notice</sys:String>
+    <sys:String x:Key="Update_SuccessBanner">CryoTray was successfully updated from v{0} to v{1}</sys:String>
+    <sys:String x:Key="Update_SuccessClose">Close update message</sys:String>
     <sys:String x:Key="Update_ChecksumMissing">This release does not include a SHA-256 checksum.</sys:String>
     <sys:String x:Key="Update_ChecksumMismatch">The update checksum does not match the downloaded file.</sys:String>
     <sys:String x:Key="Update_ChecksumMalformed">The release checksum file is malformed.</sys:String>
@@ -427,4 +451,17 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Update_NoPayload">The update archive does not contain CryoTray.exe.</sys:String>
     <sys:String x:Key="Update_ExeMissing">The CryoTray executable could not be located.</sys:String>
     <sys:String x:Key="Update_BackupMissing">The previous version backup could not be found.</sys:String>
+    <sys:String x:Key="Update_BackupTampered">The rollback backup failed its integrity check. It was not restored.</sys:String>
+    <sys:String x:Key="Update_DownloadBusy">Another update download is already running. Close it and try again.</sys:String>
+    <sys:String x:Key="Update_ManifestMissing">The update archive is missing its file manifest. It was not installed.</sys:String>
+    <sys:String x:Key="Update_ManifestInvalid">The update manifest or one of its files failed verification. The update was not installed.</sys:String>
+    <sys:String x:Key="Update_NoInstaller">This release does not include an installer for installed copies.</sys:String>
+    <sys:String x:Key="Update_SecureStorageFailed">Could not secure the update folder in ProgramData. Run CryoTray as administrator and try again.</sys:String>
+    <sys:String x:Key="Update_TooLarge">The update file is larger than the allowed limit.</sys:String>
+    <sys:String x:Key="Update_NotEnoughSpace">There is not enough free disk space to download the update.</sys:String>
+    <sys:String x:Key="Update_RateLimited">GitHub is limiting update requests. Try again in {0} minutes.</sys:String>
+    <sys:String x:Key="Update_PowerShellMissing">Windows PowerShell could not be found in the system folder.</sys:String>
+    <sys:String x:Key="Update_UpdaterStartFailed">Could not start the protected update helper.</sys:String>
+    <sys:String x:Key="Update_UnsafeLocation">CryoTray must run from a folder that standard users cannot modify. Move it to an Administrator-protected folder or reinstall it with the installer.</sys:String>
+    <sys:String x:Key="Update_ApplicationFolderSecurityFailed">Could not protect the CryoTray application folder. Move it to an Administrator-protected folder or reinstall it with the installer.</sys:String>
 </ResourceDictionary>

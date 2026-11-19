@@ -64,6 +64,8 @@ namespace CryoTray.Views
         public bool OpenAboutOnLoad { get; set; }
         public bool OpenAutopilotOnLoad { get; set; }
         public bool OpenMemoryOnLoad { get; set; }
+        public ReleaseInfo? PendingUpdate { get; set; }
+        public bool PendingUpdateInstall { get; set; }
 
         public void SelectAboutTab()
         {
@@ -89,6 +91,7 @@ namespace CryoTray.Views
             Closed += SettingsWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
+            UpdateStatusService.Instance.Changed += OnUpdateStatusChanged;
         }
 
         private void SettingsWindow_Closed(object? sender, EventArgs e)
@@ -99,6 +102,7 @@ namespace CryoTray.Views
             SettingsService.Instance.SettingsChanged -= OnExternalSettingsChanged;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
+            UpdateStatusService.Instance.Changed -= OnUpdateStatusChanged;
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
             _updateCancellation = null;
@@ -133,6 +137,22 @@ namespace CryoTray.Views
             HardwareMonitorService.Instance.TelemetryUpdated += OnSettingsTelemetryUpdated;
             SettingsService.Instance.SettingsChanged += OnExternalSettingsChanged;
             _isBinding = false;
+
+            if (PendingUpdate != null)
+            {
+                var pending = PendingUpdate;
+                bool install = PendingUpdateInstall;
+                PendingUpdate = null;
+                PendingUpdateInstall = false;
+                if (install)
+                {
+                    BeginUpdateInstall(pending);
+                }
+                else
+                {
+                    ShowAvailableUpdate(pending);
+                }
+            }
         }
 
         private void OnSettingsTelemetryUpdated(HardwareSnapshot _)
@@ -180,6 +200,11 @@ namespace CryoTray.Views
                     {
                         ChkRamFreeWorkingSets.IsChecked = s.RamFreeWorkingSets;
                     }
+                    if (ChkDisableAllNotifications != null &&
+                        ChkDisableAllNotifications.IsChecked != s.DisableAllNotifications)
+                    {
+                        ChkDisableAllNotifications.IsChecked = s.DisableAllNotifications;
+                    }
                     if (ChkRamClearStandby != null && ChkRamClearStandby.IsChecked != s.RamClearStandby)
                     {
                         ChkRamClearStandby.IsChecked = s.RamClearStandby;
@@ -193,6 +218,8 @@ namespace CryoTray.Views
                 {
                     _isBinding = previous;
                 }
+
+                UpdateNotificationControlStates();
             }));
         }
 
@@ -237,6 +264,7 @@ namespace CryoTray.Views
             _hotkeyModifiers = string.IsNullOrWhiteSpace(s.HotkeyKey) ? "Ctrl+Shift" : (s.HotkeyModifiers ?? "");
             TxtHotkeyShortcut.Text = GlobalHotkeyService.FormatShortcutDisplay(_hotkeyModifiers, _hotkeyKey);
             TxtHotkeyShortcut.IsEnabled = s.UseHotkey;
+            ChkDisableAllNotifications.IsChecked = s.DisableAllNotifications;
             ChkMuteTemperatureAlerts.IsChecked = s.MuteTemperatureAlerts;
             ChkFanHealthAlerts.IsChecked = s.FanHealthAlertsEnabled;
             ChkStorageHealthAlerts.IsChecked = s.StorageHealthAlertsEnabled;
@@ -245,6 +273,7 @@ namespace CryoTray.Views
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             ChkAutomaticUpdates.IsChecked = s.AutomaticUpdateChecks;
+            UpdateNotificationControlStates();
 
             // View Tab
             ChkShowGpuBadge.IsChecked = s.ShowGpuBadge;
@@ -333,7 +362,18 @@ namespace CryoTray.Views
             RefreshRamHotkeyFeedback();
             UpdateThresholdLabels();
 
-            SetUpdateState("Settings_UpdateDefault", "Settings_CheckUpdates");
+            RefreshLastCheckedText();
+            var appUpdate = (System.Windows.Application.Current as App)?.AvailableUpdate;
+            if (appUpdate != null)
+            {
+                _availableUpdate = appUpdate;
+                SetUpdateState("Settings_Available", "Settings_DownloadInstall", appUpdate.Version);
+                SetUpdateNotes(appUpdate.ReleaseNotes);
+            }
+            else
+            {
+                ApplyStoredUpdateStatus();
+            }
         }
 
         private void ApplyLocalizedText()
@@ -342,6 +382,7 @@ namespace CryoTray.Views
             UpdateThresholdLabels();
             UpdateTrayBadgeSampleTexts();
             ApplyUpdateState();
+            RefreshLastCheckedText();
             RefreshAutopilotWhitelist();
             RefreshDiskDriveListSafely();
             RefreshFanAliasListSafely();
@@ -706,13 +747,18 @@ namespace CryoTray.Views
                 PanelAutopilot.Visibility = Visibility.Visible;
                 RefreshRunningApps();
             }
-            else if (TabAbout.IsChecked == true) PanelAbout.Visibility = Visibility.Visible;
+            else if (TabAbout.IsChecked == true)
+            {
+                PanelAbout.Visibility = Visibility.Visible;
+                OnUpdateStatusChanged();
+            }
         }
 
         private void SettingChanged(object sender, RoutedEventArgs e)
         {
             if (_isBinding) return;
             SaveUiIntoSettings();
+            UpdateNotificationControlStates();
         }
 
         private void SaveUiIntoSettings()
@@ -736,6 +782,7 @@ namespace CryoTray.Views
             s.UseHotkey = ChkUseHotkey.IsChecked == true;
             s.HotkeyModifiers = _hotkeyModifiers;
             s.HotkeyKey = _hotkeyKey;
+            s.DisableAllNotifications = ChkDisableAllNotifications.IsChecked == true;
             s.MuteTemperatureAlerts = ChkMuteTemperatureAlerts.IsChecked == true;
             s.FanHealthAlertsEnabled = ChkFanHealthAlerts.IsChecked == true;
             s.StorageHealthAlertsEnabled = ChkStorageHealthAlerts.IsChecked == true;
@@ -868,7 +915,43 @@ namespace CryoTray.Views
 
         private void BtnTestAlert_Click(object sender, RoutedEventArgs e)
         {
+            if (ChkDisableAllNotifications.IsChecked == true)
+            {
+                return;
+            }
+
             (System.Windows.Application.Current as App)?.ShowTestNotification();
+        }
+
+        private void UpdateNotificationControlStates()
+        {
+            if (BtnTestAlert != null)
+            {
+                BtnTestAlert.IsEnabled = ChkDisableAllNotifications?.IsChecked != true;
+            }
+
+            if (TxtUpdateCadence != null)
+            {
+                TxtUpdateCadence.Visibility = ChkAutomaticUpdates?.IsChecked == true
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+        }
+
+        private void FanNamesToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            bool expanded = FanNamesToggle.IsChecked == true;
+            if (PnlFanNamesContent != null)
+            {
+                PnlFanNamesContent.Visibility = expanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (TxtFanNamesChevron != null)
+            {
+                TxtFanNamesChevron.Text = expanded ? "▾" : "›";
+            }
         }
 
         private void CmbTempUnits_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1833,6 +1916,40 @@ namespace CryoTray.Views
             _isBinding = false;
         }
 
+        public void ShowAvailableUpdate(ReleaseInfo release)
+        {
+            if (release == null)
+            {
+                return;
+            }
+
+            if (TabAbout.IsChecked != true)
+            {
+                TabAbout.IsChecked = true;
+            }
+
+            if (_updateBusy)
+            {
+                return;
+            }
+
+            _availableUpdate = release;
+            (System.Windows.Application.Current as App)?.SetAvailableUpdate(release);
+            SetUpdateNotes(release.ReleaseNotes);
+            SetUpdateState("Settings_Available", "Settings_DownloadInstall", release.Version);
+        }
+
+        public void BeginUpdateInstall(ReleaseInfo release)
+        {
+            if (release == null || _updateBusy)
+            {
+                return;
+            }
+
+            ShowAvailableUpdate(release);
+            _ = InstallUpdateAsync(release);
+        }
+
         private async void BtnUpdate_Click(object sender, RoutedEventArgs e)
         {
             if (_updateBusy)
@@ -1865,6 +1982,123 @@ namespace CryoTray.Views
             ApplyUpdateState();
         }
 
+        private void SetUpdateNotes(string? notes)
+        {
+            if (PnlUpdateNotes == null || TxtUpdateNotes == null)
+            {
+                return;
+            }
+
+            bool hasNotes = !string.IsNullOrWhiteSpace(notes);
+            TxtUpdateNotes.Text = hasNotes ? notes!.Trim() : string.Empty;
+            PnlUpdateNotes.Visibility = hasNotes ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void RefreshLastCheckedText()
+        {
+            if (TxtUpdateLastChecked == null)
+            {
+                return;
+            }
+
+            var lastChecked = UpdateStatusService.Instance.LastCheckedUtc;
+            TxtUpdateLastChecked.Text = lastChecked.HasValue
+                ? LocalizationService.Format(
+                    "Settings_LastChecked",
+                    lastChecked.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))
+                : LocalizationService.Get("Settings_LastCheckedNever");
+        }
+
+        private void ApplyStoredUpdateStatus()
+        {
+            var appUpdate = (System.Windows.Application.Current as App)?.AvailableUpdate;
+            if (appUpdate != null)
+            {
+                _availableUpdate = appUpdate;
+                SetUpdateState("Settings_Available", "Settings_DownloadInstall", appUpdate.Version);
+                SetUpdateNotes(appUpdate.ReleaseNotes);
+                return;
+            }
+
+            _availableUpdate = null;
+            var status = UpdateStatusService.Instance;
+            switch (status.Outcome)
+            {
+                case UpdateCheckOutcome.Available:
+                    // The release object is not persisted. Re-check before offering install.
+                    SetUpdateState("Settings_Available", "Settings_CheckAgain", status.Version);
+                    SetUpdateNotes(string.Empty);
+                    break;
+                case UpdateCheckOutcome.UpToDate:
+                    SetUpdateState("Settings_UpToDate", "Settings_CheckAgain", UpdateService.CurrentVersion);
+                    SetUpdateNotes(string.Empty);
+                    break;
+                case UpdateCheckOutcome.NoReleases:
+                    SetUpdateState("Settings_NoReleases", "Settings_CheckAgain");
+                    SetUpdateNotes(string.Empty);
+                    break;
+                case UpdateCheckOutcome.Failed:
+                    if (!string.IsNullOrWhiteSpace(status.Detail))
+                    {
+                        SetUpdateError(status.Detail);
+                    }
+                    else
+                    {
+                        SetUpdateState("Settings_CheckFailed", "Settings_CheckAgain");
+                    }
+                    SetUpdateNotes(string.Empty);
+                    break;
+                default:
+                    SetUpdateState("Settings_UpdateDefault", "Settings_CheckUpdates");
+                    SetUpdateNotes(string.Empty);
+                    break;
+            }
+        }
+
+        private void OnUpdateStatusChanged()
+        {
+            if (_isClosed)
+            {
+                return;
+            }
+
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(OnUpdateStatusChanged));
+                return;
+            }
+
+            RefreshLastCheckedText();
+            if (_updateBusy || PanelAbout.Visibility != Visibility.Visible)
+            {
+                return;
+            }
+
+            var appUpdate = (System.Windows.Application.Current as App)?.AvailableUpdate;
+            if (appUpdate == null && _availableUpdate != null)
+            {
+                _availableUpdate = null;
+                SetUpdateNotes(string.Empty);
+            }
+
+            if (appUpdate != null &&
+                (_availableUpdate == null ||
+                 !string.Equals(_availableUpdate.Version, appUpdate.Version, StringComparison.Ordinal)))
+            {
+                ShowAvailableUpdate(appUpdate);
+                return;
+            }
+
+            if (_availableUpdate != null)
+            {
+                SetUpdateState("Settings_Available", "Settings_DownloadInstall", _availableUpdate.Version);
+                SetUpdateNotes(_availableUpdate.ReleaseNotes);
+                return;
+            }
+
+            ApplyStoredUpdateStatus();
+        }
+
         private void ApplyUpdateState()
         {
             if (TxtUpdateStatus == null || BtnUpdate == null)
@@ -1881,7 +2115,6 @@ namespace CryoTray.Views
         {
             CancellationToken cancellationToken = StartUpdateOperation();
             _updateBusy = true;
-            _availableUpdate = null;
             BtnUpdate.IsEnabled = false;
             SetUpdateState("Settings_CheckingReleases", "Settings_Checking");
 
@@ -1894,44 +2127,67 @@ namespace CryoTray.Views
                     return;
                 }
 
+                var app = System.Windows.Application.Current as App;
                 if (release == null)
                 {
+                    _availableUpdate = null;
+                    app?.SetAvailableUpdate(null);
+                    UpdateStatusService.Instance.Record(UpdateCheckOutcome.NoReleases, string.Empty);
+                    SetUpdateNotes(string.Empty);
                     SetUpdateState("Settings_NoReleases", "Settings_CheckAgain");
                 }
                 else if (!UpdateService.IsNewer(release.Version, UpdateService.CurrentVersion))
                 {
+                    _availableUpdate = null;
+                    app?.SetAvailableUpdate(null);
+                    UpdateStatusService.Instance.Record(
+                        UpdateCheckOutcome.UpToDate, UpdateService.CurrentVersion);
+                    SetUpdateNotes(string.Empty);
                     SetUpdateState("Settings_UpToDate", "Settings_CheckAgain", UpdateService.CurrentVersion);
                 }
                 else
                 {
                     _availableUpdate = release;
+                    app?.SetAvailableUpdate(release);
+                    UpdateStatusService.Instance.Record(
+                        UpdateCheckOutcome.Available, release.Version);
+                    SetUpdateNotes(release.ReleaseNotes);
                     SetUpdateState("Settings_Available", "Settings_DownloadInstall", release.Version);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                if (!_isClosed)
+                {
+                    SetUpdateNotes(_availableUpdate?.ReleaseNotes ?? string.Empty);
+                    SetUpdateState(
+                        "Settings_CheckCancelled",
+                        _availableUpdate != null
+                            ? "Settings_DownloadInstall"
+                            : "Settings_CheckAgain");
+                }
             }
             catch (InvalidOperationException ex)
             {
                 if (!_isClosed)
                 {
+                    UpdateStatusService.Instance.Record(
+                        UpdateCheckOutcome.Failed, string.Empty, ex.Message);
                     SetUpdateError(ex.Message);
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 if (!_isClosed)
                 {
+                    UpdateStatusService.Instance.Record(
+                        UpdateCheckOutcome.Failed, string.Empty, ex.Message);
                     SetUpdateState("Settings_CheckFailed", "Settings_CheckAgain");
                 }
             }
             finally
             {
-                if (!_isClosed)
-                {
-                    _updateBusy = false;
-                    BtnUpdate.IsEnabled = true;
-                }
+                FinishUpdateOperation();
             }
         }
 
@@ -1941,20 +2197,44 @@ namespace CryoTray.Views
             _updateBusy = true;
             BtnUpdate.IsEnabled = false;
             bool updateLaunched = false;
+            bool backingUp = false;
+            bool markerRecorded = false;
+            string? backupDirectory = null;
 
             try
             {
+                if (!UpdateStorage.IsSafeApplicationLocation(AppContext.BaseDirectory))
+                {
+                    throw new InvalidOperationException(
+                        LocalizationService.Get("Update_UnsafeLocation"));
+                }
+
                 SetUpdateState("Settings_Downloading", "Settings_DownloadingButton", release.Version);
 
-                var progress = new Progress<int>(percent =>
+                var progress = new Progress<UpdateDownloadProgress>(download =>
                 {
                     if (!_isClosed)
                     {
-                        SetUpdateState(
-                            "Settings_DownloadingPercent",
-                            "Settings_DownloadingButton",
-                            release.Version,
-                            percent);
+                        if (download.TotalBytes.HasValue && download.TotalBytes.Value > 0)
+                        {
+                            SetUpdateState(
+                                "Settings_DownloadingDetail",
+                                "Settings_DownloadingButton",
+                                release.Version,
+                                download.Percent,
+                                FormatByteSize(download.TotalBytes.Value),
+                                FormatSpeed(download.BytesPerSecond),
+                                FormatRemaining(download.Remaining));
+                        }
+                        else
+                        {
+                            SetUpdateState(
+                                "Settings_DownloadingDetailNoTotal",
+                                "Settings_DownloadingButton",
+                                release.Version,
+                                FormatByteSize(download.ReceivedBytes),
+                                FormatSpeed(download.BytesPerSecond));
+                        }
                     }
                 });
 
@@ -1965,16 +2245,43 @@ namespace CryoTray.Views
                     return;
                 }
 
+                if (BtnCancelUpdate != null)
+                {
+                    BtnCancelUpdate.Visibility = Visibility.Collapsed;
+                }
+
+                backingUp = true;
                 SetUpdateState("Settings_Backup", "Settings_DownloadInstall");
                 UpdateBackupService.CreateBackup(UpdateService.CurrentVersion);
+                var backup = UpdateBackupService.GetCurrent();
+                if (backup == null || !UpdateBackupService.VerifyBackup(backup))
+                {
+                    throw new InvalidOperationException(
+                        LocalizationService.Get("Update_BackupTampered"));
+                }
+                backupDirectory = backup.Path;
+                backingUp = false;
 
                 SetUpdateState("Settings_Restarting", "Settings_DownloadingButton");
-                UpdateService.LaunchUpdater(update);
+                string? updateId = null;
+                if (UpdateService.IsNewer(release.Version, UpdateService.CurrentVersion))
+                {
+                    updateId = UpdateCompletionService.RecordPending(
+                        UpdateService.CurrentVersion, release.Version);
+                    markerRecorded = updateId != null;
+                }
+                UpdateService.LaunchUpdater(update, updateId, backupDirectory);
                 updateLaunched = true;
                 Application.Current.Shutdown();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                if (!_isClosed)
+                {
+                    SetUpdateNotes(release.ReleaseNotes);
+                    SetUpdateState(
+                        "Settings_UpdateCancelled", "Settings_DownloadInstall", release.Version);
+                }
             }
             catch (InvalidOperationException ex)
             {
@@ -1983,11 +2290,20 @@ namespace CryoTray.Views
                     SetUpdateError(ex.Message);
                 }
             }
+            catch (UnauthorizedAccessException)
+            {
+                if (!_isClosed)
+                {
+                    SetUpdateError(LocalizationService.Get(
+                        backingUp ? "Settings_BackupFailed" : "Settings_DownloadFailed"));
+                }
+            }
             catch (IOException)
             {
                 if (!_isClosed)
                 {
-                    SetUpdateError(LocalizationService.Get("Settings_BackupFailed"));
+                    SetUpdateError(LocalizationService.Get(
+                        backingUp ? "Settings_BackupFailed" : "Settings_DownloadFailed"));
                 }
             }
             catch
@@ -1999,13 +2315,84 @@ namespace CryoTray.Views
             }
             finally
             {
+                if (!updateLaunched && markerRecorded)
+                {
+                    UpdateCompletionService.Clear();
+                }
                 if (!_isClosed && !updateLaunched)
                 {
-                    _updateBusy = false;
-                    BtnUpdate.IsEnabled = true;
+                    FinishUpdateOperation();
                     RefreshRollbackUi();
                 }
             }
+        }
+
+        private void BtnCancelUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_updateBusy)
+            {
+                return;
+            }
+
+            BtnCancelUpdate.IsEnabled = false;
+            _updateCancellation?.Cancel();
+        }
+
+        private void FinishUpdateOperation()
+        {
+            if (_isClosed)
+            {
+                return;
+            }
+
+            _updateBusy = false;
+            BtnUpdate.IsEnabled = true;
+            if (BtnCancelUpdate != null)
+            {
+                BtnCancelUpdate.Visibility = Visibility.Collapsed;
+                BtnCancelUpdate.IsEnabled = true;
+            }
+            RefreshLastCheckedText();
+            RefreshRollbackUi();
+        }
+
+        private static string FormatByteSize(double bytes)
+        {
+            string[] units = { "B", "KB", "MB", "GB", "TB" };
+            int unit = 0;
+            double value = Math.Max(0, bytes);
+            while (value >= 1024 && unit < units.Length - 1)
+            {
+                value /= 1024;
+                unit++;
+            }
+
+            string format = unit == 0 ? "0" : "0.0";
+            return $"{value.ToString(format, CultureInfo.CurrentCulture)} {units[unit]}";
+        }
+
+        private static string FormatSpeed(double bytesPerSecond)
+        {
+            return FormatByteSize(bytesPerSecond);
+        }
+
+        private static string FormatRemaining(TimeSpan? remaining)
+        {
+            if (!remaining.HasValue)
+            {
+                return LocalizationService.Get("Settings_RemainingUnknown");
+            }
+
+            TimeSpan value = remaining.Value;
+            if (value.TotalHours >= 1)
+            {
+                return $"{(int)value.TotalHours}h {value.Minutes}m";
+            }
+            if (value.TotalMinutes >= 1)
+            {
+                return $"{(int)value.TotalMinutes}m {value.Seconds}s";
+            }
+            return $"{Math.Max(1, (int)Math.Ceiling(value.TotalSeconds))}s";
         }
 
         private void RefreshRollbackUi()
@@ -2031,6 +2418,11 @@ namespace CryoTray.Views
 
         private void BtnRollback_Click(object sender, RoutedEventArgs e)
         {
+            if (_updateBusy)
+            {
+                return;
+            }
+
             var backup = UpdateBackupService.GetCurrent();
             if (backup == null)
             {
@@ -2073,6 +2465,15 @@ namespace CryoTray.Views
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
             _updateCancellation = new CancellationTokenSource();
+            if (BtnRollback != null)
+            {
+                BtnRollback.IsEnabled = false;
+            }
+            if (BtnCancelUpdate != null)
+            {
+                BtnCancelUpdate.Visibility = Visibility.Visible;
+                BtnCancelUpdate.IsEnabled = true;
+            }
             return _updateCancellation.Token;
         }
 

@@ -143,6 +143,9 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_HotkeyHint">انقر المربع واضغط اختصاراً (Ctrl, Alt, Shift, Win + A-Z, 0-9 أو F1-F12). اضغط Esc للإلغاء.</sys:String>
     <sys:String x:Key="Settings_HotkeyListening">اضغط مفاتيح الاختصار...</sys:String>
     <sys:String x:Key="Settings_HotkeyConflict">تعذر تسجيل {0}. قد يكون مستخدماً من تطبيق آخر.</sys:String>
+    <sys:String x:Key="Settings_Notifications">الإشعارات</sys:String>
+    <sys:String x:Key="Settings_DisableAllNotifications">تعطيل كل الإشعارات</sys:String>
+    <sys:String x:Key="Settings_DisableAllNotificationsDesc">يوقف كل إشعارات شريط المهام، بما في ذلك تنبيهات الحرارة والمراوح والتخزين والتحديثات والذاكرة.</sys:String>
     <sys:String x:Key="Settings_TemperatureAlerts">تنبيهات الحرارة</sys:String>
     <sys:String x:Key="Settings_MuteAlerts">كتم تنبيهات الحرارة</sys:String>
     <sys:String x:Key="Settings_FanHealthAlerts">تنبيه عند توقف مروحة كانت تعمل</sys:String>
@@ -270,6 +273,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_UpdateDefault">تحقق من إصدارات GitHub بحثاً عن إصدار أحدث.</sys:String>
     <sys:String x:Key="Settings_CheckUpdates">التحقق من التحديثات</sys:String>
     <sys:String x:Key="Settings_AutomaticUpdates">التحقق من التحديثات تلقائياً</sys:String>
+    <sys:String x:Key="Settings_UpdateCadence">يتحقق عند البدء، وكل 5 دقائق أثناء فتح اللوحة، وكل 30 دقيقة في شريط المهام. كما يتحقق بعد الاستئناف أو إعادة الاتصال بالشبكة.</sys:String>
     <sys:String x:Key="Settings_Checking">جارٍ التحقق...</sys:String>
     <sys:String x:Key="Settings_CheckingReleases">جارٍ التحقق من إصدارات GitHub...</sys:String>
     <sys:String x:Key="Settings_NoReleases">لم تُنشر أي إصدارات بعد.</sys:String>
@@ -280,6 +284,15 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_DownloadingButton">جارٍ التنزيل...</sys:String>
     <sys:String x:Key="Settings_Downloading">جارٍ تنزيل الإصدار {0}...</sys:String>
     <sys:String x:Key="Settings_DownloadingPercent">جارٍ تنزيل الإصدار {0}... {1}%</sys:String>
+    <sys:String x:Key="Settings_DownloadingDetail">جارٍ تنزيل الإصدار {0}... {1}% من {2} بسرعة {3}/ث، بقي {4}.</sys:String>
+    <sys:String x:Key="Settings_DownloadingDetailNoTotal">جارٍ تنزيل الإصدار {0}... {1} بسرعة {2}/ث.</sys:String>
+    <sys:String x:Key="Settings_RemainingUnknown">وقت غير معروف</sys:String>
+    <sys:String x:Key="Settings_CancelUpdate">إلغاء</sys:String>
+    <sys:String x:Key="Settings_UpdateCancelled">تم إلغاء التحديث.</sys:String>
+    <sys:String x:Key="Settings_CheckCancelled">تم إلغاء التحقق.</sys:String>
+    <sys:String x:Key="Settings_LastChecked">آخر تحقق: {0}</sys:String>
+    <sys:String x:Key="Settings_LastCheckedNever">لم يتم التحقق بعد.</sys:String>
+    <sys:String x:Key="Settings_WhatsNew">ما الجديد</sys:String>
     <sys:String x:Key="Settings_Restarting">إعادة التشغيل للتثبيت...</sys:String>
     <sys:String x:Key="Settings_Backup">حفظ نسخة احتياطية قبل التثبيت...</sys:String>
     <sys:String x:Key="Settings_DownloadFailed">تعذر تنزيل التحديث. حاول مرة أخرى.</sys:String>
@@ -418,6 +431,17 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
 
     <sys:String x:Key="Update_NotificationTitle">تحديث CryoTray متاح</sys:String>
     <sys:String x:Key="Update_NotificationBody">الإصدار {0} جاهز. افتح الإعدادات لتثبيته.</sys:String>
+    <sys:String x:Key="Update_BannerTitle">يتوفر تحديث</sys:String>
+    <sys:String x:Key="Update_BannerVersion">v{0}</sys:String>
+    <sys:String x:Key="Update_BannerUpdate">تحديث</sys:String>
+    <sys:String x:Key="Update_BannerAbout">حول</sys:String>
+    <sys:String x:Key="Update_BannerLater">لاحقاً</sys:String>
+    <sys:String x:Key="Update_BannerLaterTooltip">إخفاء لمدة 24 ساعة</sys:String>
+    <sys:String x:Key="Update_BannerSkip">تجاوز</sys:String>
+    <sys:String x:Key="Update_BannerSkipTooltip">تجاوز هذا الإصدار</sys:String>
+    <sys:String x:Key="Update_BannerClose">إغلاق إشعار التحديث</sys:String>
+    <sys:String x:Key="Update_SuccessBanner">تم تحديث CryoTray بنجاح من v{0} إلى v{1}</sys:String>
+    <sys:String x:Key="Update_SuccessClose">إغلاق رسالة التحديث</sys:String>
     <sys:String x:Key="Update_ChecksumMissing">هذا الإصدار لا يتضمن بصمة SHA-256.</sys:String>
     <sys:String x:Key="Update_ChecksumMismatch">بصمة التحديث لا تطابق الملف الذي تم تنزيله.</sys:String>
     <sys:String x:Key="Update_ChecksumMalformed">ملف بصمة الإصدار غير صالح.</sys:String>
@@ -427,4 +451,17 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Update_NoPayload">أرشيف التحديث لا يحتوي على CryoTray.exe.</sys:String>
     <sys:String x:Key="Update_ExeMissing">تعذر العثور على ملف CryoTray.exe.</sys:String>
     <sys:String x:Key="Update_BackupMissing">تعذر العثور على نسخة احتياطية للإصدار السابق.</sys:String>
+    <sys:String x:Key="Update_BackupTampered">فشل التحقق من سلامة نسخة الاستعادة. لم تتم الاستعادة.</sys:String>
+    <sys:String x:Key="Update_DownloadBusy">تنزيل تحديث آخر قيد التشغيل بالفعل. أغلقه ثم حاول مرة أخرى.</sys:String>
+    <sys:String x:Key="Update_ManifestMissing">أرشيف التحديث لا يحتوي على بيان الملفات. لم يتم تثبيته.</sys:String>
+    <sys:String x:Key="Update_ManifestInvalid">فشل التحقق من بيان التحديث أو أحد ملفاته. لم يتم تثبيت التحديث.</sys:String>
+    <sys:String x:Key="Update_NoInstaller">هذا الإصدار لا يتضمن مثبّتاً لنُسخ التثبيت.</sys:String>
+    <sys:String x:Key="Update_SecureStorageFailed">تعذر تأمين مجلد التحديثات في ProgramData. شغّل CryoTray كمسؤول وحاول مرة أخرى.</sys:String>
+    <sys:String x:Key="Update_TooLarge">ملف التحديث أكبر من الحد المسموح به.</sys:String>
+    <sys:String x:Key="Update_NotEnoughSpace">لا توجد مساحة قرص كافية لتنزيل التحديث.</sys:String>
+    <sys:String x:Key="Update_RateLimited">GitHub يحدّ من طلبات التحديث. حاول مرة أخرى بعد {0} دقيقة.</sys:String>
+    <sys:String x:Key="Update_PowerShellMissing">تعذر العثور على Windows PowerShell في مجلد النظام.</sys:String>
+    <sys:String x:Key="Update_UpdaterStartFailed">تعذر بدء مساعد التحديث المحمي.</sys:String>
+    <sys:String x:Key="Update_UnsafeLocation">يجب تشغيل CryoTray من مجلد لا يمكن للمستخدمين العاديين تعديله. انقله إلى مجلد محمي بصلاحيات المسؤول أو أعد تثبيته باستخدام المثبّت.</sys:String>
+    <sys:String x:Key="Update_ApplicationFolderSecurityFailed">تعذر تأمين مجلد تطبيق CryoTray. انقله إلى مجلد محمي بصلاحيات المسؤول أو أعد تثبيته باستخدام المثبّت.</sys:String>
 </ResourceDictionary>

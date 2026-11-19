@@ -6,7 +6,7 @@ CryoTray actively maintains security patches for the following versions:
 
 | Version | Supported | Notes |
 | :--- | :---: | :--- |
-| `>= 0.0.100` / `main` | :white_check_mark: | Actively supported (baseline `0.0.100`; incrementing `0.0.101`, `0.0.102`, etc.) |
+| `>= 0.0.100` / `main` | :white_check_mark: | Actively supported (current baseline `0.0.101`; incrementing `0.0.102`, `0.0.103`, etc.) |
 | `< 0.0.100` | :x: | Unsupported / unreleased builds |
 
 We strongly recommend always running the latest official release available from the [CryoTray Releases](https://github.com/ZerroDevs/CryoTray/releases) page.
@@ -61,13 +61,17 @@ CryoTray includes automated update checking and downloading via GitHub Releases 
 - **Security Controls**:
   - Downloads are strictly retrieved over TLS from `https://api.github.com` and `https://github.com`.
   - Cryptographic SHA-256 hash digests are verified against the corresponding release `.sha256` asset before any update archive is extracted.
-  - Digital signatures are validated through `AuthenticodeVerifier.cs` (`WinVerifyTrust` via Win32 `wintrust.dll`).
-  - Automatic backup and rollback mechanisms are maintained by `UpdateBackupService.cs`.
-- **In Scope**: Checksum validation bypasses, trust verification flaws, or path traversal during update extraction.
+  - Downloads and rollback copies are staged under `%ProgramData%\CryoTray` with an Administrators owner and a protected DACL limited to Administrators and SYSTEM. Startup creates and secures both roots before reading the completion marker, and rollback reads secure the root again before opening its manifest. Reparse points are rejected, including a post-create recheck after a missing directory is created, existing children are re-secured, and untrusted pre-existing root contents are cleared. The elevated updater validates the manifest version and every per-file SHA-256 before copying, deletes stale files from the release delete list, restores the verified backup on failure, and rejects reparse destinations.
+  - The application must run from an administrator-protected folder. Startup rejects an application directory whose owner is not trusted, that grants standard users write/delete/change-permission/take-ownership rights, whose parent chain does the same, or that contains a reparse point. The application folder and its children are then secured with an Administrators owner and a protected DACL (Administrators/SYSTEM full control, Builtin Users read/execute). The installer forces the default Program Files location and does not reuse a previous custom directory. After a successful install it removes a previously registered Inno installation only when the old folder contains both `CryoTray.exe` and `unins000.exe`, is not the new folder, an ancestor or child of it, or an exact Windows or System folder. A portable copy must be extracted to an administrator-protected folder; Downloads, Desktop, user profiles, and user-writable data volumes are rejected.
+  - The updater launches the absolute `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe` with `-NoProfile -NonInteractive -File`; it never resolves `powershell.exe` from PATH.
+  - Installed copies use the signed-or-unsigned Inno Setup installer silently; portable copies use an update archive with versioned per-file hashes and a cumulative delete list built from the previous release's owned-file history. Release artifacts are checksummed in CI. The app is signed before the installer is compiled, and the setup is signed afterward, when signing secrets exist.
+  - A manual install clears any stale one-time success marker. The elevated helper preserves and completes the marker only for the update it was launched to apply (`/PRESERVEUPDATE` plus its `UpdateId`).
+  - Digital signatures are validated through `AuthenticodeVerifier.cs` (`WinVerifyTrust` via Win32 `wintrust.dll`) when present. A signature is **not required** for the current unsigned release policy.
+- **In Scope**: Checksum validation bypasses, rollback hash bypasses, writable staging or rollback paths, path traversal during update extraction, updater path hijacking, application-folder ACL or owner bypasses, parent-junction/hardlink replacement, or installer/portable selection failures.
 
 ### 4. Privacy & Data Handling
 - CryoTray runs entirely offline and contains **zero telemetry, analytics, or tracking**.
-- The only outbound network requests occur during explicit or daily background update checks against GitHub Releases.
+- The only outbound network requests occur during explicit checks or the adaptive background update checks against GitHub Releases (`5` minutes with the dashboard open, `30` minutes in the tray, plus startup, resume, and network reconnect).
 - User settings are stored locally in plaintext JSON at `%APPDATA%\CryoTray\settings.json`. No credentials, personal data, or encryption keys are handled or stored.
 
 ### 5. Third-Party Hardware Drivers
