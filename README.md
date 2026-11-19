@@ -401,6 +401,15 @@ The version is stored in the `VERSION` file as three numeric parts. The project 
 3. Signs both `CryoTray.exe` and `CryoTray-Setup-<version>.exe` when repository signing secrets are configured.
 4. Creates checksummed release assets (`CryoTray-Setup-<version>.exe`, `CryoTray-<version>-win-x64.zip`, and their `.sha256` files) and publishes a GitHub release unless that tag already exists.
 
+To publish the current `VERSION` without editing it again, trigger the workflow manually from **Actions > Release > Run workflow**, or with the GitHub CLI:
+
+```powershell
+gh workflow run Release --ref main
+gh run list --workflow release.yml --limit 1
+```
+
+Open the returned run URL to follow the build. A successful run creates the tag `v<version>`. Rerunning the same version after that tag exists is intentionally skipped, so bump `VERSION` before publishing another release. Signing is applied automatically when the repository signing secrets are configured; otherwise the assets are published unsigned with SHA-256 checksums.
+
 ## Testing and diagnostics
 
 ### Runtime verification suite

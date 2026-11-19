@@ -4,7 +4,15 @@
 
 - Do not add unsolicited features. When the user explicitly asks for suggestions, give a short prioritized list first; implement only the items they approve.
 
-## Latest pass (README audit, installer rebuild)
+## Latest pass (v0.0.100 published)
+
+- Fixed the release workflow tag guard: `git rev-parse --verify` returns status 1 for a missing tag, which aborted the job. Replaced it with a non-failing `git tag --list` check.
+- Fixed the diagnostics drive formatter, which rendered `C:: 98% (Good)` because `DriveLetters` already contains a colon. The generated snapshot now renders `C: 98% (Good)`.
+- Manual `workflow_dispatch` run `44425801854` completed successfully in 3m 1s: full `38 / 38` verification suite, self-contained publish, Inno Setup 6.7.3 installer, checksummed assets, and GitHub release publication.
+- Published [CryoTray v0.0.100](https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.100) with `CryoTray-Setup-0.0.100.exe` (`50.09 MB`), `CryoTray-0.0.100-win-x64.zip` (`74.57 MB`), and matching `.sha256` files. The published zip was downloaded and verified: `477` entries, `CryoTray.exe`, `PawnIO_setup.exe`, and no PDB files. Assets are unsigned because signing secrets are not configured.
+- Replaced the generated release body with the detailed v0.0.100 notes; fixed the workflow notes template so Markdown backticks no longer suppress `$zipName`/`$hashName` expansion.
+
+## Previous pass (README audit, installer rebuild)
 
 - Corrected `README.md` to list all eight Settings tabs (including Memory), describe the full configurable cooling hotkey range, add the Appearance row, and show the theme/fan-health/storage/battery services plus `ConfirmExitWindow` in the architecture tree.
 - Hardened `build-installer.ps1`: validates the three-part `VERSION`, checks the bundled `Resources\PawnIO_setup.exe` exists, publishes with `DebugType=None` / `DebugSymbols=false`, and after Inno compiles, copies PawnIO into the published payload and creates `release\CryoTray-<version>-win-x64.zip` with `PawnIO_setup.exe` at the archive root. The release workflow now does the same before creating its zip.
@@ -65,10 +73,10 @@
 ## Current status
 
 - `bin\Release\net8.0-windows\CryoTray.exe` rebuilt with `0 Warning(s), 0 Error(s)` (`388,096` bytes) and `CryoTray.dll` (`1,360,896` bytes); it includes the Fan Health disclosure, GPU fan, storage health, and tray badge metrics.
-- `CryoTray.exe` PID `29940` is running and responsive with `Theme` set to `Dark`; its dashboard was minimized to the tray.
+- `CryoTray.exe` PID `29940` is running and responsive with `Theme` set to `Dark`; its dashboard was minimized to the tray. It predates the one-line diagnostics colon fix, which is included in the published CI assets; restart from a fresh Release build to pick it up locally.
 - `Installer\Output\CryoTray-Setup-0.0.100.exe` was rebuilt after the README and build-script pass (`50.07 MB`, ProductVersion `0.0.100`).
 - `release\CryoTray-0.0.100-win-x64.zip` was rebuilt (`72.42 MB`) and contains `CryoTray.exe` plus `PawnIO_setup.exe`; no PDB files.
-- The full `/test` suite was not run because `TestPowerPlanUninstallCleanup` deletes and recreates the active scheme; the focused `/test-health-tray` and live UI checks passed.
+- The full `/test` suite now passes in GitHub Actions (`38 / 38`); it was not run locally because `TestPowerPlanUninstallCleanup` deletes and recreates the active scheme.
 
 ## Environment
 
@@ -174,5 +182,7 @@
 
 ## Next steps
 
+- Bump `VERSION` before publishing the next release; rerunning `v0.0.100` is intentionally skipped.
 - Rebuild `Installer\Output\CryoTray-Setup-0.0.100.exe` again after any further code or asset change.
+- Configure `WINDOWS_SIGNING_PFX_BASE64` and `WINDOWS_SIGNING_PFX_PASSWORD` repository secrets if future releases should be Authenticode-signed.
 - Restart Antigravity normally (without Administrator rights) once testing finishes.
