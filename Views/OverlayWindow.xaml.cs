@@ -11,6 +11,7 @@ namespace CryoTray.Views
     public partial class OverlayWindow : Window
     {
         private int _appliedOpacityPercent = -1;
+        private bool _isClosing;
 
         public OverlayWindow()
         {
@@ -18,6 +19,7 @@ namespace CryoTray.Views
             LocalizationService.Instance.ApplyWindow(this);
             Loaded += OverlayWindow_Loaded;
             Closing += OverlayWindow_Closing;
+            Closed += OverlayWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
         }
@@ -74,95 +76,124 @@ namespace CryoTray.Views
 
         private void OverlayWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
-            LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
-            ThemeService.ThemeChanged -= OnThemeChanged;
-            HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
-            SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
+            _isClosing = true;
             SettingsService.Instance.Current.OverlayLeft = Left;
             SettingsService.Instance.Current.OverlayTop = Top;
             SettingsService.Instance.Save();
         }
 
+        private void OverlayWindow_Closed(object? sender, EventArgs e)
+        {
+            _isClosing = true;
+            Loaded -= OverlayWindow_Loaded;
+            Closing -= OverlayWindow_Closing;
+            Closed -= OverlayWindow_Closed;
+            LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            ThemeService.ThemeChanged -= OnThemeChanged;
+            HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
+            SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
+            DataContext = null;
+            Content = null;
+        }
+
         private void ClampToWorkArea()
         {
-            var workArea = SystemParameters.WorkArea;
-            double minLeft = workArea.Left + 8;
-            double maxLeft = Math.Max(minLeft, workArea.Right - Width - 8);
-            double minTop = workArea.Top + 8;
-            double maxTop = Math.Max(minTop, workArea.Bottom - Height - 8);
-
-            Left = Math.Min(Math.Max(Left, minLeft), maxLeft);
-            Top = Math.Min(Math.Max(Top, minTop), maxTop);
+            var dpi = VisualTreeHelper.GetDpi(this);
+            Rect workArea = WindowPlacementHelper.GetWorkAreaForSavedPositionDips(
+                Left, Top, Width, Height, dpi.DpiScaleX, dpi.DpiScaleY);
+            var (clampedLeft, clampedTop) = WindowPlacementHelper.ClampToWorkArea(
+                workArea, Left, Top, Width, Height, margin: 8);
+            Left = clampedLeft;
+            Top = clampedTop;
         }
 
         public void UpdateTelemetry(HardwareSnapshot snapshot)
         {
-            Dispatcher.Invoke(() =>
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
             {
-                var s = SettingsService.Instance.Current;
-                bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
-                string unit = isFahrenheit ? "°F" : "°C";
+                return;
+            }
 
-                ApplyMetricVisibility(s);
+            if (Dispatcher.CheckAccess())
+            {
+                ApplyTelemetryCore(snapshot);
+                return;
+            }
 
-                if (double.IsFinite(snapshot.CpuTemp) && snapshot.CpuTemp > 0)
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosing)
                 {
-                    double cpuT = isFahrenheit ? (snapshot.CpuTemp * 9 / 5 + 32) : snapshot.CpuTemp;
-                    TxtCpuTemp.Text = $"{Math.Round(cpuT)}{unit}";
+                    ApplyTelemetryCore(snapshot);
                 }
-                else
-                {
-                    TxtCpuTemp.Text = $"--{unit}";
-                }
+            }));
+        }
 
-                TxtCpuTemp.Foreground = snapshot.CoolingModeActive
-                    ? ThemeService.GetBrush("CoolingOnTextBrush")
-                    : ThemeService.GetBrush("CoolingOffTextBrush");
-                TxtCpuLoad.Text = double.IsFinite(snapshot.CpuLoad) && snapshot.CpuLoad >= 0
-                    ? $"{Math.Round(snapshot.CpuLoad)}%"
-                    : "--%";
-                TxtCpuPower.Text = snapshot.CpuPackageWatts.HasValue
-                    ? $"{snapshot.CpuPackageWatts.Value}W"
-                    : "--W";
-                TxtCpuClock.Text = double.IsFinite(snapshot.CpuGhz) && snapshot.CpuGhz > 0
-                    ? $"{snapshot.CpuGhz:0.00}G"
-                    : "--G";
+        private void ApplyTelemetryCore(HardwareSnapshot snapshot)
+        {
+            var s = SettingsService.Instance.Current;
+            bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
+            string unit = isFahrenheit ? "°F" : "°C";
 
-                if (double.IsFinite(snapshot.GpuTemp) && snapshot.GpuTemp > 0)
-                {
-                    double gpuT = isFahrenheit ? (snapshot.GpuTemp * 9 / 5 + 32) : snapshot.GpuTemp;
-                    TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
-                }
-                else
-                {
-                    TxtGpuTemp.Text = $"--{unit}";
-                }
+            ApplyMetricVisibility(s);
 
-                TxtGpuLoad.Text = double.IsFinite(snapshot.GpuLoad) && snapshot.GpuLoad >= 0
-                    ? $"{Math.Round(snapshot.GpuLoad)}%"
-                    : "--%";
-                TxtGpuPower.Text = snapshot.GpuPowerWatts.HasValue
-                    ? $"{snapshot.GpuPowerWatts.Value}W"
-                    : "--W";
-                TxtRamUsed.Text = double.IsFinite(snapshot.RamUsedGb) && snapshot.RamUsedGb > 0
-                    ? $"{snapshot.RamUsedGb:0.0}G"
-                    : "--G";
-                TxtRamPercent.Text = double.IsFinite(snapshot.RamUsagePercent) && snapshot.RamUsagePercent >= 0
-                    ? $"{Math.Round(snapshot.RamUsagePercent)}%"
-                    : "--%";
+            if (double.IsFinite(snapshot.CpuTemp) && snapshot.CpuTemp > 0)
+            {
+                double cpuT = isFahrenheit ? (snapshot.CpuTemp * 9 / 5 + 32) : snapshot.CpuTemp;
+                TxtCpuTemp.Text = $"{Math.Round(cpuT)}{unit}";
+            }
+            else
+            {
+                TxtCpuTemp.Text = $"--{unit}";
+            }
 
-                var battery = BatteryTelemetryService.Read();
-                if (battery.HasBattery)
-                {
-                    TxtBatteryPercent.Text = $"{battery.Percent}%";
-                    TxtBatteryState.Text = BatteryTelemetryService.GetStateLabel(battery);
-                }
-                else
-                {
-                    TxtBatteryPercent.Text = "--%";
-                    TxtBatteryState.Text = "";
-                }
-            });
+            TxtCpuTemp.Foreground = snapshot.CoolingModeActive
+                ? ThemeService.GetBrush("CoolingOnTextBrush")
+                : ThemeService.GetBrush("CoolingOffTextBrush");
+            TxtCpuLoad.Text = double.IsFinite(snapshot.CpuLoad) && snapshot.CpuLoad >= 0
+                ? $"{Math.Round(snapshot.CpuLoad)}%"
+                : "--%";
+            TxtCpuPower.Text = snapshot.CpuPackageWatts.HasValue
+                ? $"{snapshot.CpuPackageWatts.Value}W"
+                : "--W";
+            TxtCpuClock.Text = double.IsFinite(snapshot.CpuGhz) && snapshot.CpuGhz > 0
+                ? $"{snapshot.CpuGhz:0.00}G"
+                : "--G";
+
+            if (double.IsFinite(snapshot.GpuTemp) && snapshot.GpuTemp > 0)
+            {
+                double gpuT = isFahrenheit ? (snapshot.GpuTemp * 9 / 5 + 32) : snapshot.GpuTemp;
+                TxtGpuTemp.Text = $"{Math.Round(gpuT)}{unit}";
+            }
+            else
+            {
+                TxtGpuTemp.Text = $"--{unit}";
+            }
+
+            TxtGpuLoad.Text = double.IsFinite(snapshot.GpuLoad) && snapshot.GpuLoad >= 0
+                ? $"{Math.Round(snapshot.GpuLoad)}%"
+                : "--%";
+            TxtGpuPower.Text = snapshot.GpuPowerWatts.HasValue
+                ? $"{snapshot.GpuPowerWatts.Value}W"
+                : "--W";
+            TxtRamUsed.Text = double.IsFinite(snapshot.RamUsedGb) && snapshot.RamUsedGb > 0
+                ? $"{snapshot.RamUsedGb:0.0}G"
+                : "--G";
+            TxtRamPercent.Text = double.IsFinite(snapshot.RamUsagePercent) && snapshot.RamUsagePercent >= 0
+                ? $"{Math.Round(snapshot.RamUsagePercent)}%"
+                : "--%";
+
+            var battery = BatteryTelemetryService.Read();
+            if (battery.HasBattery)
+            {
+                TxtBatteryPercent.Text = $"{battery.Percent}%";
+                TxtBatteryState.Text = BatteryTelemetryService.GetStateLabel(battery);
+            }
+            else
+            {
+                TxtBatteryPercent.Text = "--%";
+                TxtBatteryState.Text = "";
+            }
         }
 
         private void ApplyMetricVisibility(AppSettings settings)

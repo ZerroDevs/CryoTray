@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -90,8 +91,14 @@ namespace CryoTray.Services
         private const long MaxDownloadBytes = 512L * 1024 * 1024;
         private const int MaxReleaseNotesLength = 2400;
         private static readonly TimeSpan DownloadAttemptTimeout = TimeSpan.FromMinutes(15);
-        private static readonly Regex VersionPattern = new(@"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)", RegexOptions.Compiled);
+        private static readonly Regex VersionPattern = new(@"(?<![\d.])(\d+)\.(\d+)\.(\d+)(?![\d.])", RegexOptions.Compiled);
         private static readonly Regex HtmlTagPattern = new(@"<[^>]+>", RegexOptions.Compiled);
+        private static readonly HashSet<string> ReservedWindowsDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
         private static readonly HttpClient Http = CreateHttpClient();
         private static string? _currentVersion;
         private static string? _latestReleaseETag;
@@ -429,7 +436,7 @@ namespace CryoTray.Services
             UpdateStorage.SecureDirectory(update.WorkDirectory);
 
             string scriptPath = Path.Combine(update.WorkDirectory, "apply-update.ps1");
-            File.WriteAllText(scriptPath, UpdaterScript);
+            File.WriteAllText(scriptPath, UpdaterScript, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 
             string powershellPath = Path.Combine(
                 Environment.SystemDirectory,
@@ -440,6 +447,16 @@ namespace CryoTray.Services
             {
                 throw new FileNotFoundException(
                     LocalizationService.Get("Update_PowerShellMissing"));
+            }
+
+            long processStartTicks = 0;
+            try
+            {
+                using var currentProcess = Process.GetCurrentProcess();
+                processStartTicks = currentProcess.StartTime.ToUniversalTime().Ticks;
+            }
+            catch
+            {
             }
 
             var startInfo = new ProcessStartInfo
@@ -458,7 +475,9 @@ namespace CryoTray.Services
             startInfo.ArgumentList.Add("-File");
             startInfo.ArgumentList.Add(scriptPath);
             startInfo.ArgumentList.Add("-WaitPid");
-            startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+            startInfo.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+            startInfo.ArgumentList.Add("-WaitProcessStartTicks");
+            startInfo.ArgumentList.Add(processStartTicks.ToString(CultureInfo.InvariantCulture));
             startInfo.ArgumentList.Add("-Kind");
             startInfo.ArgumentList.Add(update.Kind.ToString());
             startInfo.ArgumentList.Add("-PackagePath");
@@ -481,9 +500,9 @@ namespace CryoTray.Services
             startInfo.ArgumentList.Add(updateId ?? string.Empty);
             startInfo.ArgumentList.Add("-CompletionPath");
             startInfo.ArgumentList.Add(
-                string.IsNullOrWhiteSpace(updateId)
-                    ? string.Empty
-                    : UpdateStorage.CompletionStatePath);
+                update.Kind == UpdateAssetKind.Rollback || !string.IsNullOrWhiteSpace(updateId)
+                    ? UpdateStorage.CompletionStatePath
+                    : string.Empty);
             startInfo.ArgumentList.Add("-LogPath");
             startInfo.ArgumentList.Add(UpdateStorage.LogPath);
 
@@ -550,14 +569,14 @@ namespace CryoTray.Services
 
             string checksumText = await File.ReadAllTextAsync(checksumPath, cancellationToken)
                 .ConfigureAwait(false);
-            var match = Regex.Match(checksumText, @"\b[a-fA-F0-9]{64}\b");
-            if (!match.Success)
+            string? expectedHex = ParseExpectedSha256(checksumText, release.AssetName);
+            if (string.IsNullOrEmpty(expectedHex))
             {
                 throw new InvalidOperationException(
                     LocalizationService.Get("Update_ChecksumMalformed"));
             }
 
-            byte[] expected = Convert.FromHexString(match.Value);
+            byte[] expected = Convert.FromHexString(expectedHex);
             byte[] actual;
             await using (var stream = File.OpenRead(assetPath))
             {
@@ -571,10 +590,71 @@ namespace CryoTray.Services
                     LocalizationService.Get("Update_ChecksumMismatch"));
             }
 
-            return match.Value.ToLowerInvariant();
+            return expectedHex;
         }
 
-        private static ReleaseAsset? SelectAsset(JsonElement root, bool installed)
+        internal static string? ParseExpectedSha256(string? checksumText, string? expectedAssetName)
+        {
+            if (string.IsNullOrWhiteSpace(checksumText))
+            {
+                return null;
+            }
+
+            string targetName = Path.GetFileName(expectedAssetName ?? string.Empty);
+            var bareHashes = new List<string>();
+            var namedHashes = new List<(string Hash, string FileName)>();
+
+            string[] lines = checksumText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string rawLine in lines)
+            {
+                string line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith('#'))
+                {
+                    continue;
+                }
+
+                var match = Regex.Match(line, @"^([a-fA-F0-9]{64})(?:\s+\*?(.+))?$");
+                if (!match.Success)
+                {
+                    continue;
+                }
+
+                string hash = match.Groups[1].Value.ToLowerInvariant();
+                string filePart = match.Groups[2].Value.Trim();
+                if (filePart.Length == 0)
+                {
+                    bareHashes.Add(hash);
+                }
+                else
+                {
+                    namedHashes.Add((hash, Path.GetFileName(filePart)));
+                }
+            }
+
+            if (!string.IsNullOrEmpty(targetName))
+            {
+                foreach (var entry in namedHashes)
+                {
+                    if (string.Equals(entry.FileName, targetName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return entry.Hash;
+                    }
+                }
+
+                if (namedHashes.Count > 0)
+                {
+                    return null;
+                }
+            }
+            else if (namedHashes.Count == 1)
+            {
+                return namedHashes[0].Hash;
+            }
+
+            return bareHashes.Count == 1 ? bareHashes[0] : null;
+        }
+
+        internal static ReleaseAsset? SelectAsset(JsonElement root, bool installed)
         {
             if (!root.TryGetProperty("assets", out var assets) ||
                 assets.ValueKind != JsonValueKind.Array)
@@ -611,11 +691,16 @@ namespace CryoTray.Services
                 }
                 else if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    bool isInstaller = name.Contains("setup", StringComparison.OrdinalIgnoreCase)
-                        || name.Contains("installer", StringComparison.OrdinalIgnoreCase)
-                        || name.Contains("install", StringComparison.OrdinalIgnoreCase);
+                    bool isUninstaller = name.Contains("uninstall", StringComparison.OrdinalIgnoreCase)
+                        || name.StartsWith("unins", StringComparison.OrdinalIgnoreCase);
+                    bool isInstaller = !isUninstaller && (
+                        name.Contains("setup", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("installer", StringComparison.OrdinalIgnoreCase));
 
-                    kind = isInstaller ? UpdateAssetKind.Installer : UpdateAssetKind.Executable;
+                    if (!isUninstaller)
+                    {
+                        kind = isInstaller ? UpdateAssetKind.Installer : UpdateAssetKind.Executable;
+                    }
                 }
 
                 if (kind.HasValue)
@@ -799,7 +884,8 @@ namespace CryoTray.Services
                             continue;
                         }
 
-                        if (info.LastWriteTimeUtc < DateTime.UtcNow.AddDays(-7))
+                        if (info.LastWriteTimeUtc < DateTime.UtcNow.AddDays(-7) &&
+                            !IsDownloadDirectoryLocked(directory))
                         {
                             TryDeleteDirectory(directory);
                         }
@@ -814,7 +900,34 @@ namespace CryoTray.Services
             }
         }
 
-        private static void ValidateUpdateManifest(
+        private static bool IsDownloadDirectoryLocked(string directory)
+        {
+            string lockPath = Path.Combine(directory, "download.lock");
+            if (!File.Exists(lockPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                using var stream = new FileStream(
+                    lockPath,
+                    FileMode.Open,
+                    FileAccess.ReadWrite,
+                    FileShare.None);
+                return false;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        internal static void ValidateUpdateManifest(
             string manifestPath,
             string payloadDirectory,
             string expectedVersion)
@@ -946,7 +1059,7 @@ namespace CryoTray.Services
             return (path ?? string.Empty).Replace('\\', '/');
         }
 
-        private static bool IsSafeRelativePath(string path)
+        internal static bool IsSafeRelativePath(string path)
         {
             if (string.IsNullOrWhiteSpace(path) ||
                 Path.IsPathRooted(path) ||
@@ -958,8 +1071,26 @@ namespace CryoTray.Services
             }
 
             string[] parts = path.Replace('\\', '/').Split('/');
-            return parts.All(part =>
-                part.Length > 0 && part != "." && part != "..");
+            foreach (string part in parts)
+            {
+                if (part.Length == 0 ||
+                    part == "." ||
+                    part == ".." ||
+                    part.EndsWith('.') ||
+                    part.EndsWith(' '))
+                {
+                    return false;
+                }
+
+                int dot = part.IndexOf('.');
+                string baseName = dot >= 0 ? part[..dot] : part;
+                if (ReservedWindowsDeviceNames.Contains(baseName))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool IsSha256(string? hash)
@@ -1246,7 +1377,24 @@ namespace CryoTray.Services
         private static bool IsRateLimited(HttpResponseMessage response)
         {
             int status = (int)response.StatusCode;
-            return status == 403 || status == 429;
+            if (status == 429)
+            {
+                return true;
+            }
+
+            if (status != 403)
+            {
+                return false;
+            }
+
+            if (response.Headers.TryGetValues("X-RateLimit-Remaining", out var remainingValues) &&
+                int.TryParse(remainingValues.FirstOrDefault(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int remaining) &&
+                remaining == 0)
+            {
+                return true;
+            }
+
+            return response.Headers.RetryAfter != null || response.Headers.Contains("Retry-After");
         }
 
         private static void SetRateLimit(HttpResponseMessage response)
@@ -1259,7 +1407,7 @@ namespace CryoTray.Services
                 delay = TimeSpan.FromSeconds(Math.Max(1, retryAfter.Value));
             }
             else if (response.Headers.TryGetValues("X-RateLimit-Reset", out var resetValues) &&
-                     long.TryParse(resetValues.FirstOrDefault(), out long resetSeconds))
+                     long.TryParse(resetValues.FirstOrDefault(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long resetSeconds))
             {
                 var reset = DateTimeOffset.FromUnixTimeSeconds(resetSeconds);
                 delay = reset - DateTimeOffset.UtcNow;
@@ -1276,7 +1424,7 @@ namespace CryoTray.Services
         private static void UpdateRateLimitFromHeaders(HttpResponseMessage response)
         {
             if (!response.Headers.TryGetValues("X-RateLimit-Remaining", out var remainingValues) ||
-                !int.TryParse(remainingValues.FirstOrDefault(), out int remaining) ||
+                !int.TryParse(remainingValues.FirstOrDefault(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int remaining) ||
                 remaining > 0)
             {
                 return;
@@ -1299,7 +1447,7 @@ namespace CryoTray.Services
             }
 
             if (response.Headers.TryGetValues("Retry-After", out var values) &&
-                int.TryParse(values.FirstOrDefault(), out int seconds))
+                int.TryParse(values.FirstOrDefault(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int seconds))
             {
                 return seconds;
             }
@@ -1434,7 +1582,7 @@ namespace CryoTray.Services
             }
         }
 
-        private sealed class ReleaseAsset
+        internal sealed class ReleaseAsset
         {
             public ReleaseAsset(string name, string url, UpdateAssetKind kind)
             {
@@ -1474,6 +1622,7 @@ namespace CryoTray.Services
         private const string UpdaterScript = """
             param(
                 [Parameter(Mandatory=$true)][int]$WaitPid,
+                [Parameter(Mandatory=$false)][long]$WaitProcessStartTicks = 0,
                 [Parameter(Mandatory=$true)][ValidateSet('Archive','Executable','Installer','Rollback')][string]$Kind,
                 [Parameter(Mandatory=$true)][string]$PackagePath,
                 [Parameter(Mandatory=$true)][string]$TargetDirectory,
@@ -1578,7 +1727,20 @@ namespace CryoTray.Services
                     if (-not (Test-Path -LiteralPath $parent)) {
                         New-Item -ItemType Directory -Path $parent -Force | Out-Null
                     }
-                    Copy-Item -LiteralPath $source -Destination $destination -Force
+                    $copied = $false
+                    for ($attempt = 1; $attempt -le 3; $attempt++) {
+                        try {
+                            Copy-Item -LiteralPath $source -Destination $destination -Force
+                            $copied = $true
+                            break
+                        } catch {
+                            if ($attempt -eq 3) { throw }
+                            Start-Sleep -Milliseconds (250 * $attempt)
+                        }
+                    }
+                    if (-not $copied) {
+                        throw "Failed to copy $source to $destination"
+                    }
                 }
             }
 
@@ -1680,12 +1842,27 @@ namespace CryoTray.Services
                     }
                 }
 
+                function Test-OriginalProcessRunning {
+                    $proc = Get-Process -Id $WaitPid -ErrorAction SilentlyContinue
+                    if ($null -eq $proc) { return $false }
+                    if ($WaitProcessStartTicks -gt 0) {
+                        try {
+                            $delta = [Math]::Abs($proc.StartTime.ToUniversalTime().Ticks - $WaitProcessStartTicks)
+                            if ($delta -gt [TimeSpan]::TicksPerSecond * 5) {
+                                return $false
+                            }
+                        } catch {
+                        }
+                    }
+                    return $true
+                }
+
                 $deadline = (Get-Date).AddSeconds(60)
-                while ((Get-Process -Id $WaitPid -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {
+                while ((Test-OriginalProcessRunning) -and ((Get-Date) -lt $deadline)) {
                     Start-Sleep -Milliseconds 300
                 }
 
-                if (Get-Process -Id $WaitPid -ErrorAction SilentlyContinue) {
+                if (Test-OriginalProcessRunning) {
                     throw 'CryoTray did not exit before the update deadline.'
                 }
 
@@ -1770,6 +1947,9 @@ namespace CryoTray.Services
                     }
                 } elseif ($Kind -eq 'Rollback') {
                     Assert-NoReparseChain $PackagePath
+                    if ($CompletionPath -and (Test-Path -LiteralPath $CompletionPath -PathType Leaf)) {
+                        Remove-Item -LiteralPath $CompletionPath -Force -ErrorAction SilentlyContinue
+                    }
                     $script:targetModified = $true
                     Remove-TreeContents $TargetDirectory
                     Get-ChildItem -LiteralPath $PackagePath -Force | ForEach-Object {

@@ -155,7 +155,7 @@ namespace CryoTray.Services
 
                     try
                     {
-                        string devId = drive["DeviceID"]?.ToString()?.Replace("\\", "\\\\") ?? "";
+                        string devId = EscapeWqlValue(drive["DeviceID"]?.ToString());
                         string q = $"ASSOCIATORS OF {{Win32_DiskDrive.DeviceID='{devId}'}} WHERE AssocClass = Win32_DiskDriveToDiskPartition";
                         using var partSearcher = new ManagementObjectSearcher(q);
                         using var partResults = partSearcher.Get();
@@ -163,7 +163,7 @@ namespace CryoTray.Services
                         foreach (ManagementObject part in partResults)
                         {
                             using var partRow = part;
-                            string partDevId = part["DeviceID"]?.ToString()?.Replace("\\", "\\\\") ?? "";
+                            string partDevId = EscapeWqlValue(part["DeviceID"]?.ToString());
                             string qLogical = $"ASSOCIATORS OF {{Win32_DiskPartition.DeviceID='{partDevId}'}} WHERE AssocClass = Win32_LogicalDiskToPartition";
                             using var logSearcher = new ManagementObjectSearcher(qLogical);
                             using var logResults = logSearcher.Get();
@@ -283,7 +283,7 @@ namespace CryoTray.Services
                 {
                     using var row = obj;
                     string? caption = obj["Caption"]?.ToString()?.Replace("Microsoft", "")?.Trim();
-                    string arch = obj["OSArchitecture"]?.ToString()?.ToLowerInvariant().Contains("64") == true ? "x64" : "x86";
+                    string arch = FormatOsArchitecture(obj["OSArchitecture"]?.ToString());
                     info.OperatingSystem = string.IsNullOrWhiteSpace(caption)
                         ? LocalizationService.Get("Common_NotReported")
                         : $"{caption} {arch}".Trim();
@@ -601,6 +601,32 @@ namespace CryoTray.Services
             return LocalizationService.Get("Common_NotReported");
         }
 
+        internal static string EscapeWqlValue(string? value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return "";
+            }
+
+            return value.Replace("\\", "\\\\").Replace("'", "\\'");
+        }
+
+        internal static string FormatOsArchitecture(string? rawArchitecture)
+        {
+            if (string.IsNullOrWhiteSpace(rawArchitecture))
+            {
+                return Environment.Is64BitOperatingSystem ? "x64" : "x86";
+            }
+
+            string lower = rawArchitecture.ToLowerInvariant();
+            if (lower.Contains("arm"))
+            {
+                return lower.Contains("64") ? "ARM64" : "ARM";
+            }
+
+            return lower.Contains("64") ? "x64" : "x86";
+        }
+
         private string QueryActiveNetwork()
         {
             try
@@ -608,11 +634,16 @@ namespace CryoTray.Services
                 using var searcher = new ManagementObjectSearcher(
                     "SELECT NetConnectionID, Name, NetConnectionStatus FROM Win32_NetworkAdapter WHERE NetConnectionStatus = 2");
                 using var results = searcher.Get();
+                string? virtualFallback = null;
                 foreach (ManagementObject obj in results)
                 {
                     using var row = obj;
                     string id = obj["NetConnectionID"]?.ToString()?.Trim() ?? "Ethernet";
                     string name = obj["Name"]?.ToString()?.Trim() ?? "";
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        continue;
+                    }
 
                     // Ignore virtual/tunnel adapters if physical is available
                     if (name.Contains("WARP", StringComparison.OrdinalIgnoreCase) ||
@@ -620,13 +651,16 @@ namespace CryoTray.Services
                         name.Contains("TAP", StringComparison.OrdinalIgnoreCase) ||
                         name.Contains("VPN", StringComparison.OrdinalIgnoreCase))
                     {
+                        virtualFallback ??= LocalizationService.Format("System_NetworkFormat", id, name);
                         continue;
                     }
 
-                    if (!string.IsNullOrEmpty(name))
-                    {
-                        return LocalizationService.Format("System_NetworkFormat", id, name);
-                    }
+                    return LocalizationService.Format("System_NetworkFormat", id, name);
+                }
+
+                if (!string.IsNullOrEmpty(virtualFallback))
+                {
+                    return virtualFallback;
                 }
             }
             catch
@@ -639,14 +673,21 @@ namespace CryoTray.Services
 
         private string QueryBsodCount()
         {
+            const int MaxEvents = 10000;
             int count = 0;
             try
             {
                 string query = "*[System[(EventID=1001) and (Provider[@Name='BugCheck' or @Name='Microsoft-Windows-WER-SystemErrorReporting'])]]";
                 var eventQuery = new EventLogQuery("System", PathType.LogName, query);
                 using var reader = new EventLogReader(eventQuery);
-                while (reader.ReadEvent() != null)
+                while (count < MaxEvents)
                 {
+                    using var record = reader.ReadEvent();
+                    if (record == null)
+                    {
+                        break;
+                    }
+
                     count++;
                 }
             }
@@ -731,8 +772,31 @@ namespace CryoTray.Services
             sb.AppendLine(
                 $"  Temp: {FormatTemp(snapshot.CpuTemp)} | Load: {FormatPercent(snapshot.CpuLoad)} | Power: {FormatWatts(snapshot.CpuPackageWatts)}");
             sb.AppendLine($"GPU: {(string.IsNullOrWhiteSpace(data.GraphicsCard) ? snapshot.GpuName : data.GraphicsCard)}");
-            sb.AppendLine(
-                $"  Temp: {FormatTemp(snapshot.GpuTemp)} | Load: {FormatPercent(snapshot.GpuLoad)} | Power: {FormatWatts(snapshot.GpuPowerWatts)} | Fan: {(snapshot.GpuFanRpm.HasValue ? $"{snapshot.GpuFanRpm.Value} RPM" : "--")}");
+            var gpuMetrics = new List<string>
+            {
+                $"Temp: {FormatTemp(snapshot.GpuTemp)}",
+                $"Load: {FormatPercent(snapshot.GpuLoad)}",
+                $"Power: {FormatWatts(snapshot.GpuPowerWatts)}",
+                $"Fan: {(snapshot.GpuFanRpm.HasValue ? $"{snapshot.GpuFanRpm.Value} RPM" : "--")}"
+            };
+            if (snapshot.GpuHotspotTemp.HasValue && double.IsFinite(snapshot.GpuHotspotTemp.Value) && snapshot.GpuHotspotTemp.Value > 0)
+            {
+                gpuMetrics.Add($"Hotspot: {FormatTemp(snapshot.GpuHotspotTemp.Value)}");
+            }
+            if (snapshot.GpuVramTemp.HasValue && double.IsFinite(snapshot.GpuVramTemp.Value) && snapshot.GpuVramTemp.Value > 0)
+            {
+                gpuMetrics.Add($"VRAM Temp: {FormatTemp(snapshot.GpuVramTemp.Value)}");
+            }
+            if (snapshot.GpuCoreClockMhz.HasValue && double.IsFinite(snapshot.GpuCoreClockMhz.Value) && snapshot.GpuCoreClockMhz.Value > 0)
+            {
+                gpuMetrics.Add($"Clock: {Math.Round(snapshot.GpuCoreClockMhz.Value).ToString(CultureInfo.InvariantCulture)} MHz");
+            }
+            if (snapshot.GpuVramUsedMb.HasValue && snapshot.GpuVramTotalMb.HasValue && snapshot.GpuVramTotalMb.Value > 0)
+            {
+                gpuMetrics.Add(
+                    $"VRAM: {Math.Round(snapshot.GpuVramUsedMb.Value).ToString(CultureInfo.InvariantCulture)} / {Math.Round(snapshot.GpuVramTotalMb.Value).ToString(CultureInfo.InvariantCulture)} MB");
+            }
+            sb.AppendLine($"  {string.Join(" | ", gpuMetrics)}");
             string ramUsed = double.IsFinite(snapshot.RamUsedGb) && snapshot.RamUsedGb > 0
                 ? snapshot.RamUsedGb.ToString("0.0", CultureInfo.InvariantCulture)
                 : "--";

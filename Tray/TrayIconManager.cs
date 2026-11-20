@@ -23,17 +23,17 @@ namespace CryoTray.Tray
         private readonly ContextMenuStrip _contextMenu;
         private readonly Font _menuFont = new("Segoe UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
         private readonly Font _menuPrimaryFont = new("Segoe UI Semibold", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
-        private readonly ToolStripMenuItem _itemOpen;
-        private readonly ToolStripMenuItem _itemCooling;
-        private readonly ToolStripMenuItem _itemPauseCooling;
-        private readonly ToolStripMenuItem _itemPause15m;
-        private readonly ToolStripMenuItem _itemPause30m;
-        private readonly ToolStripMenuItem _itemPause60m;
-        private readonly ToolStripMenuItem _itemResumeNow;
-        private readonly ToolStripMenuItem _itemStress;
-        private readonly ToolStripMenuItem _itemOverlayClickThrough;
-        private readonly ToolStripMenuItem _itemSettings;
-        private readonly ToolStripMenuItem _itemExit;
+        private readonly ToolStripMenuItem _itemOpen = null!;
+        private readonly ToolStripMenuItem _itemCooling = null!;
+        private readonly ToolStripMenuItem _itemPauseCooling = null!;
+        private readonly ToolStripMenuItem _itemPause15m = null!;
+        private readonly ToolStripMenuItem _itemPause30m = null!;
+        private readonly ToolStripMenuItem _itemPause60m = null!;
+        private readonly ToolStripMenuItem _itemResumeNow = null!;
+        private readonly ToolStripMenuItem _itemStress = null!;
+        private readonly ToolStripMenuItem _itemOverlayClickThrough = null!;
+        private readonly ToolStripMenuItem _itemSettings = null!;
+        private readonly ToolStripMenuItem _itemExit = null!;
 
         private readonly Bitmap _iconBitmap;
         private readonly Graphics _iconGraphics;
@@ -89,18 +89,19 @@ namespace CryoTray.Tray
 
         public TrayIconManager()
         {
-            _contextMenu = CreateDarkContextMenu();
-            _itemOpen = (ToolStripMenuItem)_contextMenu.Items[0];
-            _itemCooling = (ToolStripMenuItem)_contextMenu.Items[2];
-            _itemPauseCooling = (ToolStripMenuItem)_contextMenu.Items[3];
-            _itemPause15m = (ToolStripMenuItem)_itemPauseCooling.DropDownItems[0];
-            _itemPause30m = (ToolStripMenuItem)_itemPauseCooling.DropDownItems[1];
-            _itemPause60m = (ToolStripMenuItem)_itemPauseCooling.DropDownItems[2];
-            _itemResumeNow = (ToolStripMenuItem)_itemPauseCooling.DropDownItems[4];
-            _itemStress = (ToolStripMenuItem)_contextMenu.Items[4];
-            _itemOverlayClickThrough = (ToolStripMenuItem)_contextMenu.Items[5];
-            _itemSettings = (ToolStripMenuItem)_contextMenu.Items[6];
-            _itemExit = (ToolStripMenuItem)_contextMenu.Items[8];
+            var menuItems = CreateDarkContextMenu();
+            _contextMenu = menuItems.Menu;
+            _itemOpen = menuItems.Open;
+            _itemCooling = menuItems.Cooling;
+            _itemPauseCooling = menuItems.PauseCooling;
+            _itemPause15m = menuItems.Pause15m;
+            _itemPause30m = menuItems.Pause30m;
+            _itemPause60m = menuItems.Pause60m;
+            _itemResumeNow = menuItems.ResumeNow;
+            _itemStress = menuItems.Stress;
+            _itemOverlayClickThrough = menuItems.OverlayClickThrough;
+            _itemSettings = menuItems.Settings;
+            _itemExit = menuItems.Exit;
             _contextMenu.Opening += (_, _) =>
             {
                 _itemOverlayClickThrough.Checked = SettingsService.Instance.Current.OverlayClickThrough;
@@ -261,6 +262,23 @@ namespace CryoTray.Tray
 
         private void RefreshPauseMenuText()
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_contextMenu.InvokeRequired)
+            {
+                try
+                {
+                    _contextMenu.BeginInvoke(new Action(RefreshPauseMenuText));
+                }
+                catch
+                {
+                }
+                return;
+            }
+
             int mins = GetPauseRemainingMinutes();
             _itemPauseCooling.Text = mins > 0
                 ? LocalizationService.Format("Tray_PauseCoolingActive", mins)
@@ -304,7 +322,21 @@ namespace CryoTray.Tray
             }
         }
 
-        private ContextMenuStrip CreateDarkContextMenu()
+        private sealed record DarkContextMenuItems(
+            ContextMenuStrip Menu,
+            ToolStripMenuItem Open,
+            ToolStripMenuItem Cooling,
+            ToolStripMenuItem PauseCooling,
+            ToolStripMenuItem Pause15m,
+            ToolStripMenuItem Pause30m,
+            ToolStripMenuItem Pause60m,
+            ToolStripMenuItem ResumeNow,
+            ToolStripMenuItem Stress,
+            ToolStripMenuItem OverlayClickThrough,
+            ToolStripMenuItem Settings,
+            ToolStripMenuItem Exit);
+
+        private DarkContextMenuItems CreateDarkContextMenu()
         {
             var renderer = new DarkMenuRenderer();
             var menu = new ContextMenuStrip();
@@ -353,7 +385,19 @@ namespace CryoTray.Tray
                 itemExit
             });
 
-            return menu;
+            return new DarkContextMenuItems(
+                menu,
+                itemOpen,
+                itemCooling,
+                itemPauseCooling,
+                itemPause15,
+                itemPause30,
+                itemPause60,
+                itemResumeNow,
+                itemStress,
+                itemOverlayClickThrough,
+                itemSettings,
+                itemExit);
         }
 
         private void ConfigureDarkDropDown(ToolStripDropDownMenu dropDown, ToolStripRenderer renderer)

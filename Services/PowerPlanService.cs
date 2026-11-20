@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using CryoTray.Models;
 
 namespace CryoTray.Services
@@ -23,6 +24,11 @@ namespace CryoTray.Services
 
         public const string CryoTrayCoolingSchemeName = "CryoTray Cooling";
         public static readonly Guid BalancedGuid = NativeMethods.GUID_POWERSCHEME_BALANCED;
+        private const int PowerCfgTimeoutMs = 15000;
+        private static readonly string PowerCfgExePath = Path.Combine(Environment.SystemDirectory, "powercfg.exe");
+        private static readonly Regex PowerCfgSchemeLineRegex = new(
+            @"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s*\(([^)]*)\)",
+            RegexOptions.Compiled);
 
         public event Action<bool>? CoolingModeChanged;
 
@@ -148,7 +154,7 @@ namespace CryoTray.Services
 
             // Not found -> import from embedded Resources\CryoTray.pow
             Guid newGuid = Guid.NewGuid();
-            string tempPowPath = Path.Combine(Path.GetTempPath(), "CryoTray.pow");
+            string tempPowPath = Path.Combine(Path.GetTempPath(), $"CryoTray_{Guid.NewGuid():N}.pow");
 
             try
             {
@@ -186,27 +192,43 @@ namespace CryoTray.Services
                     // Import scheme silently
                     var psiImport = new ProcessStartInfo
                     {
-                        FileName = "powercfg",
+                        FileName = PowerCfgExePath,
                         Arguments = $"/import \"{tempPowPath}\" {newGuid}",
                         CreateNoWindow = true,
                         UseShellExecute = false
                     };
                     using var procImport = Process.Start(psiImport);
-                    procImport?.WaitForExit();
+                    bool importExited = procImport != null && procImport.WaitForExit(PowerCfgTimeoutMs);
+                    if (!importExited)
+                    {
+                        try { procImport?.Kill(); } catch { }
+                        return Guid.Empty;
+                    }
+
+                    if (procImport!.ExitCode != 0)
+                    {
+                        return Guid.Empty;
+                    }
 
                     // Rename to CryoTray Cooling
                     var psiRename = new ProcessStartInfo
                     {
-                        FileName = "powercfg",
+                        FileName = PowerCfgExePath,
                         Arguments = $"-changename {newGuid} \"{CryoTrayCoolingSchemeName}\" \"Low-temperature CPU power plan\"",
                         CreateNoWindow = true,
                         UseShellExecute = false
                     };
                     using var procRename = Process.Start(psiRename);
-                    procRename?.WaitForExit();
+                    if (procRename != null && !procRename.WaitForExit(PowerCfgTimeoutMs))
+                    {
+                        try { procRename.Kill(); } catch { }
+                    }
 
-                    _cryoTrayCoolingGuid = newGuid;
-                    return newGuid;
+                    if (GetInstalledSchemes().Any(s => s.Guid == newGuid))
+                    {
+                        _cryoTrayCoolingGuid = newGuid;
+                        return newGuid;
+                    }
                 }
             }
             catch (Exception ex)
@@ -225,21 +247,20 @@ namespace CryoTray.Services
                 }
             }
 
-            _cryoTrayCoolingGuid = newGuid;
-            return newGuid;
+            return Guid.Empty;
         }
 
         public void RefreshState()
         {
             Guid activeGuid = GetActiveSchemeGuid();
             Guid coolingGuid = EnsureCryoTrayCoolingScheme();
-            SetCoolingState(activeGuid == coolingGuid);
+            SetCoolingState(coolingGuid != Guid.Empty && activeGuid == coolingGuid);
         }
 
         public void SyncCoolingStateFromSystem()
         {
             Guid coolingGuid = _cryoTrayCoolingGuid ?? EnsureCryoTrayCoolingScheme();
-            SetCoolingState(GetActiveSchemeGuid() == coolingGuid);
+            SetCoolingState(coolingGuid != Guid.Empty && GetActiveSchemeGuid() == coolingGuid);
         }
 
         public Guid GetNormalPowerPlanGuid()
@@ -274,19 +295,28 @@ namespace CryoTray.Services
             if (enable)
             {
                 Guid coolingGuid = EnsureCryoTrayCoolingScheme();
-                NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref coolingGuid);
+                if (coolingGuid == Guid.Empty)
+                {
+                    SetCoolingState(false);
+                    return;
+                }
+
+                uint status = NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref coolingGuid);
 
                 // Write current settings parameters
                 var s = SettingsService.Instance.Current;
                 ApplyCpuCoolingParameters(s.MaxCpuThrottlePercent, s.PerfBoostMode);
+
+                SetCoolingState(status == 0 || GetActiveSchemeGuid() == coolingGuid);
             }
             else
             {
                 Guid target = GetNormalPowerPlanGuid();
-                NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref target);
+                uint status = NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref target);
+                Guid coolingGuid = _cryoTrayCoolingGuid ?? Guid.Empty;
+                bool stillCooling = status != 0 && coolingGuid != Guid.Empty && GetActiveSchemeGuid() == coolingGuid;
+                SetCoolingState(stillCooling);
             }
-
-            SetCoolingState(enable);
         }
 
         public void ToggleCoolingMode()
@@ -297,6 +327,11 @@ namespace CryoTray.Services
         public void ApplyCpuCoolingParameters(int maxThrottlePercent, int perfBoostMode)
         {
             Guid coolingGuid = EnsureCryoTrayCoolingScheme();
+            if (coolingGuid == Guid.Empty)
+            {
+                return;
+            }
+
             Guid subProcessor = NativeMethods.GUID_PROCESSOR_SETTINGS_SUBGROUP;
             Guid throttleMax = NativeMethods.GUID_PROCESSOR_THROTTLE_MAX;
             Guid perfBoost = NativeMethods.GUID_PROCESSOR_PERFBOOST_MODE;
@@ -371,13 +406,16 @@ namespace CryoTray.Services
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "powercfg",
+                    FileName = PowerCfgExePath,
                     Arguments = $"/delete {schemeGuid}",
                     CreateNoWindow = true,
                     UseShellExecute = false
                 };
                 using var proc = Process.Start(psi);
-                proc?.WaitForExit();
+                if (proc != null && !proc.WaitForExit(PowerCfgTimeoutMs))
+                {
+                    try { proc.Kill(); } catch { }
+                }
             }
             catch
             {
@@ -386,12 +424,11 @@ namespace CryoTray.Services
 
         private List<PowerSchemeInfo> ParsePowerCfgList()
         {
-            var list = new List<PowerSchemeInfo>();
             try
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "powercfg",
+                    FileName = PowerCfgExePath,
                     Arguments = "/list",
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -399,42 +436,50 @@ namespace CryoTray.Services
                 };
 
                 using var proc = Process.Start(psi);
-                if (proc == null) return list;
+                if (proc == null) return new List<PowerSchemeInfo>();
 
-                string output = proc.StandardOutput.ReadToEnd();
-                proc.WaitForExit();
-
-                string[] lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (string line in lines)
+                var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+                if (!proc.WaitForExit(PowerCfgTimeoutMs))
                 {
-                    if (!line.Contains("Power Scheme GUID:")) continue;
-
-                    bool isActive = line.EndsWith("*");
-                    int guidStart = line.IndexOf("GUID:") + 5;
-                    string rest = line.Substring(guidStart).Trim();
-                    int parenStart = rest.IndexOf('(');
-                    int parenEnd = rest.IndexOf(')');
-
-                    if (parenStart > 0 && parenEnd > parenStart)
-                    {
-                        string guidStr = rest.Substring(0, parenStart).Trim();
-                        string name = rest.Substring(parenStart + 1, parenEnd - parenStart - 1).Trim();
-
-                        if (Guid.TryParse(guidStr, out Guid g))
-                        {
-                            list.Add(new PowerSchemeInfo
-                            {
-                                Guid = g,
-                                Name = name,
-                                IsActive = isActive
-                            });
-                        }
-                    }
+                    try { proc.Kill(); } catch { }
+                    return new List<PowerSchemeInfo>();
                 }
+
+                string output = stdoutTask.GetAwaiter().GetResult();
+                return ParsePowerCfgOutput(output);
             }
             catch
             {
                 // Ignore
+            }
+
+            return new List<PowerSchemeInfo>();
+        }
+
+        internal static List<PowerSchemeInfo> ParsePowerCfgOutput(string? output)
+        {
+            var list = new List<PowerSchemeInfo>();
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                return list;
+            }
+
+            string[] lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string rawLine in lines)
+            {
+                string line = rawLine.TrimEnd();
+                var match = PowerCfgSchemeLineRegex.Match(line);
+                if (!match.Success || !Guid.TryParse(match.Groups[1].Value, out Guid guid))
+                {
+                    continue;
+                }
+
+                list.Add(new PowerSchemeInfo
+                {
+                    Guid = guid,
+                    Name = match.Groups[2].Value.Trim(),
+                    IsActive = line.EndsWith("*", StringComparison.Ordinal)
+                });
             }
 
             return list;

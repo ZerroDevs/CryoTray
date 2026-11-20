@@ -14,7 +14,7 @@ namespace CryoTray.Services
         public static TelemetryCsvService Instance => _instance ??= new TelemetryCsvService();
 
         private const string CsvHeader =
-            "Timestamp,CoolingMode,CpuTempC,CpuClockGhz,CpuLoadPct,CpuPowerW,GpuTempC,GpuLoadPct,GpuPowerW,RamUsedGb,RamLoadPct";
+            "Timestamp,CoolingMode,CpuTempC,CpuClockGhz,CpuLoadPct,CpuPowerW,GpuTempC,GpuLoadPct,GpuPowerW,GpuHotspotC,GpuVramTempC,GpuFanRpm,RamUsedGb,RamLoadPct";
 
         private readonly object _lock = new();
         private StreamWriter? _writer;
@@ -22,6 +22,7 @@ namespace CryoTray.Services
         private bool _disposed;
 
         public event Action<bool>? RecordingStateChanged;
+        public event Action<string>? RecordingError;
 
         public bool IsRecording
         {
@@ -84,7 +85,7 @@ namespace CryoTray.Services
             {
                 if (_disposed)
                 {
-                    return;
+                    throw new ObjectDisposedException(nameof(TelemetryCsvService));
                 }
 
                 var writer = new StreamWriter(filePath, false, new UTF8Encoding(false));
@@ -128,6 +129,7 @@ namespace CryoTray.Services
 
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
         {
+            string? failureMessage = null;
             lock (_lock)
             {
                 if (_writer == null || _disposed)
@@ -140,9 +142,26 @@ namespace CryoTray.Services
                     _writer.WriteLine(FormatSampleRow(TelemetrySample.FromSnapshot(snapshot)));
                     _writer.Flush();
                 }
-                catch
+                catch (Exception ex)
                 {
+                    failureMessage = ex.Message;
+                    HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
+                    try
+                    {
+                        _writer.Dispose();
+                    }
+                    catch
+                    {
+                    }
+                    _writer = null;
+                    _currentFilePath = "";
                 }
+            }
+
+            if (failureMessage != null)
+            {
+                RecordingStateChanged?.Invoke(false);
+                RecordingError?.Invoke(failureMessage);
             }
         }
 
@@ -158,6 +177,11 @@ namespace CryoTray.Services
                 FormatPositiveDouble(sample.GpuTemp, "0.0"),
                 FormatNonNegativeDouble(sample.GpuLoad, "0.0"),
                 sample.GpuPowerWatts.HasValue ? sample.GpuPowerWatts.Value.ToString(CultureInfo.InvariantCulture) : "",
+                sample.GpuHotspotTemp.HasValue ? FormatPositiveDouble(sample.GpuHotspotTemp.Value, "0.0") : "",
+                sample.GpuVramTemp.HasValue ? FormatPositiveDouble(sample.GpuVramTemp.Value, "0.0") : "",
+                sample.GpuFanRpm.HasValue && sample.GpuFanRpm.Value >= 0
+                    ? sample.GpuFanRpm.Value.ToString(CultureInfo.InvariantCulture)
+                    : "",
                 FormatPositiveDouble(sample.RamUsedGb, "0.00"),
                 FormatNonNegativeDouble(sample.RamUsagePercent, "0.0"));
         }

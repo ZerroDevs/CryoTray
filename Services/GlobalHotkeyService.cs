@@ -140,7 +140,7 @@ namespace CryoTray.Services
         {
             if (string.IsNullOrWhiteSpace(key))
             {
-                return "C";
+                return "";
             }
 
             string trimmed = key.Trim();
@@ -156,7 +156,7 @@ namespace CryoTray.Services
         {
             if (string.IsNullOrWhiteSpace(key))
             {
-                return (uint)Keys.C;
+                return 0;
             }
 
             string trimmed = key.Trim();
@@ -170,12 +170,12 @@ namespace CryoTray.Services
                 return (uint)keyVal;
             }
 
-            if (trimmed.Length == 1)
+            if (trimmed.Length == 1 && char.IsAsciiLetter(trimmed[0]))
             {
                 return (uint)char.ToUpperInvariant(trimmed[0]);
             }
 
-            return (uint)Keys.C;
+            return 0;
         }
 
         private static bool IsModifierOnlyKey(Key key)

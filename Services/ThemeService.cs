@@ -284,7 +284,8 @@ namespace CryoTray.Services
             }
 
             if (e.Category != UserPreferenceCategory.General &&
-                e.Category != UserPreferenceCategory.VisualStyle)
+                e.Category != UserPreferenceCategory.VisualStyle &&
+                e.Category != UserPreferenceCategory.Accessibility)
             {
                 return;
             }

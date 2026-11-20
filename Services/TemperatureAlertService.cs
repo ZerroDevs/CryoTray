@@ -9,6 +9,8 @@ namespace CryoTray.Services
         Cpu,
         Gpu,
         GpuDelta,
+        GpuHotspot,
+        GpuVram,
         Drive
     }
 
@@ -35,7 +37,10 @@ namespace CryoTray.Services
         private static readonly TimeSpan DeltaSustainDuration = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan DeltaCooldown = TimeSpan.FromMinutes(30);
         private const double ClearHysteresisCelsius = 3;
+        internal const int GpuThermalMarginCelsius = 15;
+        internal const int MinGpuHotspotOrVramThresholdCelsius = 95;
 
+        private readonly object _stateLock = new();
         private readonly Dictionary<string, SensorState> _states = new(StringComparer.Ordinal);
         private DateTime? _gpuDeltaAboveSince;
         private DateTime? _gpuDeltaLastAlertUtc;
@@ -50,64 +55,119 @@ namespace CryoTray.Services
         internal void Observe(HardwareSnapshot snapshot, DateTime nowUtc)
         {
             var settings = SettingsService.Instance.Current;
-            if (settings.MuteTemperatureAlerts)
+            var pendingAlerts = new List<TemperatureAlert>();
+
+            lock (_stateLock)
             {
-                return;
-            }
-
-            double cpuTemperature = SelectMaxFinitePositive(snapshot.MaxCoreTemp, snapshot.PeakCpuTemp);
-            Evaluate(
-                "cpu",
-                cpuTemperature,
-                settings.HighTempThresholdCpu,
-                nowUtc,
-                () => new TemperatureAlert(
-                    TemperatureAlertComponent.Cpu,
-                    cpuTemperature,
-                    settings.HighTempThresholdCpu,
-                    null));
-
-            Evaluate(
-                "gpu",
-                snapshot.GpuTemp,
-                settings.HighTempThresholdGpu,
-                nowUtc,
-                () => new TemperatureAlert(
-                    TemperatureAlertComponent.Gpu,
-                    snapshot.GpuTemp,
-                    settings.HighTempThresholdGpu,
-                    null));
-
-            ObserveGpuDelta(snapshot, settings, nowUtc);
-
-            foreach (var drive in snapshot.StorageDrives)
-            {
-                if (HardwareMonitorService.IsDriveExcluded(drive, settings.ExcludedDrives) ||
-                    !double.IsFinite(drive.Temperature) ||
-                    drive.Temperature <= 0)
+                if (settings.MuteTemperatureAlerts)
                 {
-                    continue;
+                    _states.Clear();
+                    _gpuDeltaAboveSince = null;
+                    _gpuDeltaLastAlertUtc = null;
+                    return;
                 }
 
-                string driveName = string.IsNullOrWhiteSpace(drive.Model)
-                    ? LocalizationService.Format("Alert_DriveName", drive.Index + 1)
-                    : drive.Model.Trim();
-
-                Evaluate(
-                    $"drive:{HardwareMonitorService.GetDriveExclusionKey(drive)}",
-                    drive.Temperature,
-                    settings.HighTempThresholdDisk,
+                double cpuTemperature = SelectMaxFinitePositive(snapshot.MaxCoreTemp, snapshot.PeakCpuTemp);
+                EvaluateLocked(
+                    "cpu",
+                    cpuTemperature,
+                    settings.HighTempThresholdCpu,
                     nowUtc,
+                    pendingAlerts,
                     () => new TemperatureAlert(
-                        TemperatureAlertComponent.Drive,
+                        TemperatureAlertComponent.Cpu,
+                        cpuTemperature,
+                        settings.HighTempThresholdCpu,
+                        null));
+
+                EvaluateLocked(
+                    "gpu",
+                    snapshot.GpuTemp,
+                    settings.HighTempThresholdGpu,
+                    nowUtc,
+                    pendingAlerts,
+                    () => new TemperatureAlert(
+                        TemperatureAlertComponent.Gpu,
+                        snapshot.GpuTemp,
+                        settings.HighTempThresholdGpu,
+                        null));
+
+                ObserveGpuDeltaLocked(snapshot, settings, nowUtc, pendingAlerts);
+
+                int hotspotAndVramThreshold = Math.Max(
+                    settings.HighTempThresholdGpu + GpuThermalMarginCelsius,
+                    MinGpuHotspotOrVramThresholdCelsius);
+
+                if (snapshot.GpuHotspotTemp.HasValue)
+                {
+                    double hotspot = snapshot.GpuHotspotTemp.Value;
+                    EvaluateLocked(
+                        "gpu:hotspot",
+                        hotspot,
+                        hotspotAndVramThreshold,
+                        nowUtc,
+                        pendingAlerts,
+                        () => new TemperatureAlert(
+                            TemperatureAlertComponent.GpuHotspot,
+                            hotspot,
+                            hotspotAndVramThreshold,
+                            null));
+                }
+
+                if (snapshot.GpuVramTemp.HasValue)
+                {
+                    double vram = snapshot.GpuVramTemp.Value;
+                    EvaluateLocked(
+                        "gpu:vram",
+                        vram,
+                        hotspotAndVramThreshold,
+                        nowUtc,
+                        pendingAlerts,
+                        () => new TemperatureAlert(
+                            TemperatureAlertComponent.GpuVram,
+                            vram,
+                            hotspotAndVramThreshold,
+                            null));
+                }
+
+                foreach (var drive in snapshot.StorageDrives)
+                {
+                    if (HardwareMonitorService.IsDriveExcluded(drive, settings.ExcludedDrives) ||
+                        !double.IsFinite(drive.Temperature) ||
+                        drive.Temperature <= 0)
+                    {
+                        continue;
+                    }
+
+                    string driveName = string.IsNullOrWhiteSpace(drive.Model)
+                        ? LocalizationService.Format("Alert_DriveName", drive.Index + 1)
+                        : drive.Model.Trim();
+
+                    EvaluateLocked(
+                        $"drive:{HardwareMonitorService.GetDriveExclusionKey(drive)}",
                         drive.Temperature,
                         settings.HighTempThresholdDisk,
-                        driveName));
+                        nowUtc,
+                        pendingAlerts,
+                        () => new TemperatureAlert(
+                            TemperatureAlertComponent.Drive,
+                            drive.Temperature,
+                            settings.HighTempThresholdDisk,
+                            driveName));
+                }
+            }
+
+            foreach (var alert in pendingAlerts)
+            {
+                AlertRaised?.Invoke(alert);
             }
         }
 
-        private void ObserveGpuDelta(
-            HardwareSnapshot snapshot, AppSettings settings, DateTime nowUtc)
+        private void ObserveGpuDeltaLocked(
+            HardwareSnapshot snapshot,
+            AppSettings settings,
+            DateTime nowUtc,
+            List<TemperatureAlert> pendingAlerts)
         {
             if (!settings.GpuDeltaAlertsEnabled ||
                 !snapshot.GpuHotspotTemp.HasValue ||
@@ -141,7 +201,7 @@ namespace CryoTray.Services
             }
 
             _gpuDeltaLastAlertUtc = nowUtc;
-            AlertRaised?.Invoke(new TemperatureAlert(
+            pendingAlerts.Add(new TemperatureAlert(
                 TemperatureAlertComponent.GpuDelta,
                 Math.Round(delta, 1),
                 threshold,
@@ -150,9 +210,12 @@ namespace CryoTray.Services
 
         public void Reset()
         {
-            _states.Clear();
-            _gpuDeltaAboveSince = null;
-            _gpuDeltaLastAlertUtc = null;
+            lock (_stateLock)
+            {
+                _states.Clear();
+                _gpuDeltaAboveSince = null;
+                _gpuDeltaLastAlertUtc = null;
+            }
         }
 
         private static double SelectMaxFinitePositive(double first, double second)
@@ -172,11 +235,12 @@ namespace CryoTray.Services
             return secondValid ? second : double.NaN;
         }
 
-        private void Evaluate(
+        private void EvaluateLocked(
             string key,
             double temperature,
             int threshold,
-            DateTime nowUtc,
+            DateTime now,
+            List<TemperatureAlert> pendingAlerts,
             Func<TemperatureAlert> alertFactory)
         {
             if (!double.IsFinite(temperature) || temperature <= 0)
@@ -202,15 +266,15 @@ namespace CryoTray.Services
             }
 
             if (state.LastAlertUtc.HasValue &&
-                nowUtc - state.LastAlertUtc.Value < Cooldown)
+                now - state.LastAlertUtc.Value < Cooldown)
             {
                 state.AboveThreshold = true;
                 return;
             }
 
             state.AboveThreshold = true;
-            state.LastAlertUtc = nowUtc;
-            AlertRaised?.Invoke(alertFactory());
+            state.LastAlertUtc = now;
+            pendingAlerts.Add(alertFactory());
         }
 
         private sealed class SensorState

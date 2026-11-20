@@ -41,6 +41,7 @@ namespace CryoTray
         private bool _coolingEnabledByBattery;
         private bool _isExiting;
         private bool _isPrimaryInstance;
+        private bool _mutexReleased;
 
         public DateTime? CoolingPausedUntilUtc { get; private set; }
         public bool IsCoolingPausedByTimer =>
@@ -57,6 +58,13 @@ namespace CryoTray
             if (e.Args.Length > 0 && e.Args[0].Equals("/test", StringComparison.OrdinalIgnoreCase))
             {
                 int exitCode = Tests.VerificationTests.RunAll();
+                Environment.Exit(exitCode);
+                return;
+            }
+
+            if (e.Args.Length > 0 && e.Args[0].Equals("/test-unit", StringComparison.OrdinalIgnoreCase))
+            {
+                int exitCode = Tests.VerificationTests.RunUnitSafe();
                 Environment.Exit(exitCode);
                 return;
             }
@@ -773,6 +781,8 @@ namespace CryoTray
                         "Alert_GpuDelta",
                         FormatTemperatureDelta(alert.CurrentCelsius),
                         FormatTemperatureDelta(alert.ThresholdCelsius)),
+                    TemperatureAlertComponent.GpuHotspot => LocalizationService.Format("Alert_GpuHotspot", current, threshold),
+                    TemperatureAlertComponent.GpuVram => LocalizationService.Format("Alert_GpuVram", current, threshold),
                     _ => LocalizationService.Format(
                         "Alert_Drive",
                         alert.DriveName ?? LocalizationService.Format("Alert_DriveName", 1),
@@ -1082,8 +1092,37 @@ namespace CryoTray
             TelemetryCsvService.Instance.Dispose();
             _trayManager?.Dispose();
             _trayManager = null;
-            _singleInstanceMutex?.ReleaseMutex();
+            ReleaseSingleInstanceMutex();
             Shutdown();
+        }
+
+        private void ReleaseSingleInstanceMutex()
+        {
+            if (_mutexReleased)
+            {
+                return;
+            }
+
+            _mutexReleased = true;
+            var mutex = _singleInstanceMutex;
+            _singleInstanceMutex = null;
+            if (mutex == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (_isPrimaryInstance)
+                {
+                    mutex.ReleaseMutex();
+                }
+            }
+            catch
+            {
+            }
+
+            mutex.Dispose();
         }
 
         private bool ConfirmExitWithCoolingMode()
@@ -1199,6 +1238,10 @@ namespace CryoTray
             PowerPlanService.Instance.CoolingModeChanged -= ApplyWindowAccent;
             PowerPlanService.Instance.CoolingModeChanged -= OnPowerPlanCoolingChanged;
             SystemEvents.PowerModeChanged -= OnSystemPowerModeChanged;
+            NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
+            SettingsService.Instance.SettingsChanged -= RegisterHotkeyIfEnabled;
+            SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
+            LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
             ThemeService.Shutdown();
             UnregisterActivationWaitHandle();
@@ -1218,6 +1261,7 @@ namespace CryoTray
             TelemetryCsvService.Instance.Dispose();
             AutopilotService.Instance.Dispose();
             HardwareMonitorService.Instance.Dispose();
+            ReleaseSingleInstanceMutex();
             base.OnExit(e);
         }
     }

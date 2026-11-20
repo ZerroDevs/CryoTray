@@ -102,6 +102,7 @@ namespace CryoTray.Services
         }
 
         [DllImport("wintrust.dll", ExactSpelling = true, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         private static extern int WinVerifyTrust(
             IntPtr hwnd,
             [In] ref Guid actionId,

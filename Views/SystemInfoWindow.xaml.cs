@@ -68,13 +68,26 @@ namespace CryoTray.Views
 
             Loaded += SystemInfoWindow_Loaded;
             Closed += SystemInfoWindow_Closed;
+            PreviewKeyDown += SystemInfoWindow_PreviewKeyDown;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
             SettingsService.Instance.SettingsChanged += OnNotificationSettingsChanged;
         }
 
+        private void SystemInfoWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                Close();
+            }
+        }
+
         private void SystemInfoWindow_Closed(object? sender, EventArgs e)
         {
+            Loaded -= SystemInfoWindow_Loaded;
+            Closed -= SystemInfoWindow_Closed;
+            PreviewKeyDown -= SystemInfoWindow_PreviewKeyDown;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
             SettingsService.Instance.SettingsChanged -= OnNotificationSettingsChanged;

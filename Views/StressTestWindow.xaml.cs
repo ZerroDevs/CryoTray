@@ -18,6 +18,7 @@ namespace CryoTray.Views
     public partial class StressTestWindow : Window
     {
         private bool _isRunning;
+        private bool _isClosing;
         private CancellationTokenSource? _testCts;
         private readonly DispatcherTimer _timer;
         private Stopwatch _stopwatch = new();
@@ -79,8 +80,19 @@ namespace CryoTray.Views
 
             Loaded += StressTestWindow_Loaded;
             Closing += StressTestWindow_Closing;
+            Closed += StressTestWindow_Closed;
+            PreviewKeyDown += StressTestWindow_PreviewKeyDown;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
+        }
+
+        private void StressTestWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && !_isRunning)
+            {
+                e.Handled = true;
+                Close();
+            }
         }
 
         private void StressTestWindow_Loaded(object sender, RoutedEventArgs e)
@@ -93,24 +105,59 @@ namespace CryoTray.Views
 
         private void StressTestWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            _isClosing = true;
             StopTest();
+        }
+
+        private void StressTestWindow_Closed(object? sender, EventArgs e)
+        {
+            _isClosing = true;
+            StopTest();
+            Loaded -= StressTestWindow_Loaded;
+            Closing -= StressTestWindow_Closing;
+            Closed -= StressTestWindow_Closed;
+            PreviewKeyDown -= StressTestWindow_PreviewKeyDown;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetry;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingChanged;
+            _timer.Stop();
+            _testCts?.Dispose();
+            _testCts = null;
+            DataContext = null;
+            Content = null;
         }
 
         private void OnCoolingChanged(bool active)
         {
-            Dispatcher.Invoke(() => UpdateCoolingDisplay(active));
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosing)
+                {
+                    UpdateCoolingDisplay(active);
+                }
+            }));
         }
 
         private void OnThemeChanged(object? sender, EventArgs e)
         {
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
-                DrawChart();
+                if (!_isClosing)
+                {
+                    UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
+                    DrawChart();
+                }
             }));
         }
 
@@ -124,7 +171,18 @@ namespace CryoTray.Views
 
         private void OnTelemetry(HardwareSnapshot snapshot)
         {
-            Dispatcher.Invoke(() => ApplyTelemetrySnapshot(snapshot));
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosing)
+                {
+                    ApplyTelemetrySnapshot(snapshot);
+                }
+            }));
         }
 
         private void ApplyTelemetrySnapshot(HardwareSnapshot snapshot)
@@ -479,6 +537,8 @@ namespace CryoTray.Views
             BtnStartStop.Content = LocalizationService.Get("Stress_Stop");
             BtnStartStop.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D32F2F"));
 
+            _testCts?.Cancel();
+            _testCts?.Dispose();
             _testCts = new CancellationTokenSource();
             var token = _testCts.Token;
 
@@ -519,7 +579,16 @@ namespace CryoTray.Views
             if (!_isRunning) return;
 
             _isRunning = false;
-            _testCts?.Cancel();
+            var cts = _testCts;
+            _testCts = null;
+            try
+            {
+                cts?.Cancel();
+            }
+            finally
+            {
+                cts?.Dispose();
+            }
             _stopwatch.Stop();
             _timer.Stop();
 
@@ -563,7 +632,7 @@ namespace CryoTray.Views
                 FileName = $"CryoTray_StressTest_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
             };
 
-            if (sfd.ShowDialog() == true)
+            if (sfd.ShowDialog(this) == true)
             {
                 var exportCopy = new List<TelemetrySample>(_recordedSamples);
                 TelemetryCsvService.ExportSamples(exportCopy, sfd.FileName);

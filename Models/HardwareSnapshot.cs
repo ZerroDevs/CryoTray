@@ -105,6 +105,7 @@ namespace CryoTray.Models
         public double RamUsagePercent { get; set; } = double.NaN;
         public MemoryBreakdown? Memory { get; set; }
 
+        public string GpuIdentifier { get; set; } = "";
         public string GpuName { get; set; } = "";
         public string GpuVendor { get; set; } = "";
         public double GpuTemp { get; set; } = double.NaN;

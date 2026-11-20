@@ -219,43 +219,51 @@ namespace CryoTray.Services
 
         public static void EnsureSynchronized(bool shouldEnable)
         {
-            bool isAdmin = IsCurrentProcessElevated();
-            var state = QueryState();
-
-            if (!shouldEnable)
+            try
             {
-                if (state.Exists && isAdmin)
+                bool isAdmin = IsCurrentProcessElevated();
+                var state = QueryState();
+
+                if (!shouldEnable)
                 {
-                    TrySetStartup(false, out _);
+                    if (state.Exists && isAdmin)
+                    {
+                        TrySetStartup(false, out _);
+                    }
+                    return;
                 }
-                return;
+
+                if (!isAdmin)
+                {
+                    return;
+                }
+
+                string expectedExe = ResolveExecutablePath();
+                bool hasAutostart = !string.IsNullOrWhiteSpace(state.Arguments) &&
+                    state.Arguments.Contains(AutostartArg, StringComparison.OrdinalIgnoreCase);
+
+                bool needsCreateOrUpdate = !state.Exists ||
+                    !string.Equals(state.CommandPath, expectedExe, StringComparison.OrdinalIgnoreCase) ||
+                    !hasAutostart ||
+                    !state.AllowsBattery;
+
+                if (needsCreateOrUpdate)
+                {
+                    TrySetStartup(true, out _);
+                }
             }
-
-            if (!isAdmin)
+            catch (Exception ex)
             {
-                return;
-            }
-
-            string expectedExe = ResolveExecutablePath();
-            bool hasAutostart = !string.IsNullOrWhiteSpace(state.Arguments) &&
-                state.Arguments.Contains(AutostartArg, StringComparison.OrdinalIgnoreCase);
-
-            bool needsCreateOrUpdate = !state.Exists ||
-                !string.Equals(state.CommandPath, expectedExe, StringComparison.OrdinalIgnoreCase) ||
-                !hasAutostart ||
-                !state.AllowsBattery;
-
-            if (needsCreateOrUpdate)
-            {
-                TrySetStartup(true, out _);
+                Debug.WriteLine($"StartupTaskService EnsureSynchronized error: {ex.Message}");
             }
         }
 
         private static (int ExitCode, string StdOut, string StdErr) RunSchtasks(string arguments)
         {
+            string schtasksPath = Path.Combine(Environment.SystemDirectory, "schtasks.exe");
             var psi = new ProcessStartInfo
             {
-                FileName = "schtasks.exe",
+                FileName = schtasksPath,
                 Arguments = arguments,
                 CreateNoWindow = true,
                 UseShellExecute = false,
@@ -269,9 +277,16 @@ namespace CryoTray.Services
                 return (-1, "", "Failed to start schtasks.exe");
             }
 
-            string stdout = proc.StandardOutput.ReadToEnd();
-            string stderr = proc.StandardError.ReadToEnd();
-            proc.WaitForExit(10000);
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(10000))
+            {
+                try { proc.Kill(); } catch { }
+                return (-1, "", "schtasks.exe timed out.");
+            }
+
+            string stdout = stdoutTask.GetAwaiter().GetResult();
+            string stderr = stderrTask.GetAwaiter().GetResult();
             return (proc.ExitCode, stdout, stderr);
         }
 

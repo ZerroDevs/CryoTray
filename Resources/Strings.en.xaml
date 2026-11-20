@@ -432,6 +432,8 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Alert_TestBody">Notifications are working.</sys:String>
     <sys:String x:Key="Alert_Cpu">CPU is {0}, above the {1} threshold.</sys:String>
     <sys:String x:Key="Alert_Gpu">GPU is {0}, above the {1} threshold.</sys:String>
+    <sys:String x:Key="Alert_GpuHotspot">GPU hotspot is {0}, above the {1} threshold.</sys:String>
+    <sys:String x:Key="Alert_GpuVram">GPU VRAM is {0}, above the {1} threshold.</sys:String>
     <sys:String x:Key="Alert_Drive">{0} is {1}, above the {2} threshold.</sys:String>
     <sys:String x:Key="Alert_DriveName">Drive {0}</sys:String>
     <sys:String x:Key="Alert_FanTitle">CryoTray fan alert</sys:String>
