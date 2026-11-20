@@ -9,6 +9,7 @@
 - Merged `origin/pr-1-review` into `main` through the local `pr-1-integration` branch. Both feature sets are preserved: GPU details, chart metric switch, sustained hotspot-to-edge delta alert, and Top processes; plus per-GPU history, hotspot/VRAM alerts, compatibility, updater, installer, and test hardening.
 - Extended per-GPU history to load and power, not only temperature, so the GPU chart and tooltip stay scoped to the selected GPU for all three metrics.
 - Combined `TemperatureAlertService` under one lock: CPU/GPU/disk thresholds, hotspot/VRAM absolute alerts, and the sustained GPU delta alert are evaluated together and raised outside the lock.
+- Pushed `main` to `origin`; GitHub marked PR #1 as **MERGED** with merge commit `bd3efba` at `2026-11-20T19:03:35Z`.
 - Verification: Release build passed with `0 Warning(s), 0 Error(s)`; `/test-unit` passed **43/43**, the full `/test` suite passed **50/50**, and the elevated `/test-updates` suite passed **14/14**. The active power scheme was `CryoTray Cooling` both before and after the update suite, so Cooling Mode was not changed by it.
 
 ## GPU details, hotspot delta, and top process consumers (2026-11-19)
@@ -17,7 +18,7 @@
 - Added `AppSettings.GpuGraphMetric` (`Temperature` default, `Power`, or `Load`) and a Settings > View metric selector. `DrawGpuChart` rescales per metric, recolors the line/area, and formats the hover card as °C/°F, W, or %.
 - Extended `TemperatureAlertService` with `TemperatureAlertComponent.GpuDelta`. When `GpuDeltaAlertsEnabled` is on (default), a hotspot-to-edge gap at or above `GpuHotspotDeltaThresholdCelsius` (default 25 °C, Settings > General) continuously for 5 minutes raises one tray alert, then enforces a 30 minute cooldown. A dip below the threshold restarts the 5 minute window. `Alert_GpuDelta` uses a difference-only formatter so Fahrenheit does not add 32.
 - Added `Services/ProcessUsageService` and a collapsed **Top processes** disclosure in System Information. CPU comes from `Process.TotalProcessorTime` deltas; GPU sums WMI `Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine` `engtype_3D` counters by PID. It polls every 2 s only while expanded and lists the top six processes by CPU or GPU.
-- Verification: Release build `0 Warning(s), 0 Error(s)`; full `/test` passed 40/40, including new GPU formatting/delta and live process-sampling checks. Committed as `bf1bebe` and merged into `pr-1-integration`; no push, version bump, or release, and the installed app remains `0.0.102`.
+- Verification: Release build `0 Warning(s), 0 Error(s)`; full `/test` passed 40/40, including new GPU formatting/delta and live process-sampling checks. Committed as `bf1bebe` and later pushed through the PR #1 merge; no version bump or release, and the installed app remains `0.0.102`.
 
 ## Full codebase audit, Windows compatibility hardening & enhancements (2026-11-19)
 
@@ -54,7 +55,7 @@
   - Executed `/test-unit` locally: **43 / 43 PASSED** (including live Windows 11 build 26300 NT page-list breakdown).
   - Verified `build-installer.ps1` and extracted `UpdaterScript` have `0` PowerShell parse errors; ran live PowerShell 5.1 updater harness (archive apply + stale delete + marker + PID-reuse guard, and rollback restore + stale marker cleanup) — both passed.
   - Compiled `Installer/CryoTray.iss` with Inno Setup 6.7.3 (`ISCC.exe /Q`) — exited `0`.
-  - On the integration branch, `/test-unit` passed 43/43 and the full `/test` passed 50/50. `/test-updates` remains to be run before bumping `VERSION` / cutting `v0.0.104`.
+  - On `main`, `/test-unit` passed 43/43, the full `/test` passed 50/50, and the elevated `/test-updates` passed 14/14. The merged branch is pushed; no `VERSION` bump or release was made.
 
 ## v0.0.103 release preparation (2026-11-19)
 
