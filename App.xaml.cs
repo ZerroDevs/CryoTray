@@ -769,6 +769,10 @@ namespace CryoTray
                 {
                     TemperatureAlertComponent.Cpu => LocalizationService.Format("Alert_Cpu", current, threshold),
                     TemperatureAlertComponent.Gpu => LocalizationService.Format("Alert_Gpu", current, threshold),
+                    TemperatureAlertComponent.GpuDelta => LocalizationService.Format(
+                        "Alert_GpuDelta",
+                        FormatTemperatureDelta(alert.CurrentCelsius),
+                        FormatTemperatureDelta(alert.ThresholdCelsius)),
                     _ => LocalizationService.Format(
                         "Alert_Drive",
                         alert.DriveName ?? LocalizationService.Format("Alert_DriveName", 1),
@@ -810,6 +814,13 @@ namespace CryoTray
         {
             bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
             double value = isFahrenheit ? (celsius * 9 / 5) + 32 : celsius;
+            return $"{Math.Round(value)}°{(isFahrenheit ? "F" : "C")}";
+        }
+
+        private static string FormatTemperatureDelta(double celsius)
+        {
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            double value = isFahrenheit ? celsius * 9 / 5 : celsius;
             return $"{Math.Round(value)}°{(isFahrenheit ? "F" : "C")}";
         }
 

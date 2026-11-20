@@ -650,6 +650,24 @@
                     <Button x:Name="BtnTestAlert" Content="{DynamicResource Settings_TestAlert}" Click="BtnTestAlert_Click" Style="{StaticResource SettingsFooterButton}" HorizontalAlignment="Left" Margin="0,4,0,6"/>
                     <CheckBox x:Name="ChkFanHealthAlerts" Content="{DynamicResource Settings_FanHealthAlerts}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <TextBlock Text="{DynamicResource Settings_FanHealthAlertsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,10"/>
+                    <CheckBox x:Name="ChkGpuDeltaAlerts" Content="{DynamicResource Settings_GpuDeltaAlerts}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_GpuDeltaAlertsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,8"/>
+                    <TextBlock Text="{DynamicResource Settings_GpuDeltaThreshold}" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" Margin="28,0,0,6"/>
+                    <Grid Margin="28,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="50"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider x:Name="SldGpuDeltaThreshold"
+                                Minimum="15"
+                                Maximum="40"
+                                Value="25"
+                                TickFrequency="1"
+                                IsSnapToTickEnabled="True"
+                                ValueChanged="SldGpuDeltaThreshold_ValueChanged"
+                                AutomationProperties.Name="{DynamicResource Settings_GpuDeltaThreshold}"/>
+                        <TextBlock Grid.Column="1" x:Name="TxtGpuDeltaThreshold" Text="25°C" Foreground="{DynamicResource AccentTextBrush}" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
+                    </Grid>
 
                     <!-- Checkboxes -->
                     <CheckBox x:Name="ChkShowComputerName" Content="{DynamicResource Settings_ShowComputerName}" Checked="SettingChanged" Unchecked="SettingChanged"/>
@@ -913,6 +931,26 @@
                     <CheckBox x:Name="ChkShowGpuHotspot" Content="{DynamicResource Settings_ShowGpuHotspot}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowGpuVram" Content="{DynamicResource Settings_ShowGpuVram}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowGpuFan" Content="{DynamicResource Settings_ShowGpuFan}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuDetails" Content="{DynamicResource Settings_ShowGpuDetails}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_ShowGpuDetailsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,8"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="126"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{DynamicResource Settings_GpuGraphMetric}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CmbGpuGraphMetric"
+                                  Grid.Column="1"
+                                  Width="126"
+                                  HorizontalAlignment="Left"
+                                  Style="{StaticResource SettingsMiniComboStyle}"
+                                  SelectionChanged="CmbGpuGraphMetric_SelectionChanged"
+                                  AutomationProperties.Name="{DynamicResource Settings_GpuGraphMetric}">
+                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphTemperature}" Tag="Temperature" IsSelected="True"/>
+                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphPower}" Tag="Power"/>
+                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphLoad}" Tag="Load"/>
+                        </ComboBox>
+                    </Grid>
 
                     <TextBlock Text="{DynamicResource Settings_SystemInfoReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
                     <CheckBox x:Name="ChkShowFanSpeeds" Content="{DynamicResource Settings_ShowFanSpeeds}" Checked="SettingChanged" Unchecked="SettingChanged"/>

@@ -476,4 +476,26 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Update_UpdaterStartFailed">Could not start the protected update helper.</sys:String>
     <sys:String x:Key="Update_UnsafeLocation">CryoTray must run from a folder that standard users cannot modify. Move it to an Administrator-protected folder or reinstall it with the installer.</sys:String>
     <sys:String x:Key="Update_ApplicationFolderSecurityFailed">Could not protect the CryoTray application folder. Move it to an Administrator-protected folder or reinstall it with the installer.</sys:String>
+    <sys:String x:Key="Settings_ShowGpuDetails">Show GPU details</sys:String>
+    <sys:String x:Key="Settings_ShowGpuDetailsDesc">Adds VRAM usage, core and memory clocks, and any reported performance limit under the GPU row.</sys:String>
+    <sys:String x:Key="Settings_GpuGraphMetric">GPU graph metric</sys:String>
+    <sys:String x:Key="Settings_GpuGraphTemperature">Temperature</sys:String>
+    <sys:String x:Key="Settings_GpuGraphPower">Power</sys:String>
+    <sys:String x:Key="Settings_GpuGraphLoad">Load</sys:String>
+    <sys:String x:Key="Settings_GpuDeltaAlerts">Warn when the GPU hotspot gap is too large</sys:String>
+    <sys:String x:Key="Settings_GpuDeltaAlertsDesc">Compares hotspot with edge temperature and alerts when the gap stays at or above the threshold for 5 minutes. A large gap can mean dried thermal paste or a mounting issue.</sys:String>
+    <sys:String x:Key="Settings_GpuDeltaThreshold">Hotspot gap threshold</sys:String>
+    <sys:String x:Key="Main_GpuVramUsageLabel">VRAM use</sys:String>
+    <sys:String x:Key="Main_GpuClocksLabel">Clocks</sys:String>
+    <sys:String x:Key="Main_GpuThrottleLabel">Limit</sys:String>
+    <sys:String x:Key="Alert_GpuDelta">GPU hotspot is {0} above the edge temperature (limit {1}). Check airflow or thermal paste.</sys:String>
+    <sys:String x:Key="System_Processes">Top processes</sys:String>
+    <sys:String x:Key="System_ProcessesDesc">Highest CPU and GPU load since the last refresh. Refreshes only while this section is open.</sys:String>
+    <sys:String x:Key="System_ProcessesProcess">Process</sys:String>
+    <sys:String x:Key="System_ProcessesCpu">CPU</sys:String>
+    <sys:String x:Key="System_ProcessesGpu">GPU</sys:String>
+    <sys:String x:Key="System_ProcessesMemory">Memory</sys:String>
+    <sys:String x:Key="System_ProcessesMeasuring">Measuring process load…</sys:String>
+    <sys:String x:Key="System_ProcessesEmpty">No active process load.</sys:String>
+    <sys:String x:Key="System_ProcessesGpuUnavailable">GPU process counters are unavailable on this system.</sys:String>
 </ResourceDictionary>

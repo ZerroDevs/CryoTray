@@ -49,6 +49,9 @@ namespace CryoTray.Views
 
         private List<TelemetrySample> _cpuChartSamples = new();
         private List<TelemetrySample> _gpuChartSamples = new();
+        private double _gpuChartMinimum = 30;
+        private double _gpuChartMaximum = 90;
+        private string _gpuChartMetric = "Temperature";
         private bool _cpuHoverActive;
         private bool _cpuHoverSmall;
         private bool _gpuHoverActive;
@@ -363,6 +366,7 @@ namespace CryoTray.Views
                     RenderSsdRows(HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives, isFahrenheit, unit);
                     UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
                     DrawCpuChart();
+                    DrawGpuChart();
                 }
                 finally
                 {
@@ -421,6 +425,10 @@ namespace CryoTray.Views
             if (GpuHealthRow.Visibility != Visibility.Visible)
             {
                 height -= GpuHealthRow.Height;
+            }
+            if (s.ShowGpuDetails)
+            {
+                height += GpuDetailsRow.Height;
             }
 
             double actualSsdHeight;
@@ -713,6 +721,12 @@ namespace CryoTray.Views
             TxtGpuFan.Text = snapshot.GpuFanRpm.HasValue
                 ? $"{snapshot.GpuFanRpm.Value} {LocalizationService.Get("Main_RpmUnit")}"
                 : "--";
+            TxtGpuVramUsage.Text = FormatGpuVramUsage(snapshot);
+            TxtGpuClocks.Text = FormatGpuClocks(snapshot);
+            TxtGpuThrottle.Text = CompactThrottleReason(snapshot.GpuThrottleReason);
+            TxtGpuThrottle.ToolTip = string.IsNullOrWhiteSpace(snapshot.GpuThrottleReason)
+                ? null
+                : snapshot.GpuThrottleReason;
             ApplyTelemetryVisibility(s);
 
             // SSD Rows (rendered before height update so height reflects visible & graphed drives)
@@ -727,6 +741,57 @@ namespace CryoTray.Views
             {
                 UpdateCpuCoreItems(snapshot);
             }
+        }
+
+        private static string FormatGpuVramUsage(HardwareSnapshot snapshot)
+        {
+            if (!snapshot.GpuVramUsedMb.HasValue ||
+                !snapshot.GpuVramTotalMb.HasValue ||
+                !double.IsFinite(snapshot.GpuVramUsedMb.Value) ||
+                !double.IsFinite(snapshot.GpuVramTotalMb.Value) ||
+                snapshot.GpuVramTotalMb.Value <= 0)
+            {
+                return "--";
+            }
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:0.0} / {1:0.0} GB",
+                snapshot.GpuVramUsedMb.Value / 1024.0,
+                snapshot.GpuVramTotalMb.Value / 1024.0);
+        }
+
+        internal static string FormatGpuClocks(HardwareSnapshot snapshot)
+        {
+            if (!snapshot.GpuCoreClockMhz.HasValue && !snapshot.GpuMemoryClockMhz.HasValue)
+            {
+                return "--";
+            }
+
+            string core = snapshot.GpuCoreClockMhz.HasValue
+                ? snapshot.GpuCoreClockMhz.Value.ToString("0", CultureInfo.InvariantCulture)
+                : "--";
+            string memory = snapshot.GpuMemoryClockMhz.HasValue
+                ? snapshot.GpuMemoryClockMhz.Value.ToString("0", CultureInfo.InvariantCulture)
+                : "--";
+            return $"{core}/{memory} MHz";
+        }
+
+        internal static string CompactThrottleReason(string? reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                return "--";
+            }
+
+            string compact = reason.Trim();
+            int separator = compact.LastIndexOf('-');
+            if (separator >= 0 && separator + 1 < compact.Length)
+            {
+                compact = compact[(separator + 1)..].Trim();
+            }
+
+            return compact.Length > 18 ? compact[..18] : compact;
         }
 
         internal static string FormatCpuClockReadout(double cpuGhz, double cpuBaseGhz, double cpuMaxGhz, bool showBaseSpeed)
@@ -1645,6 +1710,70 @@ namespace CryoTray.Views
             }
         }
 
+        private static string NormalizeGpuGraphMetric(string? metric)
+        {
+            return metric switch
+            {
+                "Power" => "Power",
+                "Load" => "Load",
+                _ => "Temperature"
+            };
+        }
+
+        private static bool TryGetGpuChartValue(
+            TelemetrySample sample, string metric, out double value)
+        {
+            switch (metric)
+            {
+                case "Power":
+                    value = sample.GpuPowerWatts ?? double.NaN;
+                    return double.IsFinite(value) && value >= 0;
+                case "Load":
+                    value = sample.GpuLoad;
+                    return double.IsFinite(value) && value >= 0;
+                default:
+                    value = sample.GpuTemp;
+                    return double.IsFinite(value) && value > 0;
+            }
+        }
+
+        private static bool IsGpuChartMetricAvailable(HardwareSnapshot snapshot, string metric)
+        {
+            return metric switch
+            {
+                "Power" => snapshot.GpuPowerWatts.HasValue,
+                "Load" => double.IsFinite(snapshot.GpuLoad),
+                _ => double.IsFinite(snapshot.GpuTemp) && snapshot.GpuTemp > 0
+            };
+        }
+
+        private static Color ResolveGpuChartColor(string metric)
+        {
+            return metric switch
+            {
+                "Power" => ThemeService.GetColor("CoolingOffTextBrush"),
+                "Load" => ThemeService.GetColor("AccentTextBrush"),
+                _ => ThemeService.GetColor("GpuAccentBrush")
+            };
+        }
+
+        private static string FormatGpuChartValue(double value, string metric)
+        {
+            if (metric == "Power")
+            {
+                return $"{Math.Round(value)}W";
+            }
+
+            if (metric == "Load")
+            {
+                return $"{Math.Round(value)}%";
+            }
+
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            double displayTemp = isFahrenheit ? (value * 9 / 5) + 32 : value;
+            return $"{Math.Round(displayTemp)}°{(isFahrenheit ? "F" : "C")}";
+        }
+
         private void DrawGpuChart()
         {
             GpuChartCanvas.Children.Clear();
@@ -1653,15 +1782,17 @@ namespace CryoTray.Views
             double h = GpuChartCanvas.ActualHeight;
             if (w <= 0 || h <= 0) return;
 
+            string metric = NormalizeGpuGraphMetric(SettingsService.Instance.Current.GpuGraphMetric);
             var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples)
-                .Where(sample => double.IsFinite(sample.GpuTemp) && sample.GpuTemp > 0)
+                .Where(sample => TryGetGpuChartValue(sample, metric, out _))
                 .ToList();
             _gpuChartSamples = samples;
+            _gpuChartMetric = metric;
             if (samples.Count < 2)
             {
                 GpuChartTooltip.IsOpen = false;
-                var current = HardwareMonitorService.Instance.CurrentSnapshot;
-                bool gpuUnavailable = !(double.IsFinite(current.GpuTemp) && current.GpuTemp > 0);
+                bool gpuUnavailable = !IsGpuChartMetricAvailable(
+                    HardwareMonitorService.Instance.CurrentSnapshot, metric);
                 TxtGpuChartUnavailable.Visibility = gpuUnavailable
                     ? Visibility.Visible
                     : Visibility.Collapsed;
@@ -1670,8 +1801,20 @@ namespace CryoTray.Views
 
             TxtGpuChartUnavailable.Visibility = Visibility.Collapsed;
 
-            double minT = 30;
-            double maxT = 90;
+            double minValue = metric == "Temperature" ? 30 : 0;
+            double maxValue = metric switch
+            {
+                "Temperature" => 90,
+                "Load" => 100,
+                _ => Math.Max(
+                    50,
+                    Math.Ceiling(
+                        samples.Max(sample => TryGetGpuChartValue(
+                            sample, metric, out double power) ? power : 0) / 50.0) * 50)
+            };
+            _gpuChartMinimum = minValue;
+            _gpuChartMaximum = maxValue;
+
             double stepX = w / Math.Max(1, samples.Count - 1);
 
             var areaPoints = new PointCollection { new Point(0, h) };
@@ -1679,8 +1822,8 @@ namespace CryoTray.Views
 
             for (int i = 0; i < samples.Count; i++)
             {
-                double t = samples[i].GpuTemp;
-                double norm = (t - minT) / (maxT - minT);
+                TryGetGpuChartValue(samples[i], metric, out double value);
+                double norm = (value - minValue) / Math.Max(1, maxValue - minValue);
                 norm = Math.Clamp(norm, 0, 1);
                 double y = h - (norm * (h - 8) + 4);
                 double x = i * stepX;
@@ -1691,10 +1834,11 @@ namespace CryoTray.Views
 
             areaPoints.Add(new Point(w, h));
 
+            Color accent = ResolveGpuChartColor(metric);
             var area = new Polygon
             {
                 Points = areaPoints,
-                Fill = new SolidColorBrush(Color.FromArgb(100, 124, 179, 66))
+                Fill = new SolidColorBrush(Color.FromArgb(100, accent.R, accent.G, accent.B))
             };
             GpuChartCanvas.Children.Add(area);
 
@@ -1725,7 +1869,7 @@ namespace CryoTray.Views
             var line = new Polyline
             {
                 Points = linePoints,
-                Stroke = ThemeService.GetBrush("GpuAccentBrush"),
+                Stroke = new SolidColorBrush(accent),
                 StrokeThickness = 1.5
             };
             GpuChartCanvas.Children.Add(line);
@@ -1914,20 +2058,18 @@ namespace CryoTray.Views
             int index = Math.Clamp((int)Math.Round(hoverX / stepX), 0, count - 1);
             var sample = _gpuChartSamples[index];
             double x = index * stepX;
-            double temperature = sample.GpuTemp;
-            if (!double.IsFinite(temperature) || temperature <= 0)
+            if (!TryGetGpuChartValue(sample, _gpuChartMetric, out double value))
             {
                 GpuChartTooltip.IsOpen = false;
                 return;
             }
-            double normalized = Math.Clamp((temperature - 30) / (90 - 30), 0, 1);
+            double normalized = Math.Clamp(
+                (value - _gpuChartMinimum) / Math.Max(1, _gpuChartMaximum - _gpuChartMinimum),
+                0,
+                1);
             double y = height - (normalized * (height - 8) + 4);
 
-            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
-            double displayTemp = isFahrenheit ? (temperature * 9 / 5) + 32 : temperature;
-            string unit = isFahrenheit ? "°F" : "°C";
-
-            TxtGpuChartTooltipValue.Text = $"{Math.Round(displayTemp)}{unit}";
+            TxtGpuChartTooltipValue.Text = FormatGpuChartValue(value, _gpuChartMetric);
             TxtGpuChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
 
             DrawChartHoverMarker(
@@ -1935,7 +2077,7 @@ namespace CryoTray.Views
                 x,
                 y,
                 height,
-                ThemeService.GetColor("GpuAccentBrush"));
+                ResolveGpuChartColor(_gpuChartMetric));
             ShowChartTooltip(GpuChartTooltip, GpuChartCanvas, x, y, width);
         }
 
@@ -3159,6 +3301,9 @@ namespace CryoTray.Views
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             GpuHealthRow.Visibility = settings.ShowGpuHotspot || settings.ShowGpuVram || settings.ShowGpuFan
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            GpuDetailsRow.Visibility = settings.ShowGpuDetails
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }

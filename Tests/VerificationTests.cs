@@ -36,6 +36,8 @@ namespace CryoTray.Tests
             allPassed &= TestWindowsXamlInstantiation();
             allPassed &= TestPerCoreTemperaturePolling();
             allPassed &= TestTemperatureAlerts();
+            allPassed &= TestGpuDetailsAndDeltaAlerts();
+            allPassed &= TestProcessUsageSampling();
             allPassed &= TestFanHealthWatch();
             allPassed &= TestStorageHealthWatch();
             allPassed &= TestNoSyntheticFallbacksAndNaNSafety();
@@ -370,6 +372,166 @@ namespace CryoTray.Tests
             {
                 settings.MuteTemperatureAlerts = originalMute;
                 settings.HighTempThresholdCpu = originalCpuThreshold;
+            }
+        }
+
+        private static bool TestGpuDetailsAndDeltaAlerts()
+        {
+            Console.Write("[TEST] GPU detail formatting and hotspot delta alert... ");
+            var settings = SettingsService.Instance.Current;
+            bool originalMute = settings.MuteTemperatureAlerts;
+            bool originalDeltaEnabled = settings.GpuDeltaAlertsEnabled;
+            int originalThreshold = settings.GpuHotspotDeltaThresholdCelsius;
+            try
+            {
+                settings.MuteTemperatureAlerts = false;
+                settings.GpuDeltaAlertsEnabled = true;
+                settings.GpuHotspotDeltaThresholdCelsius = 25;
+
+                var details = new HardwareSnapshot
+                {
+                    GpuCoreClockMhz = 1455,
+                    GpuMemoryClockMhz = 7001,
+                    GpuThrottleReason = "GPU Performance Limit - Power"
+                };
+                if (Views.MainWindow.FormatGpuClocks(details) != "1455/7001 MHz")
+                {
+                    throw new Exception($"Unexpected clocks: {Views.MainWindow.FormatGpuClocks(details)}");
+                }
+
+                if (Views.MainWindow.CompactThrottleReason(details.GpuThrottleReason) != "Power")
+                {
+                    throw new Exception("Throttle reason was not compacted.");
+                }
+
+                var service = new TemperatureAlertService();
+                int deltaAlerts = 0;
+                service.AlertRaised += alert =>
+                {
+                    if (alert.Component == TemperatureAlertComponent.GpuDelta)
+                    {
+                        deltaAlerts++;
+                    }
+                };
+
+                var start = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+                var hot = new HardwareSnapshot { GpuTemp = 50, GpuHotspotTemp = 80 };
+                service.Observe(hot, start);
+                service.Observe(hot, start.AddMinutes(4));
+                if (deltaAlerts != 0)
+                {
+                    throw new Exception("Delta alert fired before the sustain window.");
+                }
+
+                service.Observe(hot, start.AddMinutes(5));
+                if (deltaAlerts != 1)
+                {
+                    throw new Exception($"Expected one delta alert, got {deltaAlerts}.");
+                }
+
+                service.Observe(hot, start.AddMinutes(20));
+                if (deltaAlerts != 1)
+                {
+                    throw new Exception("Delta alert ignored its cooldown.");
+                }
+
+                var cool = new HardwareSnapshot { GpuTemp = 50, GpuHotspotTemp = 70 };
+                service.Observe(cool, start.AddMinutes(22));
+                service.Observe(hot, start.AddMinutes(36));
+                service.Observe(hot, start.AddMinutes(41));
+                if (deltaAlerts != 2)
+                {
+                    throw new Exception($"Expected a second delta alert after reset, got {deltaAlerts}.");
+                }
+
+                var resetService = new TemperatureAlertService();
+                int resetAlerts = 0;
+                resetService.AlertRaised += alert =>
+                {
+                    if (alert.Component == TemperatureAlertComponent.GpuDelta)
+                    {
+                        resetAlerts++;
+                    }
+                };
+                var justBelow = new HardwareSnapshot { GpuTemp = 50, GpuHotspotTemp = 74 };
+                resetService.Observe(hot, start);
+                resetService.Observe(justBelow, start.AddMinutes(4));
+                resetService.Observe(hot, start.AddMinutes(6));
+                resetService.Observe(hot, start.AddMinutes(10));
+                if (resetAlerts != 0)
+                {
+                    throw new Exception("A gap dip below the threshold did not reset the sustain timer.");
+                }
+
+                resetService.Observe(hot, start.AddMinutes(11));
+                if (resetAlerts != 1)
+                {
+                    throw new Exception("The reset delta watch did not alert after five continuous minutes.");
+                }
+
+                settings.GpuDeltaAlertsEnabled = false;
+                var disabled = new TemperatureAlertService();
+                int disabledAlerts = 0;
+                disabled.AlertRaised += _ => disabledAlerts++;
+                disabled.Observe(hot, start);
+                disabled.Observe(hot, start.AddMinutes(6));
+                if (disabledAlerts != 0)
+                {
+                    throw new Exception("Disabled GPU delta alerts were raised.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.MuteTemperatureAlerts = originalMute;
+                settings.GpuDeltaAlertsEnabled = originalDeltaEnabled;
+                settings.GpuHotspotDeltaThresholdCelsius = originalThreshold;
+            }
+        }
+
+        private static bool TestProcessUsageSampling()
+        {
+            Console.Write("[TEST] Process CPU/GPU usage sampling... ");
+            try
+            {
+                var first = ProcessUsageService.CaptureAsync().GetAwaiter().GetResult();
+                Thread.Sleep(350);
+                var second = ProcessUsageService.CaptureAsync().GetAwaiter().GetResult();
+                if (!second.CpuMeasured)
+                {
+                    throw new Exception("CPU percentages were not measured on the second sample.");
+                }
+
+                if (second.Entries.Count == 0)
+                {
+                    throw new Exception("No process entries were returned.");
+                }
+
+                if (!first.Entries.Any() && !second.Entries.Any())
+                {
+                    throw new Exception("Both samples were empty.");
+                }
+
+                if (second.Entries.Any(entry => entry.ProcessId <= 0 || string.IsNullOrWhiteSpace(entry.Name)))
+                {
+                    throw new Exception("A process entry had no id or name.");
+                }
+
+                Console.WriteLine(
+                    $"PASSED ({second.Entries.Count} processes, GPU counters: {(second.GpuAvailable ? "available" : "unavailable")})");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
             }
         }
 

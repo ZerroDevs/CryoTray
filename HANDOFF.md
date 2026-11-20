@@ -4,6 +4,14 @@
 
 - Do not add unsolicited features. When the user explicitly asks for suggestions, give a short prioritized list first; implement only the items they approve.
 
+## GPU details, hotspot delta, and top process consumers (2026-11-19)
+
+- Added `GpuDetailsRow` under the GPU health row. `AppSettings.ShowGpuDetails` defaults to `false`; Settings > View toggles it. It shows VRAM used/total from LHM `SmallData`, core/memory clocks from `Clock`, and a compact performance-limit reason from `Factor` sensors, with `--` when a sensor is absent.
+- Added `AppSettings.GpuGraphMetric` (`Temperature` default, `Power`, or `Load`) and a Settings > View metric selector. `DrawGpuChart` rescales per metric, recolors the line/area, and formats the hover card as °C/°F, W, or %.
+- Extended `TemperatureAlertService` with `TemperatureAlertComponent.GpuDelta`. When `GpuDeltaAlertsEnabled` is on (default), a hotspot-to-edge gap at or above `GpuHotspotDeltaThresholdCelsius` (default 25 °C, Settings > General) continuously for 5 minutes raises one tray alert, then enforces a 30 minute cooldown. A dip below the threshold restarts the 5 minute window. `Alert_GpuDelta` uses a difference-only formatter so Fahrenheit does not add 32.
+- Added `Services/ProcessUsageService` and a collapsed **Top processes** disclosure in System Information. CPU comes from `Process.TotalProcessorTime` deltas; GPU sums WMI `Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine` `engtype_3D` counters by PID. It polls every 2 s only while expanded and lists the top six processes by CPU or GPU.
+- Verification: Release build `0 Warning(s), 0 Error(s)`; full `/test` passed 40/40, including new GPU formatting/delta and live process-sampling checks. No commit, push, version bump, or release; the installed app remains `0.0.102`.
+
 ## v0.0.103 release preparation (2026-11-19)
 
 - Bumped `VERSION`, `app.manifest`, and the Inno default `AppVersion` to `0.0.103`; updated the baseline lines in `CONTRIBUTING.md` and `SECURITY.md`.

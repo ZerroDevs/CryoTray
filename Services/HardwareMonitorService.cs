@@ -556,6 +556,11 @@ namespace CryoTray.Services
                 GpuHotspotTemp = source.GpuHotspotTemp,
                 GpuVramTemp = source.GpuVramTemp,
                 GpuFanRpm = source.GpuFanRpm,
+                GpuVramUsedMb = source.GpuVramUsedMb,
+                GpuVramTotalMb = source.GpuVramTotalMb,
+                GpuCoreClockMhz = source.GpuCoreClockMhz,
+                GpuMemoryClockMhz = source.GpuMemoryClockMhz,
+                GpuThrottleReason = source.GpuThrottleReason,
                 Gpus = source.Gpus,
                 Fans = source.Fans,
                 StorageDrives = source.StorageDrives,
@@ -908,6 +913,11 @@ namespace CryoTray.Services
                 snapshot.GpuHotspotTemp = null;
                 snapshot.GpuVramTemp = null;
                 snapshot.GpuFanRpm = null;
+                snapshot.GpuVramUsedMb = null;
+                snapshot.GpuVramTotalMb = null;
+                snapshot.GpuCoreClockMhz = null;
+                snapshot.GpuMemoryClockMhz = null;
+                snapshot.GpuThrottleReason = null;
                 return;
             }
 
@@ -919,6 +929,11 @@ namespace CryoTray.Services
             snapshot.GpuHotspotTemp = primary.HotspotTemp;
             snapshot.GpuVramTemp = primary.VramTemp;
             snapshot.GpuFanRpm = primary.FanRpm;
+            snapshot.GpuVramUsedMb = primary.VramUsedMb;
+            snapshot.GpuVramTotalMb = primary.VramTotalMb;
+            snapshot.GpuCoreClockMhz = primary.CoreClockMhz;
+            snapshot.GpuMemoryClockMhz = primary.MemoryClockMhz;
+            snapshot.GpuThrottleReason = primary.ThrottleReason;
         }
 
         private static void CollectFanSensors(
@@ -980,6 +995,11 @@ namespace CryoTray.Services
             double? gpuLoad = null;
             double? gpuPower = null;
             double? gpuPowerFallback = null;
+            double? gpuVramUsedMb = null;
+            double? gpuVramTotalMb = null;
+            double? gpuCoreClockMhz = null;
+            double? gpuMemoryClockMhz = null;
+            string? gpuThrottleReason = null;
 
             void CollectSensors(IReadOnlyList<ISensor> sensors)
             {
@@ -990,7 +1010,7 @@ namespace CryoTray.Services
                         continue;
                     }
 
-                    string sensorName = sensor.Name.ToLowerInvariant();
+                    string sensorName = sensor.Name?.ToLowerInvariant() ?? "";
                     if (sensor.SensorType == SensorType.Temperature)
                     {
                         double value = sensor.Value.Value;
@@ -1057,6 +1077,50 @@ namespace CryoTray.Services
                             gpuFanRpm ??= (int)Math.Round(rpm);
                         }
                     }
+                    else if (sensor.SensorType == SensorType.SmallData)
+                    {
+                        double megabytes = sensor.Value.Value;
+                        if (megabytes < 0 || !double.IsFinite(megabytes))
+                        {
+                            continue;
+                        }
+
+                        if (sensorName.Contains("memory used"))
+                        {
+                            gpuVramUsedMb ??= Math.Round(megabytes, 0);
+                        }
+                        else if (sensorName.Contains("memory total"))
+                        {
+                            gpuVramTotalMb ??= Math.Round(megabytes, 0);
+                        }
+                    }
+                    else if (sensor.SensorType == SensorType.Clock)
+                    {
+                        double megahertz = sensor.Value.Value;
+                        if (megahertz <= 0 || megahertz > 20000 || !double.IsFinite(megahertz))
+                        {
+                            continue;
+                        }
+
+                        if (sensorName.Contains("memory"))
+                        {
+                            gpuMemoryClockMhz ??= Math.Round(megahertz, 0);
+                        }
+                        else if (sensorName.Contains("core"))
+                        {
+                            gpuCoreClockMhz ??= Math.Round(megahertz, 0);
+                        }
+                    }
+                    else if (sensor.SensorType == SensorType.Factor)
+                    {
+                        double state = sensor.Value.Value;
+                        if (state > 0.5 &&
+                            (sensorName.Contains("performance limit") ||
+                             sensorName.Contains("throttle")))
+                        {
+                            gpuThrottleReason ??= sensor.Name?.Trim();
+                        }
+                    }
                 }
             }
 
@@ -1085,7 +1149,12 @@ namespace CryoTray.Services
                 PowerWatts = effectivePower.HasValue ? (int)Math.Round(effectivePower.Value) : null,
                 HotspotTemp = gpuHotspotTemp,
                 VramTemp = gpuVramTemp,
-                FanRpm = gpuFanRpm
+                FanRpm = gpuFanRpm,
+                VramUsedMb = gpuVramUsedMb,
+                VramTotalMb = gpuVramTotalMb,
+                CoreClockMhz = gpuCoreClockMhz,
+                MemoryClockMhz = gpuMemoryClockMhz,
+                ThrottleReason = gpuThrottleReason
             };
         }
 

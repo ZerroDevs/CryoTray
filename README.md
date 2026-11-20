@@ -74,8 +74,9 @@ The CPU section includes:
 The GPU section includes:
 
 - Current GPU temperature and load.
-- An inline GPU chart synchronized with the selected timeframe.
+- An inline GPU chart synchronized with the selected timeframe, plotting temperature, power, or load (selectable under **Settings > View**).
 - GPU power, hotspot temperature, VRAM temperature, fan speed, and the GPU name when the hardware reports them.
+- An optional details row with VRAM used/total, core and memory clocks, and any reported performance limit (off by default; enable **Show GPU details** under Settings > View).
 - Per-readout visibility controls, so the row can stay compact.
 
 The storage area lists detected storage drives with drive letters (`SSD (C:)` / `HDD (D:)`), badge letters inside the drive icon, inline SMART health percentages, and temperatures or optional per-drive live temperature graphs (`1` to `60` minute window). Hovering a drive shows its model, health, and status; individual drives can be hidden from **Settings > Disk**, or all storage rows can be toggled off via **Show SSD/HDD temperature**.
@@ -106,9 +107,13 @@ CryoTray can raise a tray notification when the CPU, GPU, or a storage drive cro
 
 An alert fires once when a sensor crosses its threshold. The same sensor will not alert again for 10 minutes, and it must fall at least 3 °C below the threshold before it can re-arm. Notifications can be muted by category or disabled entirely, and Settings includes a test notification button.
 
+A separate GPU hotspot-to-edge watch warns when the gap between the hotspot and edge temperatures stays at or above a threshold (default 25 °C, adjustable from 15 °C to 40 °C under **Settings > General**). It must persist continuously for 5 minutes before alerting; a dip below the threshold restarts the window, and after an alert it waits 30 minutes. A sustained large gap can mean dried thermal paste or a mounting problem.
+
 Fan Health Watch is a separate optional notification. A fan header is armed only after spinning continuously above 300 RPM for one minute. If an armed fan then reports 0 RPM for 30 seconds while the CPU or GPU is under sustained load and at or above 60 °C, CryoTray shows a tray warning. Headers that never reported motion are ignored, state is cleared across sleep and resume with a 60 second grace period, and each fan has a 10 minute alert cooldown. The guard is deliberate: idle fan curves that stop fans at 0 RPM never arm the alert. Fan Health Watch is on by default and can be disabled under Settings > General.
 
 System Information includes a live **Fan health** section under **Fan speeds**. It is collapsed by default; click the **Fan health** heading or its `>` chevron to open it. It lists every motherboard header and the primary GPU fan with current RPM, state (`Watching`, `Armed`, `Idle at 0 RPM`, or `Stopped`), arming or alert countdown, and the last alert time. **Hide idle fans** is on by default, hiding `Idle at 0 RPM` rows so active fans are not buried; `Stopped` rows always remain visible, and unchecking the filter shows every header. **Test fan notification** verifies the tray path. Clicking a fan alert opens System Information, expands the panel, and highlights that fan. Fan aliases set under **Settings > General > Fan names** appear in this panel, in fan alerts, and in copied diagnostics.
+
+System Information also has a collapsed **Top processes** section. It lists the six processes with the highest CPU or GPU load, with CPU %, GPU %, and memory. The panel samples every 2 seconds only while it is open, and it notes when GPU process counters are unavailable.
 
 Storage health has its own optional watch. CryoTray notifies when a drive enters `Worn` or `Replace`, or when its SMART health falls by 10 points. Excluded drives are ignored, and each drive has a 10 minute cooldown. The toggle is under **Settings > Disk**.
 
@@ -234,6 +239,7 @@ System Information reads the machine inventory when the window opens and refresh
 - CPU temperature minimum, average, and peak from the current telemetry history.
 - Read-only motherboard fan speeds (CPU, chassis, and other headers the sensor driver reports). Headers reading 0 RPM are hidden, and `--` appears when no fan is moving.
 - A live Fan health section with per-fan state, last alert time, the primary GPU fan, a test notification button, and an optional **Hide idle fans** filter that always keeps stopped fans visible.
+- A collapsed Top processes section with the six processes driving CPU or GPU load, their CPU %, GPU %, and memory. It refreshes every 2 seconds only while open.
 - Connected monitors and network interfaces.
 - System errors, including the BSOD count available from the event log.
 
@@ -254,6 +260,7 @@ Settings opens as a modeless companion window and includes eight tabs: General, 
 | Mute temperature alerts | Suppresses CPU, GPU, and drive notifications |
 | Disable all notifications | Stops every tray notification, including temperature, fan, storage, update, and memory alerts |
 | Warn when a running fan stops | Enables Fan Health Watch for armed fans that stop under sustained load (enabled by default) |
+| Warn when the GPU hotspot gap is too large | Enables the sustained hotspot-to-edge watch and sets its threshold (25 °C default, 15–40 °C) |
 | Fan names | Renames motherboard and GPU fan headers for the panel, fan alerts, and diagnostics; leave a field blank to use the sensor name |
 | Send test notification | Verifies that tray notifications are visible |
 | Show computer name | Adds the PC name to the dashboard title area |
@@ -286,6 +293,8 @@ Settings opens as a modeless companion window and includes eight tabs: General, 
 | Show battery percentage | Adds charge level and charging state to the overlay and tray tooltip; hidden on systems without a battery |
 | Overlay opacity | Sets the overlay background transparency from 0% to 100% |
 | Dashboard readouts | Controls CPU power and GPU power, temperature, name, hotspot, VRAM, and fan visibility |
+| Show GPU details | Adds VRAM use, clocks, and performance-limit state under the GPU row (off by default) |
+| GPU graph metric | Plots temperature, power, or load in the GPU chart (temperature by default) |
 | CPU / GPU badge value | Shows temperature, load, or RAM percentage in each tray badge (temperature by default) |
 | Show motherboard fan speeds | Adds the read-only fan RPM row and Fan health section to System Information (enabled by default) |
 
@@ -441,7 +450,7 @@ The executable includes an integration test harness:
 dotnet .\bin\Release\net8.0-windows\CryoTray.dll /test
 ```
 
-Run it elevated for full sensor coverage. The 38 checks cover ring buffer stats, `CryoTray Cooling` power-plan lifecycle and uninstall cleanup, WMI/EDID system queries, GDI icon handle cleanup, English and Arabic RTL localization, theme persistence and normalization, all five WPF windows, per-core temperature mapping and honest `NaN` fallback safety, alert cooldown and drive exclusion filtering, fan health arming, GPU fan and idle-stop guards, storage health transitions and cooldowns, tray badge metric resolution, foreground-only Autopilot matching, multi-GPU selection, PawnIO detection, overlay `WS_EX_TRANSPARENT` click-through, custom hotkey capture/registration, `Toolhelp32` process scan and fullscreen state, `EventWaitHandle` activation signaling, `GlobalMemoryStatusEx` + NT page-list RAM breakdown (`NtQuerySystemInformation(80)`), dynamic byte formatting, `GetSystemTimes` CPU-idle math, kernel memory optimization (`NtSetSystemInformation`) and privilege fallback, RAM tooltip hover/pin lifecycle, `TelemetryCsvService` export, `StartupTaskService` XML & elevated Task Scheduler sync, dashboard SSD drive-letter labels, timed Cooling Mode pause/resume, stress-test Cooling OFF vs ON delta, retained-throughput, and FPS-impact calculations, dark owner-drawn tray context menu rendering, custom Cooling ON/OFF frame colors, Black vs White tray badge digit rendering, CPU clock/base-speed formatting, Small/Large CPU graph layouts, per-drive inline temperature history lookup, zero-hardcoding hardware vendor/snapshot clone integrity, and dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering without white icon gutters.
+Run it elevated for full sensor coverage. The 40 checks cover ring buffer stats, GPU detail formatting, the sustained hotspot-to-edge alert and its cooldown, live process CPU/GPU sampling, `CryoTray Cooling` power-plan lifecycle and uninstall cleanup, WMI/EDID system queries, GDI icon handle cleanup, English and Arabic RTL localization, theme persistence and normalization, all five WPF windows, per-core temperature mapping and honest `NaN` fallback safety, alert cooldown and drive exclusion filtering, fan health arming, GPU fan and idle-stop guards, storage health transitions and cooldowns, tray badge metric resolution, foreground-only Autopilot matching, multi-GPU selection, PawnIO detection, overlay `WS_EX_TRANSPARENT` click-through, custom hotkey capture/registration, `Toolhelp32` process scan and fullscreen state, `EventWaitHandle` activation signaling, `GlobalMemoryStatusEx` + NT page-list RAM breakdown (`NtQuerySystemInformation(80)`), dynamic byte formatting, `GetSystemTimes` CPU-idle math, kernel memory optimization (`NtSetSystemInformation`) and privilege fallback, RAM tooltip hover/pin lifecycle, `TelemetryCsvService` export, `StartupTaskService` XML & elevated Task Scheduler sync, dashboard SSD drive-letter labels, timed Cooling Mode pause/resume, stress-test Cooling OFF vs ON delta, retained-throughput, and FPS-impact calculations, dark owner-drawn tray context menu rendering, custom Cooling ON/OFF frame colors, Black vs White tray badge digit rendering, CPU clock/base-speed formatting, Small/Large CPU graph layouts, per-drive inline temperature history lookup, zero-hardcoding hardware vendor/snapshot clone integrity, and dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering without white icon gutters.
 
 This is not an isolated unit test suite. It reads real hardware, creates or modifies the `CryoTray Cooling` power plan, resets that scheme's stored parameters, and may require multiple CPU cores. Use it on a test machine or accept that it touches those system settings.
 

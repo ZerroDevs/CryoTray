@@ -476,4 +476,26 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Update_UpdaterStartFailed">تعذر بدء مساعد التحديث المحمي.</sys:String>
     <sys:String x:Key="Update_UnsafeLocation">يجب تشغيل CryoTray من مجلد لا يمكن للمستخدمين العاديين تعديله. انقله إلى مجلد محمي بصلاحيات المسؤول أو أعد تثبيته باستخدام المثبّت.</sys:String>
     <sys:String x:Key="Update_ApplicationFolderSecurityFailed">تعذر تأمين مجلد تطبيق CryoTray. انقله إلى مجلد محمي بصلاحيات المسؤول أو أعد تثبيته باستخدام المثبّت.</sys:String>
+    <sys:String x:Key="Settings_ShowGpuDetails">إظهار تفاصيل كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_ShowGpuDetailsDesc">يعرض استخدام ذاكرة VRAM وترددات النواة والذاكرة وأي حد أداء مبلغ عنه تحت صف كرت الرسومات.</sys:String>
+    <sys:String x:Key="Settings_GpuGraphMetric">مقياس رسم كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_GpuGraphTemperature">الحرارة</sys:String>
+    <sys:String x:Key="Settings_GpuGraphPower">الطاقة</sys:String>
+    <sys:String x:Key="Settings_GpuGraphLoad">الحمل</sys:String>
+    <sys:String x:Key="Settings_GpuDeltaAlerts">تحذير عند اتساع الفرق بين النقطة الساخنة والحافة</sys:String>
+    <sys:String x:Key="Settings_GpuDeltaAlertsDesc">يقارن حرارة النقطة الساخنة بحرارة الحافة وينبه عندما يبقى الفرق عند الحد أو أعلى منه لمدة 5 دقائق. قد يعني الفرق الكبير جفاف المعجون الحراري أو مشكلة في التثبيت.</sys:String>
+    <sys:String x:Key="Settings_GpuDeltaThreshold">حد فرق النقطة الساخنة</sys:String>
+    <sys:String x:Key="Main_GpuVramUsageLabel">استخدام VRAM</sys:String>
+    <sys:String x:Key="Main_GpuClocksLabel">الترددات</sys:String>
+    <sys:String x:Key="Main_GpuThrottleLabel">الحد</sys:String>
+    <sys:String x:Key="Alert_GpuDelta">النقطة الساخنة لكرت الرسومات أعلى من حرارة الحافة بمقدار {0} (الحد {1}). تحقق من تدفق الهواء أو المعجون الحراري.</sys:String>
+    <sys:String x:Key="System_Processes">أعلى العمليات</sys:String>
+    <sys:String x:Key="System_ProcessesDesc">أعلى حمل للمعالج وكرت الرسومات منذ آخر تحديث. يتحدث فقط أثناء فتح هذا القسم.</sys:String>
+    <sys:String x:Key="System_ProcessesProcess">العملية</sys:String>
+    <sys:String x:Key="System_ProcessesCpu">المعالج</sys:String>
+    <sys:String x:Key="System_ProcessesGpu">كرت الرسومات</sys:String>
+    <sys:String x:Key="System_ProcessesMemory">الذاكرة</sys:String>
+    <sys:String x:Key="System_ProcessesMeasuring">جارٍ قياس حمل العمليات…</sys:String>
+    <sys:String x:Key="System_ProcessesEmpty">لا يوجد حمل نشط من العمليات.</sys:String>
+    <sys:String x:Key="System_ProcessesGpuUnavailable">عدادات عمليات كرت الرسومات غير متاحة على هذا النظام.</sys:String>
 </ResourceDictionary>

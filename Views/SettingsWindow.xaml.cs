@@ -267,6 +267,8 @@ namespace CryoTray.Views
             ChkDisableAllNotifications.IsChecked = s.DisableAllNotifications;
             ChkMuteTemperatureAlerts.IsChecked = s.MuteTemperatureAlerts;
             ChkFanHealthAlerts.IsChecked = s.FanHealthAlertsEnabled;
+            ChkGpuDeltaAlerts.IsChecked = s.GpuDeltaAlertsEnabled;
+            SldGpuDeltaThreshold.Value = Math.Clamp(s.GpuHotspotDeltaThresholdCelsius, 15, 40);
             ChkStorageHealthAlerts.IsChecked = s.StorageHealthAlertsEnabled;
             ChkShowBatteryStatus.IsChecked = s.ShowBatteryStatus;
             PnlBatterySetting.Visibility = BatteryTelemetryService.Read().HasBattery
@@ -312,6 +314,8 @@ namespace CryoTray.Views
             ChkShowGpuHotspot.IsChecked = s.ShowGpuHotspot;
             ChkShowGpuVram.IsChecked = s.ShowGpuVram;
             ChkShowGpuFan.IsChecked = s.ShowGpuFan;
+            ChkShowGpuDetails.IsChecked = s.ShowGpuDetails;
+            SelectGpuGraphMetric(s.GpuGraphMetric);
             ChkShowFanSpeeds.IsChecked = s.ShowFanSpeeds;
 
             // CPU Tab - Display & Cooling Controls
@@ -443,6 +447,46 @@ namespace CryoTray.Views
             TxtCpuThreshold.Text = FormatThreshold((int)SldCpuThreshold.Value);
             TxtDiskThreshold.Text = FormatThreshold((int)SldDiskThreshold.Value);
             TxtGpuThreshold.Text = FormatThreshold((int)SldGpuThreshold.Value);
+            if (TxtGpuDeltaThreshold != null && SldGpuDeltaThreshold != null)
+            {
+                TxtGpuDeltaThreshold.Text = FormatTemperatureDelta((int)SldGpuDeltaThreshold.Value);
+            }
+        }
+
+        private static string FormatTemperatureDelta(int celsius)
+        {
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            int value = isFahrenheit ? (int)Math.Round(celsius * 9 / 5.0) : celsius;
+            return $"{value}°{(isFahrenheit ? "F" : "C")}";
+        }
+
+        private void SelectGpuGraphMetric(string? metric)
+        {
+            string normalized = metric switch
+            {
+                "Power" => "Power",
+                "Load" => "Load",
+                _ => "Temperature"
+            };
+
+            for (int i = 0; i < CmbGpuGraphMetric.Items.Count; i++)
+            {
+                if (CmbGpuGraphMetric.Items[i] is ComboBoxItem item &&
+                    string.Equals(item.Tag as string, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    CmbGpuGraphMetric.SelectedIndex = i;
+                    return;
+                }
+            }
+
+            CmbGpuGraphMetric.SelectedIndex = 0;
+        }
+
+        private string ReadGpuGraphMetric()
+        {
+            return CmbGpuGraphMetric.SelectedItem is ComboBoxItem item && item.Tag is string tag
+                ? tag
+                : "Temperature";
         }
 
         private static string FormatThreshold(int celsius)
@@ -787,6 +831,8 @@ namespace CryoTray.Views
             s.DisableAllNotifications = ChkDisableAllNotifications.IsChecked == true;
             s.MuteTemperatureAlerts = ChkMuteTemperatureAlerts.IsChecked == true;
             s.FanHealthAlertsEnabled = ChkFanHealthAlerts.IsChecked == true;
+            s.GpuDeltaAlertsEnabled = ChkGpuDeltaAlerts.IsChecked == true;
+            s.GpuHotspotDeltaThresholdCelsius = (int)SldGpuDeltaThreshold.Value;
             s.StorageHealthAlertsEnabled = ChkStorageHealthAlerts.IsChecked == true;
             s.ShowBatteryStatus = ChkShowBatteryStatus.IsChecked == true;
             s.AutomaticUpdateChecks = ChkAutomaticUpdates.IsChecked == true;
@@ -822,6 +868,8 @@ namespace CryoTray.Views
             s.ShowGpuHotspot = ChkShowGpuHotspot.IsChecked == true;
             s.ShowGpuVram = ChkShowGpuVram.IsChecked == true;
             s.ShowGpuFan = ChkShowGpuFan.IsChecked == true;
+            s.ShowGpuDetails = ChkShowGpuDetails.IsChecked == true;
+            s.GpuGraphMetric = ReadGpuGraphMetric();
             s.ShowFanSpeeds = ChkShowFanSpeeds.IsChecked == true;
 
             s.ShowCpuClock = ChkShowCpuClock.IsChecked == true;
@@ -1872,6 +1920,23 @@ namespace CryoTray.Views
                 UpdateThresholdLabels();
             }
             if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void SldGpuDeltaThreshold_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtGpuDeltaThreshold != null)
+            {
+                UpdateThresholdLabels();
+            }
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void CmbGpuGraphMetric_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isBinding)
+            {
+                SaveUiIntoSettings();
+            }
         }
 
         private void BtnExport_Click(object sender, RoutedEventArgs e)

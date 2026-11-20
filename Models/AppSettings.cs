@@ -65,6 +65,8 @@ namespace CryoTray.Models
         public bool ShowGpuHotspot { get; set; } = true;
         public bool ShowGpuVram { get; set; } = true;
         public bool ShowGpuFan { get; set; } = true;
+        public bool ShowGpuDetails { get; set; } = false;
+        public string GpuGraphMetric { get; set; } = "Temperature";
         public bool ShowFanSpeeds { get; set; } = true;
         public string PreferredGpuIdentifier { get; set; } = "";
 
@@ -108,6 +110,8 @@ namespace CryoTray.Models
         public int HighTempThresholdDisk { get; set; } = 60;
         public bool DisableAllNotifications { get; set; } = false;
         public bool MuteTemperatureAlerts { get; set; } = false;
+        public bool GpuDeltaAlertsEnabled { get; set; } = true;
+        public int GpuHotspotDeltaThresholdCelsius { get; set; } = 25;
         public bool FanHealthAlertsEnabled { get; set; } = true;
         public Dictionary<string, string> FanAliases { get; set; } = new();
         public bool StorageHealthAlertsEnabled { get; set; } = true;

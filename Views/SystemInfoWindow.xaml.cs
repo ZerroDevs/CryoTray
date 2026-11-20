@@ -8,6 +8,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Threading.Tasks;
 using CryoTray.Models;
 using CryoTray.Services;
 using Microsoft.Win32;
@@ -28,6 +29,13 @@ namespace CryoTray.Views
         private bool _fanHealthHideIdle = true;
         private bool _syncingFanHealthToggle;
         private DispatcherTimer? _copyFeedbackTimer;
+        private DispatcherTimer? _processTimer;
+        private ToggleButton? _processToggleButton;
+        private TextBlock? _processChevron;
+        private StackPanel? _processPanel;
+        private StackPanel? _processRowsHost;
+        private bool _processExpanded;
+        private bool _processRefreshInFlight;
         private readonly Dictionary<string, Border> _fanHealthRows = new(StringComparer.OrdinalIgnoreCase);
         private string? _highlightFanKey;
         private bool _highlightScrolled;
@@ -52,6 +60,12 @@ namespace CryoTray.Views
                 RefreshFanHealthRows();
             };
 
+            _processTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            _processTimer.Tick += ProcessTimer_Tick;
+
             Loaded += SystemInfoWindow_Loaded;
             Closed += SystemInfoWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
@@ -74,6 +88,12 @@ namespace CryoTray.Views
             _fanHealthRows.Clear();
             _copyFeedbackTimer?.Stop();
             _copyFeedbackTimer = null;
+            _processTimer?.Stop();
+            _processTimer = null;
+            _processToggleButton = null;
+            _processChevron = null;
+            _processPanel = null;
+            _processRowsHost = null;
             InfoContainer.Children.Clear();
             _data = new SystemInfoData();
             Content = null;
@@ -115,6 +135,10 @@ namespace CryoTray.Views
 
         private void RenderRows()
         {
+            _processToggleButton = null;
+            _processChevron = null;
+            _processPanel = null;
+            _processRowsHost = null;
             InfoContainer.Children.Clear();
             _fanHealthRowsPanel = null;
             _fanHealthToggleButton = null;
@@ -234,6 +258,7 @@ namespace CryoTray.Views
 
                 AddFanHealthSection();
             }
+            AddProcessSection();
             AddRow(LocalizationService.Get("System_Monitors"), _data.Monitors);
             AddRow(LocalizationService.Get("System_Network"), _data.Network);
             AddRow(LocalizationService.Get("System_SystemErrors"), _data.SystemErrors);
@@ -402,6 +427,281 @@ namespace CryoTray.Views
             {
                 RefreshFanHealthRows();
             }
+        }
+
+        private void AddProcessSection()
+        {
+            var headerContent = new Grid();
+            headerContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+            headerContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            _processChevron = new TextBlock
+            {
+                Text = _processExpanded ? "▾" : "›",
+                Foreground = ThemeService.GetBrush("TextTertiaryBrush"),
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(_processChevron, 0);
+            headerContent.Children.Add(_processChevron);
+
+            var headerLabel = new TextBlock
+            {
+                Text = LocalizationService.Get("System_Processes"),
+                Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(headerLabel, 1);
+            headerContent.Children.Add(headerLabel);
+
+            _processToggleButton = new ToggleButton
+            {
+                Style = (Style)FindResource("FanHealthHeaderToggleStyle"),
+                Content = headerContent,
+                IsChecked = _processExpanded
+            };
+            AutomationProperties.SetName(
+                _processToggleButton, LocalizationService.Get("System_Processes"));
+            AutomationProperties.SetAutomationId(_processToggleButton, "ProcessUsageToggle");
+            _processToggleButton.Checked += ProcessToggle_Changed;
+            _processToggleButton.Unchecked += ProcessToggle_Changed;
+            InfoContainer.Children.Add(_processToggleButton);
+
+            _processPanel = new StackPanel
+            {
+                Visibility = _processExpanded ? Visibility.Visible : Visibility.Collapsed
+            };
+            _processPanel.Children.Add(new TextBlock
+            {
+                Text = LocalizationService.Get("System_ProcessesDesc"),
+                Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(12, 2, 12, 8)
+            });
+
+            _processRowsHost = new StackPanel();
+            _processRowsHost.Children.Add(CreateProcessMessage("System_ProcessesMeasuring"));
+            _processPanel.Children.Add(_processRowsHost);
+            InfoContainer.Children.Add(_processPanel);
+
+            ApplyProcessExpansionState();
+        }
+
+        private void ProcessToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            _processExpanded = _processToggleButton?.IsChecked == true;
+            ApplyProcessExpansionState();
+        }
+
+        private void ApplyProcessExpansionState()
+        {
+            if (_processChevron != null)
+            {
+                _processChevron.Text = _processExpanded ? "▾" : "›";
+            }
+
+            if (_processPanel != null)
+            {
+                _processPanel.Visibility = _processExpanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (_processExpanded)
+            {
+                if (_processRowsHost != null && _processRowsHost.Children.Count == 0)
+                {
+                    _processRowsHost.Children.Add(CreateProcessMessage("System_ProcessesMeasuring"));
+                }
+
+                _processTimer?.Start();
+                _ = RefreshProcessRowsAsync();
+            }
+            else
+            {
+                _processTimer?.Stop();
+                _processRowsHost?.Children.Clear();
+            }
+        }
+
+        private async void ProcessTimer_Tick(object? sender, EventArgs e)
+        {
+            await RefreshProcessRowsAsync();
+        }
+
+        private async Task RefreshProcessRowsAsync()
+        {
+            if (!_processExpanded || _processRowsHost == null || _processRefreshInFlight)
+            {
+                return;
+            }
+
+            _processRefreshInFlight = true;
+            var host = _processRowsHost;
+            try
+            {
+                var snapshot = await ProcessUsageService.CaptureAsync();
+                if (!_processExpanded || host != _processRowsHost || !IsLoaded)
+                {
+                    return;
+                }
+
+                RenderProcessRows(host, snapshot);
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _processRefreshInFlight = false;
+            }
+        }
+
+        private void RenderProcessRows(StackPanel host, ProcessUsageSnapshot snapshot)
+        {
+            host.Children.Clear();
+
+            if (!snapshot.CpuMeasured && snapshot.Entries.Count == 0)
+            {
+                host.Children.Add(CreateProcessMessage("System_ProcessesMeasuring"));
+                return;
+            }
+
+            if (snapshot.Entries.Count == 0)
+            {
+                host.Children.Add(CreateProcessMessage("System_ProcessesEmpty"));
+                return;
+            }
+
+            host.Children.Add(CreateProcessHeaderRow());
+            int index = 0;
+            foreach (var entry in snapshot.Entries)
+            {
+                host.Children.Add(CreateProcessRow(entry, snapshot, index));
+                index++;
+            }
+
+            if (!snapshot.GpuAvailable)
+            {
+                host.Children.Add(CreateProcessMessage("System_ProcessesGpuUnavailable"));
+            }
+        }
+
+        private Grid CreateProcessHeaderRow()
+        {
+            var grid = CreateProcessGrid();
+            grid.Margin = new Thickness(12, 0, 12, 4);
+            AddProcessCell(grid, 0, LocalizationService.Get("System_ProcessesProcess"),
+                ThemeService.GetBrush("TextMutedBrush"), TextAlignment.Left, false);
+            AddProcessCell(grid, 1, LocalizationService.Get("System_ProcessesCpu"),
+                ThemeService.GetBrush("TextMutedBrush"), TextAlignment.Right, false);
+            AddProcessCell(grid, 2, LocalizationService.Get("System_ProcessesGpu"),
+                ThemeService.GetBrush("TextMutedBrush"), TextAlignment.Right, false);
+            AddProcessCell(grid, 3, LocalizationService.Get("System_ProcessesMemory"),
+                ThemeService.GetBrush("TextMutedBrush"), TextAlignment.Right, false);
+            return grid;
+        }
+
+        private Border CreateProcessRow(
+            ProcessUsageEntry entry, ProcessUsageSnapshot snapshot, int index)
+        {
+            var border = new Border
+            {
+                Background = index % 2 == 1
+                    ? ThemeService.GetBrush("AlternateRowBrush")
+                    : Brushes.Transparent,
+                Padding = new Thickness(12, 6, 12, 6)
+            };
+
+            var grid = CreateProcessGrid();
+            grid.Margin = new Thickness(0);
+
+            var name = new TextBlock
+            {
+                Text = entry.Name,
+                Foreground = ThemeService.GetBrush("TextSecondaryBrush"),
+                FontSize = 12.5,
+                FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = entry.Name,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(name, 0);
+            grid.Children.Add(name);
+
+            AddProcessCell(
+                grid,
+                1,
+                snapshot.CpuMeasured ? $"{Math.Round(entry.CpuPercent)}%" : "--",
+                ThemeService.GetBrush("TextPrimaryBrush"),
+                TextAlignment.Right,
+                true);
+            AddProcessCell(
+                grid,
+                2,
+                snapshot.GpuAvailable ? $"{Math.Round(entry.GpuPercent)}%" : "--",
+                ThemeService.GetBrush("TextPrimaryBrush"),
+                TextAlignment.Right,
+                true);
+            AddProcessCell(
+                grid,
+                3,
+                entry.MemoryMb > 0 ? $"{Math.Round(entry.MemoryMb)} MB" : "--",
+                ThemeService.GetBrush("TextSecondaryBrush"),
+                TextAlignment.Right,
+                false);
+
+            border.Child = grid;
+            return border;
+        }
+
+        private static Grid CreateProcessGrid()
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
+            return grid;
+        }
+
+        private static void AddProcessCell(
+            Grid grid,
+            int column,
+            string text,
+            Brush brush,
+            TextAlignment alignment,
+            bool semiBold)
+        {
+            var cell = new TextBlock
+            {
+                Text = text,
+                Foreground = brush,
+                FontSize = 12.5,
+                FontWeight = semiBold ? FontWeights.SemiBold : FontWeights.Normal,
+                TextAlignment = alignment,
+                VerticalAlignment = VerticalAlignment.Center,
+                FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                Margin = new Thickness(column == 0 ? 0 : 6, 0, 0, 0)
+            };
+            Grid.SetColumn(cell, column);
+            grid.Children.Add(cell);
+        }
+
+        private static TextBlock CreateProcessMessage(string key)
+        {
+            return new TextBlock
+            {
+                Text = LocalizationService.Get(key),
+                Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(12, 2, 12, 8)
+            };
         }
 
         private void RefreshFanHealthRows()
