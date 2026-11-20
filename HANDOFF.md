@@ -9,7 +9,7 @@
 - Merged `origin/pr-1-review` into `main` through the local `pr-1-integration` branch. Both feature sets are preserved: GPU details, chart metric switch, sustained hotspot-to-edge delta alert, and Top processes; plus per-GPU history, hotspot/VRAM alerts, compatibility, updater, installer, and test hardening.
 - Extended per-GPU history to load and power, not only temperature, so the GPU chart and tooltip stay scoped to the selected GPU for all three metrics.
 - Combined `TemperatureAlertService` under one lock: CPU/GPU/disk thresholds, hotspot/VRAM absolute alerts, and the sustained GPU delta alert are evaluated together and raised outside the lock.
-- Verification: Release build passed with `0 Warning(s), 0 Error(s)`; `/test-unit` passed **43/43** and the full `/test` suite passed **50/50**, including live per-GPU history and process sampling. The active power scheme after the suite was `CryoTray Cooling`; it was left as found.
+- Verification: Release build passed with `0 Warning(s), 0 Error(s)`; `/test-unit` passed **43/43**, the full `/test` suite passed **50/50**, and the elevated `/test-updates` suite passed **14/14**. The active power scheme was `CryoTray Cooling` both before and after the update suite, so Cooling Mode was not changed by it.
 
 ## GPU details, hotspot delta, and top process consumers (2026-11-19)
 
