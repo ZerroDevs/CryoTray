@@ -4,6 +4,43 @@
 
 - Do not add unsolicited features. When the user explicitly asks for suggestions, give a short prioritized list first; implement only the items they approve.
 
+## Full codebase audit, Windows compatibility hardening & enhancements (2026-11-19)
+
+- Ran a full four-stream audit across updater/security/installer/CI, hardware/Win32/WMI/power plans, app lifecycle/tray/alerts/localization, and all six WPF views plus both verification test suites (`VerificationTests.cs`, `UpdateVerificationTests.cs`), cross-checking prior CI release run `44629021389` (`v0.0.103`) and all existing tests.
+- **Windows 10/11 & non-English compatibility fixes**:
+  - `MemoryTelemetryService`: variable-size `NtQuerySystemInformation(80)` probing across 168-byte (Win10 1809–1909), 176-byte (Win10 2004+/Win11), and 200+-byte (Win11 22H2+/24H2+/26xxx) kernels (`ParseSystemMemoryListBuffer` + `ReturnLength` fallback).
+  - `PowerPlanService`: locale-independent `ParsePowerCfgOutput` regex (fixes German/French/non-English `powercfg /list` fallback), absolute `System32\powercfg.exe`, unique temp `.pow` filename, bounded subprocess timeouts, and real exit-code/active-scheme checks so failed imports never cache phantom GUIDs or falsely report Cooling Mode ON.
+  - `StartupTaskService`: absolute `System32\schtasks.exe`, deadlock-free async stdout/stderr reading, timeout kill instead of `InvalidOperationException` on `ExitCode`, and guarded `EnsureSynchronized`.
+  - `NativeMethods`, `ProcessorPerformanceReader`, `AuthenticodeVerifier`: added `[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]` on all Win32 P/Invokes; added throttled 30 s PDH lazy re-initialization in `ProcessorPerformanceReader`.
+  - `BatteryTelemetryService`: raw `GetSystemPowerStatus` parsing rejecting `255` (Unknown) so unknown battery state is never misreported as `100%`.
+  - `SystemInfoQueryService`: disposed every `EventRecord` in `QueryBsodCount` with a 10,000-event cap, recognized `ARM64` in `FormatOsArchitecture`, escaped single quotes in WQL `DeviceID` queries, and kept connected virtual/VPN adapters as fallback when no physical NIC is active.
+  - `ThemeService`: also listens to `UserPreferenceCategory.Accessibility` when `System` theme is selected.
+- **Correctness, thread safety & lifecycle fixes**:
+  - `GlobalHotkeyService`: empty or unknown key tokens now return VK `0` instead of falling back to `Keys.C` (prevents hijacking `Ctrl+C`).
+  - `SettingsService`: thread-safe `_ioLock`, atomic temp-file + `File.Move(..., overwrite: true)` writes (`WriteAtomicJson`), and null-JSON rejection in `Import`.
+  - `TemperatureAlertService`: synchronized `_states` with `_stateLock` (fixes poll-thread vs UI-thread data race), clears stale state when muted, and invokes `AlertRaised` outside the lock.
+  - `TelemetryCsvService`: live 1 Hz write failures now cleanly stop recording and emit `RecordingStateChanged(false)` + `RecordingError`; `StartRecording` after `Dispose` throws `ObjectDisposedException`.
+  - `TrayIconManager`: eliminated fragile numeric `Items[index]` casts via strongly typed `DarkContextMenuItems`, and marshaled `RefreshPauseMenuText` onto the WinForms UI thread when `InvokeRequired`.
+  - `App.xaml.cs`: symmetric `OnExit` cleanup (also unsubscribes `NetworkAvailabilityChanged`, `SettingsChanged`, `LanguageChanged`) and idempotent single-instance mutex release/dispose.
+  - `Views/MainWindow`, `OverlayWindow`, `StressTestWindow`, `SystemInfoWindow`: added shared `Services/WindowPlacementHelper.cs` for per-monitor DPI-aware `DockSideBySide` (fixes negative-coordinate left monitors and right/bottom overflow), off-screen recovery for saved `WindowLeft/Top`, and secondary-monitor preservation for `OverlayWindow.ClampToWorkArea`; replaced blocking `Dispatcher.Invoke` calls on telemetry/settings paths with guarded `BeginInvoke`; fixed `StressTestWindow` `_testCts` disposal leak and owned `SaveFileDialog`; added `Escape` close on `SystemInfoWindow` and idle `StressTestWindow`.
+- **Updater, installer & CI hardening**:
+  - `UpdateService`: UTF-8 BOM for `apply-update.ps1` (PS 5.1 non-English codepage safety), filename-matched checksum parsing (`ParseExpectedSha256`), stricter `SelectAsset` rejecting uninstaller `.exe` names, stricter 3-part `VersionPattern` rejecting `1.2.3.4`, `X-RateLimit-Remaining`/`Retry-After`-aware HTTP 403 rate-limit check with `InvariantCulture` header parsing, lock-aware `CleanupStaleDownloads`, DOS device name & trailing-dot/space rejection in `IsSafeRelativePath`, and helper PID start-time guard, 3-attempt copy retry, and stale marker cleanup on Rollback.
+  - `UpdateInstallationService`: accepts `unins000.exe`..`unins999.exe` under Program Files.
+  - `Installer/CryoTray.iss`: added explicit `MinVersion=10.0`, `{sys}\schtasks.exe`, path normalization (`ExpandFileName`), drive-root/`..` rejection, and `GetFileAttributesW` reparse-point check before `DelTree`.
+  - `build-installer.ps1` & `.github/workflows/release.yml`: local `.sha256` generation and Inno >= 6.3 check (`unins000.exe` fallback when `ISCC.exe` reports `0.0.0.0`); CI now runs both `/test` and `/test-updates` with explicit exit-code checks, gates publish/sign/installer on `skip != 'true'`, version-sorts `signtool.exe`, and deduplicates previous-tag lookup.
+- **Feature enhancements**:
+  - **Per-GPU telemetry history**: `TelemetrySample` now records `PrimaryGpuIdentifier`, per-GPU `GpuTemps`, plus `GpuHotspotTemp`, `GpuVramTemp`, `GpuFanRpm`, and exposes `TryGetGpuTemp(...)`; `TelemetryRingBuffer.GetGpuStats` and `MainWindow` GPU chart/tooltip now isolate history per active GPU so switching `PreferredGpuIdentifier` never mixes cards.
+  - **GPU hotspot & VRAM thermal alerts**: `TemperatureAlertService` monitors `GpuHotspotTemp` and `GpuVramTemp` (threshold `Math.Max(HighTempThresholdGpu + 15, 95)` °C) with localized English & Arabic alerts (`Alert_GpuHotspot`, `Alert_GpuVram`).
+  - **Richer GPU & drive telemetry**: `HardwareMonitorService` scores GPU load sensors cleanly (Core > D3D 3D > fallback, deprioritizing Memory/Video/Copy), captures GPU core clock MHz and VRAM used/total MB into `GpuTelemetry`/`HardwareSnapshot` and `GenerateDiagnosticsSnapshot`, validates drive temperature bounds `(0, 150) °C`, and `TelemetryCsvService` exports `GpuHotspotC,GpuVramTempC,GpuFanRpm`.
+  - **Cumulative SMART wear tracking**: `StorageHealthAlertService` tracks a session `BaselinePercent` watermark so gradual wear accumulating to `-10%` alerts cleanly.
+- **Verification**:
+  - Release build: `0 Warning(s), 0 Error(s)`; Debug build: `0 Warning(s), 0 Error(s)`.
+  - Added `/test-unit` (non-destructive suite) and 14 new automated tests (10 in `VerificationTests.cs` -> 48 total in `/test`; 4 in `UpdateVerificationTests.cs` -> 14 total in `/test-updates`, plus isolated `RootPathOverride` on `TestCompletionState` and `TestRollbackHashVerification`).
+  - Executed `/test-unit` locally: **43 / 43 PASSED** (including live Windows 11 build 26300 NT page-list breakdown).
+  - Verified `build-installer.ps1` and extracted `UpdaterScript` have `0` PowerShell parse errors; ran live PowerShell 5.1 updater harness (archive apply + stale delete + marker + PID-reuse guard, and rollback restore + stale marker cleanup) — both passed.
+  - Compiled `Installer/CryoTray.iss` with Inno Setup 6.7.3 (`ISCC.exe /Q`) — exited `0`.
+  - Remaining: elevated `/test` (48 checks) and `/test-updates` (14 checks) were not run locally because this shell is unelevated (`IsAdmin=False`); run them elevated or via CI before bumping `VERSION` / cutting `v0.0.104`.
+
 ## v0.0.103 release preparation (2026-11-19)
 
 - Bumped `VERSION`, `app.manifest`, and the Inno default `AppVersion` to `0.0.103`; updated the baseline lines in `CONTRIBUTING.md` and `SECURITY.md`.

@@ -17,6 +17,12 @@
 - The old `v0.0.100` updater at `E:\CryoTray` detected `0.0.101` but chose a ZIP over the setup and failed with `Access is denied`. It was recovered with the published setup. The app is now installed at `C:\Program Files\CryoTray`, running as PID `42840`, with the startup task pointing there.
 - Existing `v0.0.100` users need one manual setup run. `v0.0.101` fixes installed-versus-portable asset selection for future releases, but the old client cannot be changed after publication.
 
+## Platform target
+
+- Windows 10 (1809+) and Windows 11, x64, running elevated (`app.manifest`: `requireAdministrator`, per-monitor DPI v2; `Installer/CryoTray.iss`: `MinVersion=10.0`, `x64compatible`). The project builds `net8.0-windows` with WPF, WinForms, Win32 P/Invoke, WMI, Task Scheduler, and LibreHardwareMonitor.
+- Linux and macOS are not supported. Running there would need a rewrite, not compatibility fixes.
+- Compatibility guarantees: variable-size `NtQuerySystemInformation(80)` probing across Win10 1809–Win11 26xxx builds; locale-independent `powercfg /list` regex and PDH English counters; `[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]` on all P/Invokes; UTF-8 BOM on PowerShell 5.1 helper scripts; per-monitor DPI-aware window placement & off-screen recovery via `WindowPlacementHelper`; and verified EN/AR key parity.
+
 ## Architecture
 
 - Developer launch: `App.OnStartup` applies `UpdateStorage.IsSafeApplicationLocation` and `EnsureApplicationDirectoryProtected` only in non-Debug builds, and Release builds skip both when `UpdateStorage.IsDeveloperModeEnabled` finds `%ProgramData%\CryoTray\dev-mode`. The property secures that root before checking, so only an administrator can create a marker that survives. Update installation and the updater helper still reject a user-writable app folder. `/test`, `/test-updates`, `/dump`, and `/uninstall-cleanup` run before the guard in every configuration.
@@ -35,7 +41,8 @@
 - `Services/ThemeService`: normalizes `AppSettings.Theme` to `Dark`, `Light`, or `System`, resolves `System` from `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`, swaps 73 shared brush resources in `Application.Current.Resources`, and raises `ThemeChanged` on the UI dispatcher. Listens for `SystemEvents.UserPreferenceChanged` (`General` / `VisualStyle`) while `System` is selected. `WindowBorderBrush` remains user-defined and outside the palette.
 - `Services/StorageHealthAlertService`: optional SMART watchdog fed by each `HardwareSnapshot`; alerts when a non-excluded drive enters `Worn` or `Replace`, or its health drops by 10 points, with a 10 minute per-drive cooldown.
 - `Services/SystemInfoQueryService`: lazy WMI, EDID, boot, and BSOD queries. Matches LHM storage telemetry to `Win32_DiskDrive` via serial, physical disk index, and model, and queries Cooling-Mode-only CPU temp stats.
-- `Services/NativeMethods`: Win32 P/Invokes (`EmptyWorkingSet`, `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `CloseHandle`, `SHQueryUserNotificationState`, `GlobalMemoryStatusEx`, `PowerDeleteScheme`, `GetForegroundWindow`, `SetForegroundWindow`, `GetWindowRect`, `GetWindowThreadProcessId`).
+- `Services/WindowPlacementHelper`: shared per-monitor DPI-aware window placement utility (`GetMonitorWorkAreaDips`, `GetWorkAreaForSavedPositionDips`, `FindTargetWorkArea`, `ClampToWorkArea`, `ComputeSideBySidePosition`) used by `MainWindow` (`PositionAboveTray`, `UpdateWindowHeight`, `DockSideBySide`) and `OverlayWindow` (`ClampToWorkArea`) for negative-coordinate multi-monitor setups and disconnected-monitor recovery.
+- `Services/NativeMethods`: Win32 P/Invokes hardened with `[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]` (`EmptyWorkingSet`, `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `CloseHandle`, `SHQueryUserNotificationState`, `GlobalMemoryStatusEx`, `GetSystemPowerStatus`, `NtQuerySystemInformation` raw buffer overload, `PowerDeleteScheme`, `GetForegroundWindow`, `SetForegroundWindow`, `GetWindowRect`, `GetWindowThreadProcessId`).
 - `Tray/TrayIconManager`: GPU, CPU, or merged split tray badges (`--` when unavailable, skipping redundant HICON redraws via signature checks), independent temperature/load/RAM badge metrics, optional battery percentage/state suffix in all tooltips (`ComposeTooltip` keeps the 63-character limit), and dark context menu including checkable `Overlay Click-Through`.
 
 ## Dependencies

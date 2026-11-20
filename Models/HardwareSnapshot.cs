@@ -30,6 +30,9 @@ namespace CryoTray.Models
         public double? HotspotTemp { get; set; }
         public double? VramTemp { get; set; }
         public int? FanRpm { get; set; }
+        public double? CoreClockMhz { get; set; }
+        public double? VramUsedMb { get; set; }
+        public double? VramTotalMb { get; set; }
     }
 
     public class GpuDeviceOption
@@ -100,6 +103,7 @@ namespace CryoTray.Models
         public double RamUsagePercent { get; set; } = double.NaN;
         public MemoryBreakdown? Memory { get; set; }
 
+        public string GpuIdentifier { get; set; } = "";
         public string GpuName { get; set; } = "";
         public string GpuVendor { get; set; } = "";
         public double GpuTemp { get; set; } = double.NaN;
@@ -108,6 +112,9 @@ namespace CryoTray.Models
         public double? GpuHotspotTemp { get; set; }
         public double? GpuVramTemp { get; set; }
         public int? GpuFanRpm { get; set; }
+        public double? GpuCoreClockMhz { get; set; }
+        public double? GpuVramUsedMb { get; set; }
+        public double? GpuVramTotalMb { get; set; }
         public List<GpuTelemetry> Gpus { get; set; } = new();
         public List<FanTelemetry> Fans { get; set; } = new();
 

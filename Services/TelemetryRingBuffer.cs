@@ -88,7 +88,9 @@ namespace CryoTray.Services
             }
         }
 
-        public (double MinGpu, double AvgGpu, double MaxGpu) GetGpuStats(bool coolingOnly = false)
+        public (double MinGpu, double AvgGpu, double MaxGpu) GetGpuStats(
+            bool coolingOnly = false,
+            string? gpuIdentifier = null)
         {
             lock (_lock)
             {
@@ -107,8 +109,7 @@ namespace CryoTray.Services
                         continue;
                     }
 
-                    double t = sample.GpuTemp;
-                    if (!double.IsFinite(t) || t <= 0)
+                    if (!sample.TryGetGpuTemp(gpuIdentifier, out double t))
                     {
                         continue;
                     }

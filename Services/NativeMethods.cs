@@ -6,60 +6,83 @@ namespace CryoTray.Services
     public static class NativeMethods
     {
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool DestroyIcon(IntPtr handle);
 
         [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
         [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
         [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
         [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
         [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint GetGuiResources(IntPtr hProcess, uint uiFlags);
 
         [DllImport("psapi.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool EmptyWorkingSet(IntPtr hProcess);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
 
         [DllImport("kernel32.dll", EntryPoint = "Process32FirstW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
 
         [DllImport("kernel32.dll", EntryPoint = "Process32NextW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool CloseHandle(IntPtr hObject);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool GetPhysicallyInstalledSystemMemory(out ulong TotalMemoryInKilobytes);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool GetSystemTimes(out ulong lpIdleTime, out ulong lpKernelTime, out ulong lpUserTime);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS lpSystemPowerStatus);
+
         [DllImport("ntdll.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern int NtQuerySystemInformation(
             int SystemInformationClass,
             out SYSTEM_MEMORY_LIST_INFORMATION SystemInformation,
@@ -67,12 +90,22 @@ namespace CryoTray.Services
             out int ReturnLength);
 
         [DllImport("ntdll.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern int NtQuerySystemInformation(
+            int SystemInformationClass,
+            IntPtr SystemInformation,
+            int SystemInformationLength,
+            out int ReturnLength);
+
+        [DllImport("ntdll.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern int NtSetSystemInformation(
             int SystemInformationClass,
             ref int SystemInformation,
             int SystemInformationLength);
 
         [DllImport("ntdll.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern int RtlAdjustPrivilege(
             int Privilege,
             bool Enable,
@@ -80,6 +113,7 @@ namespace CryoTray.Services
             out bool Enabled);
 
         [DllImport("shell32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern int SHQueryUserNotificationState(out int pquns);
 
         public const int SystemMemoryListInformation = 80;
@@ -87,6 +121,7 @@ namespace CryoTray.Services
         public const int MemoryEmptyWorkingSets = 2;
         public const int MemoryFlushModifiedList = 3;
         public const int MemoryPurgeStandbyList = 4;
+        public const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
         public const int STATUS_PRIVILEGE_NOT_HELD = unchecked((int)0xC0000061);
         public const int STATUS_ACCESS_DENIED = unchecked((int)0xC0000022);
 
@@ -163,6 +198,17 @@ namespace CryoTray.Services
             public nuint ModifiedPageCountPageFile;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SYSTEM_POWER_STATUS
+        {
+            public byte ACLineStatus;
+            public byte BatteryFlag;
+            public byte BatteryLifePercent;
+            public byte SystemStatusFlag;
+            public uint BatteryLifeTime;
+            public uint BatteryFullLifeTime;
+        }
+
         public const int GWL_EXSTYLE = -20;
         public const int WS_EX_TRANSPARENT = 0x00000020;
         public const int WS_EX_LAYERED = 0x00080000;
@@ -177,15 +223,19 @@ namespace CryoTray.Services
 
         // Power Management APIs
         [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerGetActiveScheme(IntPtr UserRootPowerKey, out IntPtr pActivePolicyGuid);
 
         [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerSetActiveScheme(IntPtr UserRootPowerKey, ref Guid SchemeGuid);
 
         [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerDeleteScheme(IntPtr RootPowerKey, ref Guid SchemeGuid);
 
         [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerEnumerate(
             IntPtr RootPowerKey,
             IntPtr SchemeGuid,
@@ -196,6 +246,7 @@ namespace CryoTray.Services
             ref uint BufferSize);
 
         [DllImport("powrprof.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerReadFriendlyName(
             IntPtr RootPowerKey,
             ref Guid SchemeGuid,
@@ -205,6 +256,7 @@ namespace CryoTray.Services
             ref uint BufferSize);
 
         [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerWriteACValueIndex(
             IntPtr RootPowerKey,
             ref Guid SchemeGuid,
@@ -213,6 +265,7 @@ namespace CryoTray.Services
             uint AcValueIndex);
 
         [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerWriteDCValueIndex(
             IntPtr RootPowerKey,
             ref Guid SchemeGuid,
@@ -221,6 +274,7 @@ namespace CryoTray.Services
             uint DcValueIndex);
 
         [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerReadACValueIndex(
             IntPtr RootPowerKey,
             ref Guid SchemeGuid,
@@ -229,6 +283,7 @@ namespace CryoTray.Services
             out uint AcValueIndex);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern IntPtr LocalFree(IntPtr hMem);
 
         // Power Guid Constants

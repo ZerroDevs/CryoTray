@@ -25,6 +25,7 @@ SetupIconFile=..\Images\CryoTray.ico
 UninstallDisplayIcon={app}\CryoTray.exe
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0
 PrivilegesRequired=admin
 OutputDir=Output
 OutputBaseFilename=CryoTray-Setup-{#AppVersion}
@@ -77,11 +78,22 @@ Filename: "{sys}\icacls.exe"; Parameters: """{app}"" /setowner *S-1-5-32-544 /T 
 Filename: "{app}\CryoTray.exe"; Description: "{cm:LaunchProgram,CryoTray}"; Flags: shellexec nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "schtasks.exe"; Parameters: "/Delete /TN ""CryoTray"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""CryoTray"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
 
 [Code]
 var
   PreviousAppDir: String;
+
+function GetFileAttributesW(lpFileName: String): Cardinal;
+  external 'GetFileAttributesW@kernel32.dll stdcall';
+
+function IsReparsePointPath(const Path: String): Boolean;
+var
+  Attrs: Cardinal;
+begin
+  Attrs := GetFileAttributesW(Path);
+  Result := (Attrs <> $FFFFFFFF) and ((Attrs and $00000400) <> 0);
+end;
 
 function PawnIOInstalled: Boolean;
 begin
@@ -141,20 +153,30 @@ var
   Candidate, AppDir, WindowsDir, SystemDir: String;
 begin
   Result := False;
-  Candidate := RemoveBackslash(Path);
-  if Candidate = '' then
+  if Path = '' then
     Exit;
 
+  Candidate := RemoveBackslash(ExpandFileName(Path));
+  if (Candidate = '') or (Length(Candidate) <= 3) or (Pos('..', Path) > 0) then
+    Exit;
+
+  if IsReparsePointPath(Candidate) then
+  begin
+    Log('Previous location rejected: reparse point: ' + Candidate);
+    Exit;
+  end;
+
   if not FileExists(AddBackslash(Candidate) + 'CryoTray.exe') or
-     not FileExists(AddBackslash(Candidate) + 'unins000.exe') then
+     (not FileExists(AddBackslash(Candidate) + 'unins000.exe') and
+      not FileExists(AddBackslash(Candidate) + 'unins001.exe')) then
   begin
     Log('Previous location rejected: executable or uninstaller missing: ' + Candidate);
     Exit;
   end;
 
-  AppDir := RemoveBackslash(ExpandConstant('{app}'));
-  WindowsDir := RemoveBackslash(ExpandConstant('{win}'));
-  SystemDir := RemoveBackslash(ExpandConstant('{sys}'));
+  AppDir := RemoveBackslash(ExpandFileName(ExpandConstant('{app}')));
+  WindowsDir := RemoveBackslash(ExpandFileName(ExpandConstant('{win}')));
+  SystemDir := RemoveBackslash(ExpandFileName(ExpandConstant('{sys}')));
 
   if (CompareText(Candidate, AppDir) = 0) or
      (CompareText(Candidate, WindowsDir) = 0) or

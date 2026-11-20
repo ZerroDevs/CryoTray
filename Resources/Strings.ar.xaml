@@ -432,6 +432,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Alert_TestBody">الإشعارات تعمل.</sys:String>
     <sys:String x:Key="Alert_Cpu">حرارة المعالج {0}، أعلى من الحد {1}.</sys:String>
     <sys:String x:Key="Alert_Gpu">حرارة كرت الرسومات {0}، أعلى من الحد {1}.</sys:String>
+    <sys:String x:Key="Alert_GpuHotspot">نقطة السخونة في كرت الرسومات {0}، أعلى من الحد {1}.</sys:String>
+    <sys:String x:Key="Alert_GpuVram">حرارة ذاكرة كرت الرسومات {0}، أعلى من الحد {1}.</sys:String>
     <sys:String x:Key="Alert_Drive">{0} عند {1}، أعلى من الحد {2}.</sys:String>
     <sys:String x:Key="Alert_DriveName">القرص {0}</sys:String>
     <sys:String x:Key="Alert_FanTitle">تنبيه مروحة CryoTray</sys:String>

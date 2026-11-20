@@ -21,6 +21,9 @@ namespace CryoTray.Tests
 
             bool allPassed = true;
             allPassed &= TestVersionComparison();
+            allPassed &= TestChecksumFileParsing();
+            allPassed &= TestAssetSelectionAndUninstallerRejection();
+            allPassed &= TestManifestAndRelativePathValidation();
             allPassed &= TestStatusService();
             allPassed &= TestCompletionState();
             allPassed &= TestRollbackHashVerification();
@@ -39,6 +42,16 @@ namespace CryoTray.Tests
             return allPassed ? 0 : 1;
         }
 
+        internal static bool RunNonElevatedChecks()
+        {
+            bool allPassed = true;
+            allPassed &= TestVersionComparison();
+            allPassed &= TestChecksumFileParsing();
+            allPassed &= TestAssetSelectionAndUninstallerRejection();
+            allPassed &= TestManifestAndRelativePathValidation();
+            return allPassed;
+        }
+
         private static bool TestVersionComparison()
         {
             Console.Write("[TEST] Update version comparison... ");
@@ -49,6 +62,7 @@ namespace CryoTray.Tests
                 Assert(!UpdateService.IsNewer("0.0.100", "0.0.100"));
                 Assert(!UpdateService.IsNewer("0.0.99", "0.0.100"));
                 Assert(!UpdateService.IsNewer("not-a-version", "0.0.100"));
+                Assert(!UpdateService.IsNewer("v1.2.3.4", "0.0.100"));
                 Console.WriteLine("PASSED");
                 return true;
             }
@@ -56,6 +70,138 @@ namespace CryoTray.Tests
             {
                 Console.WriteLine($"FAILED: {ex.Message}");
                 return false;
+            }
+        }
+
+        private static bool TestChecksumFileParsing()
+        {
+            Console.Write("[TEST] Checksum file parsing... ");
+            try
+            {
+                string hashA = new string('a', 64);
+                string hashB = new string('b', 64);
+                string multiLine = $"{hashA}  CryoTray-Setup-0.0.104.exe\n{hashB} *CryoTray-Update-0.0.104-win-x64.zip\n";
+
+                Assert(UpdateService.ParseExpectedSha256(multiLine, "CryoTray-Update-0.0.104-win-x64.zip") == hashB);
+                Assert(UpdateService.ParseExpectedSha256(multiLine, "CryoTray-Setup-0.0.104.exe") == hashA);
+                Assert(UpdateService.ParseExpectedSha256(multiLine, "Other.zip") == null);
+                Assert(UpdateService.ParseExpectedSha256(hashA.ToUpperInvariant(), "Any.zip") == hashA);
+                Assert(UpdateService.ParseExpectedSha256("not-a-hash", "Any.zip") == null);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestAssetSelectionAndUninstallerRejection()
+        {
+            Console.Write("[TEST] Release asset selection & uninstaller rejection... ");
+            try
+            {
+                const string json = """
+                {
+                  "assets": [
+                    { "name": "CryoTray-Uninstaller-0.0.104.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Uninstaller-0.0.104.exe" },
+                    { "name": "CryoTray-Setup-0.0.104.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Setup-0.0.104.exe" },
+                    { "name": "CryoTray-0.0.104-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-0.0.104-win-x64.zip" },
+                    { "name": "CryoTray-Update-0.0.104-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Update-0.0.104-win-x64.zip" }
+                  ]
+                }
+                """;
+                using var doc = JsonDocument.Parse(json);
+
+                var installedAsset = UpdateService.SelectAsset(doc.RootElement, installed: true);
+                Assert(installedAsset != null);
+                Assert(installedAsset!.Kind == UpdateAssetKind.Installer);
+                Assert(installedAsset.Name == "CryoTray-Setup-0.0.104.exe");
+
+                var portableAsset = UpdateService.SelectAsset(doc.RootElement, installed: false);
+                Assert(portableAsset != null);
+                Assert(portableAsset!.Kind == UpdateAssetKind.Archive);
+                Assert(portableAsset.Name == "CryoTray-Update-0.0.104-win-x64.zip");
+
+                const string uninstallOnlyJson = """
+                {
+                  "assets": [
+                    { "name": "CryoTray-Uninstall-0.0.104.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Uninstall-0.0.104.exe" }
+                  ]
+                }
+                """;
+                using var uninstallDoc = JsonDocument.Parse(uninstallOnlyJson);
+                Assert(UpdateService.SelectAsset(uninstallDoc.RootElement, installed: true) == null);
+                Assert(UpdateService.SelectAsset(uninstallDoc.RootElement, installed: false) == null);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestManifestAndRelativePathValidation()
+        {
+            Console.Write("[TEST] Update manifest & relative path validation... ");
+            string tempDir = Path.Combine(Path.GetTempPath(), "cryotray-manifest-test-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Assert(UpdateService.IsSafeRelativePath("CryoTray.exe"));
+                Assert(UpdateService.IsSafeRelativePath("sub/folder/file.dll"));
+                Assert(!UpdateService.IsSafeRelativePath("../CryoTray.exe"));
+                Assert(!UpdateService.IsSafeRelativePath("sub/../../evil.dll"));
+                Assert(!UpdateService.IsSafeRelativePath(@"C:\Windows\System32\cmd.exe"));
+                Assert(!UpdateService.IsSafeRelativePath("CryoTray.exe:stream"));
+                Assert(!UpdateService.IsSafeRelativePath("CON"));
+                Assert(!UpdateService.IsSafeRelativePath("sub/NUL.txt"));
+                Assert(!UpdateService.IsSafeRelativePath("sub/COM1"));
+                Assert(!UpdateService.IsSafeRelativePath("trailing."));
+                Assert(!UpdateService.IsSafeRelativePath("trailing "));
+
+                Directory.CreateDirectory(tempDir);
+                string exePath = Path.Combine(tempDir, "CryoTray.exe");
+                File.WriteAllText(exePath, "binary-payload");
+                string exeHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(exePath))).ToLowerInvariant();
+                string manifestPath = Path.Combine(tempDir, "update-manifest.json");
+
+                string validManifest = JsonSerializer.Serialize(new
+                {
+                    version = "0.0.104",
+                    files = new[] { "CryoTray.exe" },
+                    hashes = new Dictionary<string, string> { ["CryoTray.exe"] = exeHash },
+                    delete = new[] { "old-file.dll" }
+                });
+                File.WriteAllText(manifestPath, validManifest);
+                UpdateService.ValidateUpdateManifest(manifestPath, tempDir, "0.0.104");
+
+                bool rejectedWrongVersion = false;
+                try { UpdateService.ValidateUpdateManifest(manifestPath, tempDir, "0.0.105"); }
+                catch (InvalidOperationException) { rejectedWrongVersion = true; }
+                Assert(rejectedWrongVersion);
+
+                File.AppendAllText(exePath, "tampered");
+                bool rejectedTamperedHash = false;
+                try { UpdateService.ValidateUpdateManifest(manifestPath, tempDir, "0.0.104"); }
+                catch (InvalidOperationException) { rejectedTamperedHash = true; }
+                Assert(rejectedTamperedHash);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
             }
         }
 
@@ -97,8 +243,12 @@ namespace CryoTray.Tests
         private static bool TestCompletionState()
         {
             Console.Write("[TEST] Update completion state... ");
+            string? previousRoot = UpdateStorage.RootPathOverride;
+            string testRoot = Path.Combine(
+                Path.GetTempPath(), "cryotray-completion-test-" + Guid.NewGuid().ToString("N"));
             try
             {
+                UpdateStorage.RootPathOverride = testRoot;
                 string current = UpdateService.CurrentVersion;
                 string from = current == "0.0.0" ? "0.0.1" : "0.0.0";
                 UpdateCompletionService.Clear();
@@ -124,17 +274,25 @@ namespace CryoTray.Tests
                 Console.WriteLine($"FAILED: {ex.Message}");
                 return false;
             }
+            finally
+            {
+                UpdateStorage.RootPathOverride = previousRoot;
+                try { if (Directory.Exists(testRoot)) Directory.Delete(testRoot, true); } catch { }
+            }
         }
 
         private static bool TestRollbackHashVerification()
         {
             Console.Write("[TEST] Rollback hash manifest... ");
+            string? previousRoot = UpdateStorage.RootPathOverride;
+            string testRoot = Path.Combine(
+                Path.GetTempPath(), "cryotray-rollback-hash-" + Guid.NewGuid().ToString("N"));
             string testDirectory = Path.Combine(
-                UpdateStorage.RollbackRoot,
-                "verify-" + Guid.NewGuid().ToString("N"));
+                testRoot, "Rollback", "verify-" + Guid.NewGuid().ToString("N"));
 
             try
             {
+                UpdateStorage.RootPathOverride = testRoot;
                 UpdateStorage.EnsureRollbackRoot();
                 Directory.CreateDirectory(testDirectory);
                 string file = Path.Combine(testDirectory, "CryoTray.exe");
@@ -166,11 +324,12 @@ namespace CryoTray.Tests
             }
             finally
             {
+                UpdateStorage.RootPathOverride = previousRoot;
                 try
                 {
-                    if (Directory.Exists(testDirectory))
+                    if (Directory.Exists(testRoot))
                     {
-                        Directory.Delete(testDirectory, true);
+                        Directory.Delete(testRoot, true);
                     }
                 }
                 catch
@@ -577,6 +736,10 @@ namespace CryoTray.Tests
                 Assert(!UpdateInstallationService.IsInstalledAt(testDirectory));
 
                 File.WriteAllText(Path.Combine(testDirectory, "unins000.exe"), string.Empty);
+                Assert(UpdateInstallationService.IsInstalledAt(testDirectory));
+
+                File.Delete(Path.Combine(testDirectory, "unins000.exe"));
+                File.WriteAllText(Path.Combine(testDirectory, "unins001.exe"), string.Empty);
                 Assert(UpdateInstallationService.IsInstalledAt(testDirectory));
 
                 // The same marker outside Program Files does not make a portable copy installed.

@@ -317,58 +317,77 @@ namespace CryoTray.Views
 
         public void ApplySettings()
         {
-            Dispatcher.Invoke(() =>
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
             {
-                var s = SettingsService.Instance.Current;
-                _isApplyingSettings = true;
-                try
+                return;
+            }
+
+            if (Dispatcher.CheckAccess())
+            {
+                ApplySettingsCore();
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosing)
                 {
-                    TxtAppTitle.Text = s.ShowComputerName
-                        ? LocalizationService.Format("Main_AppWithPc", Environment.MachineName)
-                        : LocalizationService.Get("App_Title");
-
-                    TxtCpuModel.TextAlignment = LocalizationService.Instance.IsArabic
-                        ? TextAlignment.Right
-                        : TextAlignment.Left;
-
-                    Topmost = s.AlwaysOnTop;
-                    ShowInTaskbar = s.PinToTaskbar;
-
-                    _timeframeSamples = TimeframeMinutesToSamples(s.CpuGraphTimeframeMinutes);
-                    int targetIdx = TimeframeMinutesToIndex(s.CpuGraphTimeframeMinutes);
-                    if (CmbTimeframe != null && CmbTimeframe.SelectedIndex != targetIdx)
-                    {
-                        CmbTimeframe.SelectedIndex = targetIdx;
-                    }
-
-                    ApplyTelemetryVisibility(s);
-                    _ssdRowSignature = null;
-
-                    RamRow.Visibility = s.ShowRamRow
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
-                    RamSeparator.Visibility = RamRow.Visibility;
-                    OverlayRow.Visibility = s.ShowOverlayRow
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
-                    AutopilotRow.Visibility = s.ShowAutopilotRow
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
-                    AutopilotSeparator.Visibility = s.ShowOverlayRow && s.ShowAutopilotRow
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
-
-                    bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
-                    string unit = isFahrenheit ? "°F" : "°C";
-                    RenderSsdRows(HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives, isFahrenheit, unit);
-                    UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
-                    DrawCpuChart();
+                    ApplySettingsCore();
                 }
-                finally
+            }));
+        }
+
+        private void ApplySettingsCore()
+        {
+            var s = SettingsService.Instance.Current;
+            _isApplyingSettings = true;
+            try
+            {
+                TxtAppTitle.Text = s.ShowComputerName
+                    ? LocalizationService.Format("Main_AppWithPc", Environment.MachineName)
+                    : LocalizationService.Get("App_Title");
+
+                TxtCpuModel.TextAlignment = LocalizationService.Instance.IsArabic
+                    ? TextAlignment.Right
+                    : TextAlignment.Left;
+
+                Topmost = s.AlwaysOnTop;
+                ShowInTaskbar = s.PinToTaskbar;
+
+                _timeframeSamples = TimeframeMinutesToSamples(s.CpuGraphTimeframeMinutes);
+                int targetIdx = TimeframeMinutesToIndex(s.CpuGraphTimeframeMinutes);
+                if (CmbTimeframe != null && CmbTimeframe.SelectedIndex != targetIdx)
                 {
-                    _isApplyingSettings = false;
+                    CmbTimeframe.SelectedIndex = targetIdx;
                 }
-            });
+
+                ApplyTelemetryVisibility(s);
+                _ssdRowSignature = null;
+
+                RamRow.Visibility = s.ShowRamRow
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                RamSeparator.Visibility = RamRow.Visibility;
+                OverlayRow.Visibility = s.ShowOverlayRow
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                AutopilotRow.Visibility = s.ShowAutopilotRow
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                AutopilotSeparator.Visibility = s.ShowOverlayRow && s.ShowAutopilotRow
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+                bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
+                string unit = isFahrenheit ? "°F" : "°C";
+                RenderSsdRows(HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives, isFahrenheit, unit);
+                UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
+                DrawCpuChart();
+            }
+            finally
+            {
+                _isApplyingSettings = false;
+            }
         }
 
         private void UpdateWindowHeight(bool showOverlay, bool showAutopilot)
@@ -451,7 +470,8 @@ namespace CryoTray.Views
                 height += UpdateSuccessBanner.Height;
             }
 
-            double maxWorkHeight = Math.Max(260, SystemParameters.WorkArea.Height - 24);
+            Rect monitorWorkArea = WindowPlacementHelper.GetMonitorWorkAreaDips(this);
+            double maxWorkHeight = Math.Max(260, monitorWorkArea.Height - 24);
             height = Math.Clamp(height, 260, maxWorkHeight);
 
             if (Math.Abs(Height - height) < 0.1)
@@ -462,7 +482,7 @@ namespace CryoTray.Views
             Height = height;
             if (s.AnchorToTray)
             {
-                Top = SystemParameters.WorkArea.Bottom - Height - 12;
+                Top = monitorWorkArea.Bottom - Height - 12;
             }
         }
 
@@ -471,8 +491,23 @@ namespace CryoTray.Views
             var s = SettingsService.Instance.Current;
             if (!s.AnchorToTray && s.WindowLeft.HasValue && s.WindowTop.HasValue)
             {
-                Left = s.WindowLeft.Value;
-                Top = s.WindowTop.Value;
+                var dpi = VisualTreeHelper.GetDpi(this);
+                Rect savedMonitor = WindowPlacementHelper.GetWorkAreaForSavedPositionDips(
+                    s.WindowLeft.Value,
+                    s.WindowTop.Value,
+                    Width,
+                    Height,
+                    dpi.DpiScaleX,
+                    dpi.DpiScaleY);
+                var (clampedLeft, clampedTop) = WindowPlacementHelper.ClampToWorkArea(
+                    savedMonitor,
+                    s.WindowLeft.Value,
+                    s.WindowTop.Value,
+                    Width,
+                    Height,
+                    margin: 8);
+                Left = clampedLeft;
+                Top = clampedTop;
                 return;
             }
 
@@ -1653,14 +1688,18 @@ namespace CryoTray.Views
             double h = GpuChartCanvas.ActualHeight;
             if (w <= 0 || h <= 0) return;
 
+            var current = HardwareMonitorService.Instance.CurrentSnapshot;
+            string? activeGpuId = string.IsNullOrWhiteSpace(current.GpuIdentifier)
+                ? null
+                : current.GpuIdentifier;
+
             var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples)
-                .Where(sample => double.IsFinite(sample.GpuTemp) && sample.GpuTemp > 0)
+                .Where(sample => sample.TryGetGpuTemp(activeGpuId, out _))
                 .ToList();
             _gpuChartSamples = samples;
             if (samples.Count < 2)
             {
                 GpuChartTooltip.IsOpen = false;
-                var current = HardwareMonitorService.Instance.CurrentSnapshot;
                 bool gpuUnavailable = !(double.IsFinite(current.GpuTemp) && current.GpuTemp > 0);
                 TxtGpuChartUnavailable.Visibility = gpuUnavailable
                     ? Visibility.Visible
@@ -1679,7 +1718,11 @@ namespace CryoTray.Views
 
             for (int i = 0; i < samples.Count; i++)
             {
-                double t = samples[i].GpuTemp;
+                if (!samples[i].TryGetGpuTemp(activeGpuId, out double t))
+                {
+                    continue;
+                }
+
                 double norm = (t - minT) / (maxT - minT);
                 norm = Math.Clamp(norm, 0, 1);
                 double y = h - (norm * (h - 8) + 4);
@@ -1914,8 +1957,11 @@ namespace CryoTray.Views
             int index = Math.Clamp((int)Math.Round(hoverX / stepX), 0, count - 1);
             var sample = _gpuChartSamples[index];
             double x = index * stepX;
-            double temperature = sample.GpuTemp;
-            if (!double.IsFinite(temperature) || temperature <= 0)
+            var current = HardwareMonitorService.Instance.CurrentSnapshot;
+            string? activeGpuId = string.IsNullOrWhiteSpace(current.GpuIdentifier)
+                ? null
+                : current.GpuIdentifier;
+            if (!sample.TryGetGpuTemp(activeGpuId, out double temperature))
             {
                 GpuChartTooltip.IsOpen = false;
                 return;
@@ -1977,7 +2023,10 @@ namespace CryoTray.Views
                 child.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 double popupWidth = child.DesiredSize.Width;
                 double popupHeight = child.DesiredSize.Height;
-                double left = Math.Clamp(x - (popupWidth / 2), 4, Math.Max(4, chartWidth - popupWidth - 4));
+                double maxLeft = chartWidth - popupWidth - 4;
+                double left = maxLeft >= 4
+                    ? Math.Clamp(x - (popupWidth / 2), 4, maxLeft)
+                    : Math.Max(0, (chartWidth - popupWidth) / 2);
 
                 popup.HorizontalOffset = left;
                 popup.VerticalOffset = y - popupHeight - 8;
@@ -2508,20 +2557,14 @@ namespace CryoTray.Views
         {
             win.WindowStartupLocation = WindowStartupLocation.Manual;
 
-            double targetLeft = Left - win.Width - 6;
-            double targetTop = Top + Height - win.Height;
-
-            // If would render off-screen to the left, dock to the right
-            if (targetLeft < SystemParameters.WorkArea.Left)
-            {
-                targetLeft = Left + Width + 6;
-            }
-
-            // Ensure top is within work area
-            if (targetTop < SystemParameters.WorkArea.Top)
-            {
-                targetTop = SystemParameters.WorkArea.Top + 6;
-            }
+            Rect workArea = WindowPlacementHelper.GetMonitorWorkAreaDips(this);
+            var anchorBounds = new Rect(Left, Top, Width, Height);
+            var (targetLeft, targetTop) = WindowPlacementHelper.ComputeSideBySidePosition(
+                workArea,
+                anchorBounds,
+                win.Width,
+                win.Height,
+                gap: 6);
 
             win.Left = targetLeft;
             win.Top = targetTop;

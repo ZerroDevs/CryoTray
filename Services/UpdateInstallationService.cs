@@ -34,8 +34,36 @@ namespace CryoTray.Services
             // A portable copy may live under Program Files for protection. Only
             // treat that path as an installed copy when Inno's uninstaller marker
             // is present, so portable copies keep using the update archive.
-            return IsUnderProgramFiles(normalized) &&
-                   File.Exists(Path.Combine(normalized, "unins000.exe"));
+            return IsUnderProgramFiles(normalized) && HasInnoUninstaller(normalized);
+        }
+
+        private static bool HasInnoUninstaller(string directory)
+        {
+            try
+            {
+                if (!Directory.Exists(directory))
+                {
+                    return false;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(directory, "unins*.exe", SearchOption.TopDirectoryOnly))
+                {
+                    string name = Path.GetFileNameWithoutExtension(file);
+                    if (name.Length == 8 &&
+                        name.StartsWith("unins", StringComparison.OrdinalIgnoreCase) &&
+                        char.IsDigit(name[5]) &&
+                        char.IsDigit(name[6]) &&
+                        char.IsDigit(name[7]))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         private static bool MatchesUninstallLocation(

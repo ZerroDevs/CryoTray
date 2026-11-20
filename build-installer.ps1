@@ -111,6 +111,18 @@ if (-not $iscc) {
 }
 
 Write-Host "Using Inno Setup compiler: $iscc"
+$isccDir = Split-Path -Parent $iscc
+$isccVersionCandidate = @(
+    (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion,
+    $(if (Test-Path -LiteralPath (Join-Path $isccDir 'unins000.exe')) { (Get-Item -LiteralPath (Join-Path $isccDir 'unins000.exe')).VersionInfo.ProductVersion })
+) | Where-Object { $_ -and $_ -match '^(\d+)\.(\d+)\.(\d+)' -and "$($Matches[1]).$($Matches[2]).$($Matches[3])" -ne '0.0.0' } | Select-Object -First 1
+if ($isccVersionCandidate -and $isccVersionCandidate -match '^(\d+)\.(\d+)\.(\d+)') {
+    $isccVer = [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])"
+    if ($isccVer -lt [version]'6.3.0') {
+        throw "Inno Setup 6.3.0 or newer is required for x64compatible architecture support (found $isccVer)."
+    }
+    Write-Host "Inno Setup version: $isccVer"
+}
 Write-Host 'Compiling installer...'
 
 & $iscc "/DAppVersion=$Version" $issPath
@@ -124,6 +136,9 @@ if (-not (Test-Path -LiteralPath $outputExe -PathType Leaf)) {
 
 $sizeMb = [math]::Round((Get-Item -LiteralPath $outputExe).Length / 1MB, 2)
 Write-Host "Installer created: $outputExe ($sizeMb MB)" -ForegroundColor Green
+
+$setupHash = (Get-FileHash -LiteralPath $outputExe -Algorithm SHA256).Hash.ToLowerInvariant()
+"$setupHash  $(Split-Path -Leaf $outputExe)" | Set-Content -LiteralPath "$outputExe.sha256" -Encoding ascii
 
 $releaseDir = Join-Path $repoRoot 'release'
 $portableZip = Join-Path $releaseDir "CryoTray-$Version-win-x64.zip"
@@ -139,6 +154,9 @@ Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $portableZip
 if (-not (Test-Path -LiteralPath $portableZip -PathType Leaf)) {
     throw "Portable archive was not created: $portableZip"
 }
+
+$zipHash = (Get-FileHash -LiteralPath $portableZip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$zipHash  $(Split-Path -Leaf $portableZip)" | Set-Content -LiteralPath "$portableZip.sha256" -Encoding ascii
 
 $zipSizeMb = [math]::Round((Get-Item -LiteralPath $portableZip).Length / 1MB, 2)
 Write-Host "Portable zip created: $portableZip ($zipSizeMb MB)" -ForegroundColor Green

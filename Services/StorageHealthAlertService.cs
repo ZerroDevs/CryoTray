@@ -83,6 +83,7 @@ namespace CryoTray.Services
                         }
 
                         state.LastPercent = percent;
+                        state.BaselinePercent = percent;
                         state.LastStatus = status;
                         continue;
                     }
@@ -91,8 +92,9 @@ namespace CryoTray.Services
                                           !IsWarningStatus(state.LastStatus);
                     bool becameReplace = string.Equals(status, "Replace", StringComparison.OrdinalIgnoreCase) &&
                                          !string.Equals(state.LastStatus, "Replace", StringComparison.OrdinalIgnoreCase);
-                    bool meaningfulDrop = state.LastPercent.HasValue &&
-                                          percent <= state.LastPercent.Value - MeaningfulDropPercent;
+                    int? baseline = state.BaselinePercent ?? state.LastPercent;
+                    bool meaningfulDrop = baseline.HasValue &&
+                                          percent <= baseline.Value - MeaningfulDropPercent;
 
                     bool cooldownElapsed = !state.LastAlertUtc.HasValue ||
                                            nowUtc - state.LastAlertUtc.Value >= Cooldown;
@@ -104,7 +106,12 @@ namespace CryoTray.Services
                             driveName,
                             percent,
                             status,
-                            state.LastPercent));
+                            meaningfulDrop ? baseline : state.LastPercent));
+                        state.BaselinePercent = percent;
+                    }
+                    else if (!state.BaselinePercent.HasValue || percent > state.BaselinePercent.Value)
+                    {
+                        state.BaselinePercent = percent;
                     }
 
                     state.LastPercent = percent;
@@ -149,6 +156,7 @@ namespace CryoTray.Services
         private sealed class DriveHealthState
         {
             public int? LastPercent { get; set; }
+            public int? BaselinePercent { get; set; }
             public string LastStatus { get; set; } = "";
             public DateTime? LastAlertUtc { get; set; }
         }
