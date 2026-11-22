@@ -22,7 +22,7 @@
 
 .loadbar-label {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -58,7 +58,7 @@
 .stress-profile {
   margin-inline-start: auto;
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: 10.5px;
   line-height: 1.4;
   text-align: end;
 }
@@ -94,7 +94,7 @@
 .stress-heading p {
   margin-block-start: 2px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .stress-state {
@@ -160,7 +160,7 @@
 
 .stress-detailbar span {
   color: var(--text-muted);
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
   line-height: 1.3;
@@ -168,7 +168,7 @@
 
 .stress-detailbar b {
   color: var(--text-title);
-  font-size: 11px;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
   white-space: nowrap;
@@ -187,7 +187,7 @@
 .metric-label {
   display: block;
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1.3;
@@ -213,7 +213,7 @@
   display: block;
   margin-block-start: 2px;
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 10px;
 }
 
 .stress-body {
@@ -237,7 +237,7 @@
 }
 
 .chart-heading h4 {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -248,7 +248,7 @@
   flex-wrap: wrap;
   gap: 12px;
   color: var(--text-tertiary);
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -299,7 +299,7 @@
   max-width: 32ch;
   margin-block-start: 2px;
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: 10.5px;
   line-height: 1.55;
 }
 
@@ -346,7 +346,7 @@
 
 .compare-card h4 {
   color: var(--off-text);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.07em;
 }
@@ -383,14 +383,14 @@
 .compare-caption {
   margin-block-start: 3px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.4;
 }
 
 .compare-detail {
   margin-block-start: 6px;
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   line-height: 1.45;
 }
@@ -410,13 +410,13 @@
   gap: 10px;
   margin: 0;
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 10px;
   line-height: 1.45;
 }
 
 .delta-rows b {
   color: var(--text-title);
-  font-size: 10px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   white-space: nowrap;
@@ -425,7 +425,7 @@
 .delta-rows small {
   margin-inline-start: 2px;
   color: var(--success);
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 600;
 }
 
@@ -433,7 +433,7 @@
   max-width: 34ch;
   margin-block-start: 7px;
   color: var(--text-secondary);
-  font-size: 9.5px;
+  font-size: 10.5px;
   line-height: 1.5;
 }
 

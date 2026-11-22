@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CryoTray | Cooling control for the Windows tray</title>
   <meta id="meta-description" name="description" content="CryoTray is a Windows tray utility for low-heat cooling, CPU and GPU telemetry, RAM cleanup, storage health, and bilingual controls.">
-  <meta name="theme-color" content="#141414">
+  <meta name="theme-color" content="#0d0d0d">
   <link rel="icon" type="image/png" href="assets/cryotray-icon.png">
   <link rel="stylesheet" href="css/styles.css">
   <script type="module" src="js/app.js"></script>
@@ -41,10 +41,6 @@
     <section class="hero" id="demo">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <p class="platform-line">
-            <span class="platform-mark" aria-hidden="true"></span>
-            <span data-i18n="hero.platform">Windows 10/11 x64</span>
-          </p>
           <h1 data-i18n="hero.title">Cooling control for the Windows tray.</h1>
           <p class="lede" data-i18n="hero.body">CryoTray switches to a low-heat Windows power plan, watches CPU, GPU, and SSD health, and keeps the readings in one compact dashboard.</p>
           <p class="laptop-note">
@@ -365,7 +361,6 @@
       <div class="container">
         <header class="section-head">
           <div>
-            <p class="section-kicker" data-i18n="stress.kicker">CPU Temperature Test</p>
             <h2 data-i18n="stress.title">See what Cooling Mode changes under load.</h2>
             <p class="section-copy" data-i18n="stress.body">Run a modeled thermal test, then toggle Cooling Mode while it runs. The curve and wattage respond to the same state changes as the app.</p>
           </div>
@@ -484,7 +479,6 @@
       <div class="container">
         <div class="download-panel">
           <div class="download-intro">
-            <p class="section-kicker" data-i18n="release.kicker">Latest release</p>
             <h2 data-i18n="release.title">Download CryoTray</h2>
             <p class="section-copy" data-i18n="release.body">Use the installer or the portable archive. Both builds come from the project's GitHub Releases page.</p>
 
@@ -563,7 +557,6 @@
       <div class="container">
         <header class="section-head features-head">
           <div>
-            <p class="section-kicker" data-i18n="features.kicker">Under the panel</p>
             <h2 data-i18n="features.title">Six jobs, one tray icon.</h2>
             <p class="section-copy" data-i18n="features.body">Cooling, telemetry, cleanup, and health checks live in the same Windows app. No cloud account and no separate dashboard service.</p>
           </div>
@@ -572,7 +565,6 @@
         <div class="feature-grid">
           <article class="feature-card feature-wide">
             <div class="feature-copy">
-              <span class="feature-label" data-i18n="features.coolingLabel">COOLING CONTROL</span>
               <h3 data-i18n="features.coolingTitle">One-click Cooling Mode and timed pauses</h3>
               <p data-i18n="features.coolingBody">Switch the power plan from the panel or tray. Pause Cooling Mode for 15 minutes, 30 minutes, or one hour, and let it resume on its own.</p>
             </div>
@@ -611,7 +603,6 @@
               <div class="visual-caption" data-i18n="features.batteryExample">Cooling enables on battery and pauses for a fullscreen game.</div>
             </div>
             <div class="feature-copy">
-              <span class="feature-label" data-i18n="features.batteryLabel">AUTOMATION</span>
               <h3 data-i18n="features.batteryTitle">Battery rule and game Autopilot</h3>
               <p data-i18n="features.batteryBody">Enable cooling automatically on battery, then pause it for whitelisted games and fullscreen 3D apps until the foreground load clears.</p>
             </div>
@@ -633,7 +624,6 @@
               </div>
             </div>
             <div class="feature-copy">
-              <span class="feature-label" data-i18n="features.overlayLabel">TELEMETRY</span>
               <h3 data-i18n="features.overlayTitle">Tray badges and a click-through overlay</h3>
               <p data-i18n="features.overlayBody">Read per-core CPU, GPU hotspot, VRAM, fan RPM, RAM, SSDs, and battery from the tray or a floating HUD that ignores the mouse.</p>
             </div>
@@ -654,7 +644,6 @@
               <div class="ram-result"><bdi dir="ltr">1.7 GB</bdi> <span data-i18n="features.freed">freed</span></div>
             </div>
             <div class="feature-copy">
-              <span class="feature-label" data-i18n="features.ramLabel">MEMORY</span>
               <h3 data-i18n="features.ramTitle">Kernel-level RAM optimizer</h3>
               <p data-i18n="features.ramBody">Trim working sets and purge standby cache from the dashboard or a global shortcut, with separate scope options and status feedback.</p>
             </div>
@@ -679,7 +668,6 @@
               </div>
             </div>
             <div class="feature-copy">
-              <span class="feature-label" data-i18n="features.healthLabel">WATCHDOGS</span>
               <h3 data-i18n="features.healthTitle">Fan and storage health watch</h3>
               <p data-i18n="features.healthBody">Get a tray alert when an armed fan stops under sustained load, or when SSD SMART health enters a worn state or drops by 10 points.</p>
             </div>
@@ -687,7 +675,6 @@
 
           <article class="feature-card feature-wide feature-wide-last">
             <div class="feature-copy">
-              <span class="feature-label" data-i18n="features.localLabel">LOCAL AND BILINGUAL</span>
               <h3 data-i18n="features.localTitle">Privacy-safe diagnostics, English and Arabic</h3>
               <p data-i18n="features.localBody">Copy a support snapshot without serial numbers, PC names, or file paths. Switch the full dashboard between English and Arabic, and choose Dark, Light, or System appearance.</p>
             </div>
@@ -708,6 +695,7 @@
             </div>
           </article>
         </div>
+        <p class="feature-note" data-i18n="features.sampleNote">Panels show sample readings from the app.</p>
       </div>
     </section>
   </main>

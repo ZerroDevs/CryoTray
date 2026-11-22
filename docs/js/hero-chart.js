@@ -77,7 +77,7 @@ function drawHeroChart() {
   const { context: ctx, width, height } = fit;
   ctx.clearRect(0, 0, width, height);
 
-  ctx.strokeStyle = "#2c2c2c";
+  ctx.strokeStyle = state.hero.cooling ? "#23485c" : "#2c2c2c";
   ctx.lineWidth = 1;
   for (let row = 1; row < 4; row += 1) {
     const y = (height / 4) * row + 0.5;

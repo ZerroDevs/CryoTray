@@ -34,7 +34,7 @@
   --off-text: #e5987e;
   --off-soft: #3a241c;
   --toggle-off-track: #4a2a1e;
-  --toggle-off-text: #d9835b;
+  --toggle-off-text: #e5987e;
   --toggle-off-thumb: #e68a57;
   --cpu: #4fc3f7;
   --gpu: #7cb342;
@@ -61,6 +61,7 @@
 html {
   background: var(--bg);
   scroll-behavior: smooth;
+  scrollbar-color: var(--border-strong) var(--bg);
 }
 
 body {
@@ -96,6 +97,19 @@ button,
 summary,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+a[href],
+button:not(:disabled),
+select,
+summary,
+label[for] {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
 }
 
 a {

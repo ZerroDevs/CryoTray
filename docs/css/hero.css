@@ -10,7 +10,7 @@
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 480px);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
   align-items: center;
   gap: clamp(40px, 6vw, 78px);
 }
@@ -44,16 +44,14 @@
 
 .hero-facts dt {
   color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .hero-facts dd {
   margin-block-start: 4px;
   color: var(--text-title);
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
 .hero-stage {
@@ -65,14 +63,12 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 4px 16px;
-  width: min(100%, 444px);
+  width: min(100%, 420px);
   margin-inline: auto;
   margin-block-end: 8px;
   color: var(--text-tertiary);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .stage-note {
@@ -80,7 +76,7 @@
 }
 
 .preview-footnote {
-  width: min(100%, 444px);
+  width: min(100%, 420px);
   margin-inline: auto;
   margin-block-start: 12px;
   color: var(--text-muted);

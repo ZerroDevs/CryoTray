@@ -39,13 +39,13 @@
 .footer-credit {
   margin-block-start: 1px;
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .footer-meta {
   margin-inline-start: auto;
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .footer-links {
@@ -59,7 +59,7 @@
   align-items: center;
   min-height: 44px;
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 11.5px;
   text-decoration: none;
 }
 

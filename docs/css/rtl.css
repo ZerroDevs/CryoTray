@@ -8,9 +8,6 @@
 [dir="rtl"] h1,
 [dir="rtl"] h2,
 [dir="rtl"] h3,
-[dir="rtl"] .platform-line,
-[dir="rtl"] .section-kicker,
-[dir="rtl"] .feature-label,
 [dir="rtl"] .metric-label {
   letter-spacing: 0;
 }

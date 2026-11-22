@@ -37,7 +37,7 @@
 
   .site-nav a {
     flex: none;
-    min-height: 42px;
+    min-height: 44px;
   }
 
   .lang-switch {
@@ -154,6 +154,11 @@
     border-block-start: 1px solid var(--border);
   }
 
+  .feature-wide-last .feature-visual {
+    order: 0;
+    border-inline-end: 0;
+  }
+
   .footer-meta {
     order: 3;
     width: 100%;
@@ -184,7 +189,7 @@
   }
 
   .lang-btn {
-    min-height: 40px;
+    min-height: 44px;
   }
 
   .site-nav {
@@ -230,7 +235,7 @@
 
   .stage-label {
     gap: 8px;
-    font-size: 9px;
+    font-size: 10.5px;
   }
 
   .laptop-note {
@@ -505,6 +510,10 @@
     display: none;
   }
 
+  .gpu-top {
+    flex-wrap: wrap;
+  }
+
   .row-icon {
     width: 19px;
   }
@@ -539,7 +548,7 @@
   }
 
   .switch-text {
-    font-size: 8px;
+    font-size: 9px;
   }
 
   .ram-row .row-values {

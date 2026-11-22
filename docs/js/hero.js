@@ -1,6 +1,6 @@
 /* Hero metrics, RAM cleanup, fan animation, and the live update loop. */
 import {
-  state, t, $, setText, heroSwitch, heroSwitchState, heroFanRotor, ramButton, ramStatus,
+  state, t, $, setText, appPreview, heroSwitch, heroSwitchState, heroFanRotor, ramButton, ramStatus,
   clamp, randomBetween, roundTo, formatGb, reduceMotion
 } from "./core.js";
 import { gpuBrand } from "./device.js";
@@ -9,6 +9,7 @@ import { drawHeroChart, drawGpuSpark } from "./hero-chart.js";
 
 function setHeroCooling(cooling) {
   state.hero.cooling = cooling;
+  appPreview.classList.toggle("is-cooling", cooling);
   heroSwitch.setAttribute("aria-checked", String(cooling));
   setText(heroSwitchState, t(cooling ? "hero.on" : "hero.off"));
 }
