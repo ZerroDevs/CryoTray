@@ -52,11 +52,21 @@ CryoTray requires elevation in its application manifest (`app.manifest`) to acce
 - **Out of Scope**: Attacks that require an attacker to already possess interactive Administrator or SYSTEM privileges on the machine.
 
 ### 2. Windows Power Scheme Management
-CryoTray creates and applies the dedicated `"CryoTray Cooling"` power scheme using direct Win32 API calls (`PowerWriteACValueIndex`, `PowerWriteDCValueIndex`, and `PowerSetActiveScheme` in `powrprof.dll`).
+CryoTray creates and applies six power profiles with hardcoded GUIDs (`c7a00001` through `c7a00006`) using direct Win32 API calls (`PowerWriteACValueIndex`, `PowerWriteDCValueIndex`, `PowerWriteFriendlyName`, and `PowerSetActiveScheme` in `powrprof.dll`). Its cleanup pass can only delete GUIDs from that whitelist plus the exact legacy `"CryoTray Cooling"` name; built-in Windows plans and third-party plans are never deleted or modified.
 - **In Scope**: Injections or corruption allowing unauthorized modification of system-wide security settings or arbitrary power schemes.
 - **Out of Scope**: Standard CPU throttling behavior intended by Windows power management policies.
 
-### 3. Update Verification & Authenticode
+### 3. GPU Power Limit Control
+The opt-in GPU power limit writes through vendor libraries loaded only from `%SystemRoot%\System32` with `NativeLibrary.Load(..., DllImportSearchPath.System32)`: `nvapi64.dll` for NVIDIA, and `amdadlx64.dll` with an `atiadlxx.dll` fallback for AMD. No vendor DLL is resolved from PATH, the application folder, or the current directory. Calls are serialized on a background thread, every value is clamped to the live VBIOS range and capped at 100%, writes are read back, and the native default is restored on disable, normal exit, unhandled exceptions, and `SystemEvents.SessionEnding`. The control is off by default and does not write while disabled.
+- **In Scope**: DLL search-order hijacking or planting, path-confused vendor libraries, power-limit writes outside the VBIOS range, or a failed restore that persists after exit.
+- **Out of Scope**: Intended board-power limiting, thermal throttling, or instability caused by an explicitly chosen low limit.
+
+### 4. Download Timer Power Actions
+The opt-in Smart Download Timer can call `SetSuspendState` for Sleep or Hibernate and can launch `%SystemRoot%\System32\shutdown.exe` with fixed `/s /t 0` arguments for Shut Down. It is disarmed by default, requires a topmost 60-second warning with a Cancel action, cancels the pending action when download or disk activity returns or when the warning window is closed, and persists the disarmed state after firing or cancellation. Disk sampling through PDH fails closed.
+- **In Scope**: Bypassing the warning or cancel path, injecting arguments or an executable path into the shutdown action, firing while the timer is disarmed, or failing to disarm after fire or cancellation.
+- **Out of Scope**: A user-armed power action that follows the visible warning, or the operating system's own power policy.
+
+### 5. Update Verification & Authenticode
 CryoTray includes automated update checking and downloading via GitHub Releases (`UpdateService.cs`).
 - **Security Controls**:
   - Downloads are strictly retrieved over TLS from `https://api.github.com` and `https://github.com`.
@@ -69,11 +79,11 @@ CryoTray includes automated update checking and downloading via GitHub Releases 
   - Digital signatures are validated through `AuthenticodeVerifier.cs` (`WinVerifyTrust` via Win32 `wintrust.dll`) when present. A signature is **not required** for the current unsigned release policy.
 - **In Scope**: Checksum validation bypasses, rollback hash bypasses, writable staging or rollback paths, path traversal during update extraction, updater path hijacking, application-folder ACL or owner bypasses, parent-junction/hardlink replacement, or installer/portable selection failures.
 
-### 4. Privacy & Data Handling
+### 6. Privacy & Data Handling
 - CryoTray runs entirely offline and contains **zero telemetry, analytics, or tracking**.
 - The only outbound network requests occur during explicit checks or the adaptive background update checks against GitHub Releases (`5` minutes with the dashboard open, `30` minutes in the tray, plus startup, resume, and network reconnect).
-- User settings are stored locally in plaintext JSON at `%APPDATA%\CryoTray\settings.json`. No credentials, personal data, or encryption keys are handled or stored.
+- User settings are stored locally in plaintext JSON at `%APPDATA%\CryoTray\settings.json`. No credentials, personal data, or encryption keys are handled or stored. This file also stores the opt-in GPU power and download-timer preferences; neither feature sends data anywhere.
 
-### 5. Third-Party Hardware Drivers
-CryoTray relies on `LibreHardwareMonitorLib` and the `PawnIO` kernel driver for hardware sensing.
+### 7. Third-Party Hardware Drivers
+CryoTray relies on `LibreHardwareMonitorLib`, the `PawnIO` kernel driver, and the installed NVIDIA or AMD display driver for hardware sensing and the opt-in GPU power limit.
 - Vulnerabilities originating strictly within upstream drivers should be reported to the respective maintainers ([LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)). If an issue in our usage pattern enables exploitation, please report it to us directly.

@@ -33,6 +33,8 @@ namespace CryoTray
         private TemperatureAlertService? _temperatureAlertService;
         private FanHealthService? _fanHealthService;
         private StorageHealthAlertService? _storageHealthAlertService;
+        private DownloadTimerWarningWindow? _downloadTimerWarningWindow;
+        private bool _gpuPowerStartupRefreshStarted;
         private static readonly TimeSpan DashboardUpdateInterval = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan TrayUpdateInterval = TimeSpan.FromMinutes(30);
         private DateTime _lastAutomaticUpdateCheckUtc = DateTime.MinValue;
@@ -112,12 +114,19 @@ namespace CryoTray
 
             base.OnStartup(e);
 
-            ApplyWindowAccent(PowerPlanService.Instance.IsCoolingModeActive);
-            PowerPlanService.Instance.CoolingModeChanged += ApplyWindowAccent;
+            ApplyWindowAccent();
+            PowerPlanService.Instance.ProfileChanged += OnPowerPlanProfileChanged;
             PowerPlanService.Instance.CoolingModeChanged += OnPowerPlanCoolingChanged;
 
             DispatcherUnhandledException += (s, args) =>
             {
+                try
+                {
+                    GpuPowerControlService.Instance.RestoreForExit();
+                    DownloadTimerService.Instance.Stop();
+                }
+                catch { }
+
                 try
                 {
                     string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CryoTray");
@@ -135,6 +144,13 @@ namespace CryoTray
 
             AppDomain.CurrentDomain.UnhandledException += (s, args) =>
             {
+                try
+                {
+                    GpuPowerControlService.Instance.RestoreForExit();
+                    DownloadTimerService.Instance.Stop();
+                }
+                catch { }
+
                 try
                 {
                     string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CryoTray");
@@ -193,8 +209,17 @@ namespace CryoTray
             _trayManager.ApplyTheme();
             _trayManager.OnOpenDashboardRequested += ToggleDashboard;
             _trayManager.OnToggleCoolingRequested += () => PowerPlanService.Instance.ToggleCoolingMode();
+            _trayManager.OnPowerProfileRequested += key =>
+            {
+                var profile = PowerProfiles.Get(key);
+                if (profile != null)
+                {
+                    PowerPlanService.Instance.SwitchToProfile(profile);
+                }
+            };
             _trayManager.OnPauseCoolingRequested += PauseCoolingFor;
             _trayManager.OnCancelCoolingPauseRequested += () => CancelCoolingPause(resumeCooling: true, forceResume: true);
+            _trayManager.OnToggleDownloadTimerRequested += ToggleDownloadTimerFromTray;
             _trayManager.OnOpenStressTestRequested += OpenStressTestFromTray;
             _trayManager.OnToggleOverlayClickThroughRequested += ToggleOverlayClickThrough;
             _trayManager.OnOpenSettingsRequested += OpenSettingsFromTray;
@@ -204,6 +229,7 @@ namespace CryoTray
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
+            SystemEvents.SessionEnding += OnSessionEnding;
             NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
 
             _temperatureAlertService = new TemperatureAlertService();
@@ -217,6 +243,10 @@ namespace CryoTray
 
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             HardwareMonitorService.Instance.Start();
+            DownloadTimerService.Instance.WarningStarted += OnDownloadTimerWarningStarted;
+            DownloadTimerService.Instance.StatusChanged += OnDownloadTimerStatusChanged;
+            DownloadTimerService.Instance.WarningEnded += OnDownloadTimerWarningEnded;
+            DownloadTimerService.Instance.SyncWithSettings();
             AutopilotService.Instance.ExternalPauseHoldCheck = () => IsCoolingPausedByTimer;
             AutopilotService.Instance.Start();
             MemoryOptimizerService.Instance.Start();
@@ -350,6 +380,18 @@ namespace CryoTray
             var settings = SettingsService.Instance.Current;
             settings.OverlayClickThrough = !settings.OverlayClickThrough;
             SettingsService.Instance.Save();
+        }
+
+        private void OnSessionEnding(object sender, SessionEndingEventArgs e)
+        {
+            try
+            {
+                DownloadTimerService.Instance.CancelAndDisarm();
+                GpuPowerControlService.Instance.RestoreForExit();
+            }
+            catch
+            {
+            }
         }
 
         private void OnSystemPowerModeChanged(object sender, PowerModeChangedEventArgs e)
@@ -558,6 +600,66 @@ namespace CryoTray
             ShowDashboard()?.OpenStressTestDialog();
         }
 
+        private void ToggleDownloadTimerFromTray()
+        {
+            var settings = SettingsService.Instance.Current;
+            settings.DownloadTimerEnabled = !settings.DownloadTimerEnabled;
+            SettingsService.Instance.Save();
+            DownloadTimerService.Instance.SyncWithSettings();
+        }
+
+        private void OnDownloadTimerWarningStarted()
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isExiting)
+                {
+                    return;
+                }
+
+                CloseDownloadTimerWarning();
+                var window = new DownloadTimerWarningWindow();
+                _downloadTimerWarningWindow = window;
+                window.Cancelled += () => DownloadTimerService.Instance.CancelWarning();
+                window.Closed += (_, _) =>
+                {
+                    if (ReferenceEquals(_downloadTimerWarningWindow, window))
+                    {
+                        _downloadTimerWarningWindow = null;
+                    }
+                };
+                window.UpdateStatus(DownloadTimerService.Instance.CurrentStatus);
+                window.Show();
+            }));
+        }
+
+        private void OnDownloadTimerStatusChanged(DownloadTimerStatus status)
+        {
+            if (status.Phase == DownloadTimerPhase.Warning)
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _downloadTimerWarningWindow?.UpdateStatus(status);
+                }));
+            }
+            else if (status.Phase == DownloadTimerPhase.Disarmed)
+            {
+                Dispatcher.BeginInvoke(new Action(() => _trayManager?.RefreshDownloadTimerCheck()));
+            }
+        }
+
+        private void OnDownloadTimerWarningEnded()
+        {
+            Dispatcher.BeginInvoke(new Action(CloseDownloadTimerWarning));
+        }
+
+        private void CloseDownloadTimerWarning()
+        {
+            var window = _downloadTimerWarningWindow;
+            _downloadTimerWarningWindow = null;
+            window?.CloseWarning();
+        }
+
         public void ToggleOverlay()
         {
             if (_overlayWindow != null && _overlayWindow.IsVisible)
@@ -704,6 +806,12 @@ namespace CryoTray
 
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
         {
+            if (!_gpuPowerStartupRefreshStarted && snapshot.Gpus.Count > 0)
+            {
+                _gpuPowerStartupRefreshStarted = true;
+                _ = GpuPowerControlService.Instance.RefreshAsync();
+            }
+
             _trayManager?.UpdateBadges(
                 snapshot.GpuTemp,
                 snapshot.CpuTemp,
@@ -721,8 +829,9 @@ namespace CryoTray
             var settings = SettingsService.Instance.Current;
             LocalizationService.Instance.Apply(settings.Language);
             ThemeService.Apply(settings.Theme);
-            ApplyWindowAccent(PowerPlanService.Instance.IsCoolingModeActive);
+            ApplyWindowAccent();
             _trayManager?.ApplyLanguage();
+            DownloadTimerService.Instance.SyncWithSettings();
             EvaluateBatteryCoolingRule();
             ScheduleAutomaticUpdateCheck();
         }
@@ -1046,6 +1155,7 @@ namespace CryoTray
             GlobalHotkeyService.Instance.Unregister();
             GlobalHotkeyService.Instance.UnregisterRamHotkey();
             SystemEvents.PowerModeChanged -= OnSystemPowerModeChanged;
+            SystemEvents.SessionEnding -= OnSessionEnding;
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnPowerPlanCoolingChanged;
             UnregisterActivationWaitHandle();
@@ -1053,6 +1163,12 @@ namespace CryoTray
             SettingsService.Instance.SettingsChanged -= RegisterHotkeyIfEnabled;
             SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            DownloadTimerService.Instance.WarningStarted -= OnDownloadTimerWarningStarted;
+            DownloadTimerService.Instance.StatusChanged -= OnDownloadTimerStatusChanged;
+            DownloadTimerService.Instance.WarningEnded -= OnDownloadTimerWarningEnded;
+            DownloadTimerService.Instance.Dispose();
+            GpuPowerControlService.Instance.Dispose();
+            CloseDownloadTimerWarning();
             if (_temperatureAlertService != null)
             {
                 _temperatureAlertService.AlertRaised -= OnTemperatureAlertRaised;
@@ -1173,10 +1289,12 @@ namespace CryoTray
 
             try
             {
+                var activeProfile = PowerPlanService.Instance.ActiveProfile;
                 if (SettingsService.Instance.Current.DisableCoolingModeOnExit &&
-                    PowerPlanService.Instance.IsCoolingModeActive)
+                    activeProfile != null &&
+                    !activeProfile.IsWindowsDefault)
                 {
-                    PowerPlanService.Instance.SetCoolingMode(false);
+                    PowerPlanService.Instance.RestoreOriginalPowerPlan();
                 }
             }
             catch (Exception ex)
@@ -1211,12 +1329,36 @@ namespace CryoTray
         internal static string NormalizeHexColor(Color color) =>
             $"#{color.R:X2}{color.G:X2}{color.B:X2}";
 
-        private void ApplyWindowAccent(bool isCooling)
+        private void OnPowerPlanProfileChanged()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(ApplyWindowAccent));
+                return;
+            }
+
+            ApplyWindowAccent();
+        }
+
+        private void ApplyWindowAccent()
         {
             var settings = SettingsService.Instance.Current;
-            Color color = isCooling
-                ? ResolveFrameColor(settings.CoolingOnFrameColor, DefaultCoolingOnFrameColor)
-                : ResolveFrameColor(settings.CoolingOffFrameColor, DefaultCoolingOffFrameColor);
+            var profile = PowerPlanService.Instance.ActiveProfile;
+
+            Color color;
+            if (profile?.IsCooling == true)
+            {
+                color = ResolveFrameColor(settings.CoolingOnFrameColor, DefaultCoolingOnFrameColor);
+            }
+            else if (profile == null || profile.IsWindowsDefault || profile.Key == PowerProfiles.GamingHighKey)
+            {
+                color = ResolveFrameColor(settings.CoolingOffFrameColor, DefaultCoolingOffFrameColor);
+            }
+            else
+            {
+                color = (Color)ColorConverter.ConvertFromString(profile.Palette.Accent);
+            }
+
             var brush = new SolidColorBrush(color);
             brush.Freeze();
             Resources["WindowBorderBrush"] = brush;
@@ -1234,8 +1376,16 @@ namespace CryoTray
             _updateCheckTimer?.Stop();
             _updateCheckTimer = null;
 
+            DownloadTimerService.Instance.WarningStarted -= OnDownloadTimerWarningStarted;
+            DownloadTimerService.Instance.StatusChanged -= OnDownloadTimerStatusChanged;
+            DownloadTimerService.Instance.WarningEnded -= OnDownloadTimerWarningEnded;
+            DownloadTimerService.Instance.Dispose();
+            GpuPowerControlService.Instance.Dispose();
+            CloseDownloadTimerWarning();
+            SystemEvents.SessionEnding -= OnSessionEnding;
+
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
-            PowerPlanService.Instance.CoolingModeChanged -= ApplyWindowAccent;
+            PowerPlanService.Instance.ProfileChanged -= OnPowerPlanProfileChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnPowerPlanCoolingChanged;
             SystemEvents.PowerModeChanged -= OnSystemPowerModeChanged;
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;

@@ -13,6 +13,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using CryoTray.Models;
 using CryoTray.Services;
+using CryoTray.Services.GpuPower;
 using CryoTray.Tray;
 using LibreHardwareMonitor.Hardware;
 
@@ -30,6 +31,7 @@ namespace CryoTray.Tests
 
             allPassed &= TestRingBuffer();
             allPassed &= TestCryoTrayPowerSchemeIntegration();
+            allPassed &= TestPowerProfileWhitelistEngine();
             allPassed &= TestSystemInfoQueries();
             allPassed &= TestGdiLeakPrevention();
             allPassed &= TestLocalization();
@@ -77,6 +79,12 @@ namespace CryoTray.Tests
             allPassed &= TestGlobalHotkeyInvalidKeySafety();
             allPassed &= TestWindowPlacementMultiMonitorAndOffScreen();
             allPassed &= TestSettingsAtomicSaveAndCorruptImport();
+            allPassed &= TestStorageCleanupSafety();
+            allPassed &= TestStorageCleanupBroadRootGuard();
+            allPassed &= TestStorageCleanupGuardConfirmation();
+            allPassed &= TestStorageCleanupCancelKeepsWindowOpen();
+            allPassed &= TestStorageCleanupClosePromptsWhileBusy();
+            allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
 
             Console.WriteLine("==================================================");
@@ -137,6 +145,12 @@ namespace CryoTray.Tests
             allPassed &= TestGlobalHotkeyInvalidKeySafety();
             allPassed &= TestWindowPlacementMultiMonitorAndOffScreen();
             allPassed &= TestSettingsAtomicSaveAndCorruptImport();
+            allPassed &= TestStorageCleanupSafety();
+            allPassed &= TestStorageCleanupBroadRootGuard();
+            allPassed &= TestStorageCleanupGuardConfirmation();
+            allPassed &= TestStorageCleanupCancelKeepsWindowOpen();
+            allPassed &= TestStorageCleanupClosePromptsWhileBusy();
+            allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
             allPassed &= UpdateVerificationTests.RunNonElevatedChecks();
 
@@ -187,7 +201,7 @@ namespace CryoTray.Tests
             {
                 var pps = PowerPlanService.Instance;
 
-                // Ensure scheme exists (imports CryoTray.pow if not present)
+                // Ensure the Legacy profile exists (created from Balanced when absent).
                 Guid coolingGuid = pps.EnsureCryoTrayCoolingScheme();
                 if (coolingGuid == Guid.Empty) throw new Exception("Failed to ensure CryoTray Cooling scheme");
 
@@ -208,6 +222,167 @@ namespace CryoTray.Tests
             {
                 Console.WriteLine($"FAILED: {ex.Message}");
                 return false;
+            }
+        }
+
+        private static bool TestPowerProfileWhitelistEngine()
+        {
+            Console.Write("[TEST] Six-Profile Whitelist Engine... ");
+            var pps = PowerPlanService.Instance;
+            Guid originalActive = pps.GetActiveSchemeGuid();
+            try
+            {
+                var guids = PowerProfiles.All.Select(profile => profile.SchemeGuid).ToList();
+                if (guids.Count != 6 || guids.Distinct().Count() != 6)
+                {
+                    throw new Exception("Expected six unique profile GUIDs.");
+                }
+                if (guids.Contains(PowerPlanService.BalancedGuid))
+                {
+                    throw new Exception("A profile reused the Balanced GUID.");
+                }
+                if (PowerProfiles.MenuProfiles.Count != 7 || PowerProfiles.SchemeGuids.Length != 6)
+                {
+                    throw new Exception("Expected six CryoTray schemes and seven menu profiles.");
+                }
+                if (PowerProfiles.GamingProfiles[0].Key != PowerProfiles.BalancedKey ||
+                    PowerProfiles.GetGaming("").Key != PowerProfiles.BalancedKey)
+                {
+                    throw new Exception("Windows Balanced must be the default off profile.");
+                }
+
+                if (!pps.SwitchToProfile(PowerProfiles.GamingHighProfile))
+                {
+                    throw new Exception("Failed to activate Gaming (High).");
+                }
+                if (pps.GetActiveProfile()?.Key != PowerProfiles.GamingHighKey)
+                {
+                    throw new Exception("Gaming (High) was not detected as active.");
+                }
+                AssertSingleCryoTrayScheme(pps, PowerProfiles.GamingHighProfile, "Gaming (High)");
+
+                if (!pps.SwitchToProfile(PowerProfiles.CoolingProfile))
+                {
+                    throw new Exception("Failed to activate the default Cooling profile.");
+                }
+                if (!pps.IsCoolingModeActive)
+                {
+                    throw new Exception("Cooling Mode stayed off after activating Cooling.");
+                }
+                AssertSingleCryoTrayScheme(pps, PowerProfiles.CoolingProfile, "Cooling");
+                AssertAcValue(
+                    PowerProfiles.CoolingProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.PerfBoostMode,
+                    0,
+                    "Cooling boost mode");
+                AssertAcValue(
+                    PowerProfiles.CoolingProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.ThrottleMax,
+                    99,
+                    "Cooling max processor state");
+                AssertAcValue(
+                    PowerProfiles.CoolingProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.PerfEpp,
+                    70,
+                    "Cooling EPP");
+                AssertAcValue(
+                    PowerProfiles.CoolingProfile.SchemeGuid,
+                    PowerGuids.SubPcie,
+                    PowerGuids.PcieAspm,
+                    1,
+                    "Cooling PCIe ASPM");
+
+                if (!pps.SwitchToProfile(PowerProfiles.LegacyProfile))
+                {
+                    throw new Exception("Failed to activate the Legacy cooling profile.");
+                }
+                AssertSingleCryoTrayScheme(pps, PowerProfiles.LegacyProfile, "Legacy");
+
+                if (!pps.SwitchToProfile(PowerProfiles.BalancedProfile))
+                {
+                    throw new Exception("Failed to activate Windows Balanced.");
+                }
+                if (pps.GetActiveProfile()?.Key != PowerProfiles.BalancedKey)
+                {
+                    throw new Exception("Windows Balanced was not detected as active.");
+                }
+                if (pps.GetInstalledSchemes().Any(scheme => PowerProfiles.IsCryoTrayScheme(scheme.Guid)))
+                {
+                    throw new Exception("CryoTray schemes survived a switch to Windows Balanced.");
+                }
+
+                if (pps.GetInstalledSchemes().All(scheme => scheme.Guid != PowerPlanService.BalancedGuid))
+                {
+                    throw new Exception("Balanced was removed while switching profiles.");
+                }
+
+                pps.CleanupForUninstall();
+                if (pps.GetInstalledSchemes().Any(scheme => PowerProfiles.IsCryoTrayScheme(scheme.Guid)))
+                {
+                    throw new Exception("CryoTray schemes survived uninstall cleanup.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                Guid restore = originalActive;
+                if (pps.GetInstalledSchemes().All(scheme => scheme.Guid != restore))
+                {
+                    restore = PowerPlanService.BalancedGuid;
+                }
+
+                NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref restore);
+                pps.SyncCoolingStateFromSystem();
+            }
+        }
+
+        private static void AssertAcValue(
+            Guid scheme,
+            Guid subGroup,
+            Guid setting,
+            uint expected,
+            string label)
+        {
+            uint value;
+            uint result = NativeMethods.PowerReadACValueIndex(
+                IntPtr.Zero, ref scheme, ref subGroup, ref setting, out value);
+            if (result != 0)
+            {
+                throw new Exception($"{label}: read failed with code {result}.");
+            }
+            if (value != expected)
+            {
+                throw new Exception($"{label}: expected {expected}, got {value}.");
+            }
+        }
+
+        private static void AssertSingleCryoTrayScheme(
+            PowerPlanService pps,
+            PowerProfileDefinition expected,
+            string label)
+        {
+            var installed = pps.GetInstalledSchemes()
+                .Where(scheme => PowerProfiles.IsCryoTrayScheme(scheme.Guid))
+                .ToList();
+            if (installed.Count != 1 || installed[0].Guid != expected.SchemeGuid)
+            {
+                throw new Exception(
+                    $"{label}: expected exactly one CryoTray plan, found {installed.Count}.");
+            }
+            if (!installed[0].Name.Equals(expected.SchemeName, StringComparison.Ordinal))
+            {
+                throw new Exception(
+                    $"{label}: scheme name was '{installed[0].Name}', expected '{expected.SchemeName}'.");
             }
         }
 
@@ -351,7 +526,8 @@ namespace CryoTray.Tests
                     new Views.SettingsWindow(),
                     new Views.SystemInfoWindow(),
                     new Views.StressTestWindow(),
-                    new Views.OverlayWindow()
+                    new Views.OverlayWindow(),
+                    new Views.StorageCleanupWindow()
                 };
 
                 foreach (var window in windows)
@@ -614,10 +790,12 @@ namespace CryoTray.Tests
                     var siw = new Views.SystemInfoWindow();
                     var stw = new Views.StressTestWindow();
                     var ow = new Views.OverlayWindow();
+                    var scw = new Views.StorageCleanupWindow();
                     mw.Close();
                     sw.Close();
                     siw.Close();
                     stw.Close();
+                    scw.Close();
                     _ = ow;
                 }
                 catch (Exception ex)
@@ -640,7 +818,7 @@ namespace CryoTray.Tests
                 return false;
             }
 
-            Console.WriteLine("PASSED (All 5 Windows instantiated cleanly)");
+            Console.WriteLine("PASSED (All 6 Windows instantiated cleanly)");
             return true;
         }
 
@@ -1306,17 +1484,18 @@ namespace CryoTray.Tests
                 pps.CleanupForUninstall();
 
                 var remaining = pps.GetInstalledSchemes()
-                    .Where(s => s.Name.Equals(PowerPlanService.CryoTrayCoolingSchemeName, StringComparison.OrdinalIgnoreCase))
+                    .Where(s => PowerProfiles.All.Any(profile => profile.SchemeGuid == s.Guid) ||
+                        s.Name.Equals(PowerPlanService.ObsoleteCryoTraySchemeName, StringComparison.OrdinalIgnoreCase))
                     .ToList();
                 if (remaining.Count != 0)
                 {
-                    throw new Exception($"Expected 0 CryoTray Cooling schemes after cleanup, found {remaining.Count}.");
+                    throw new Exception($"Expected 0 CryoTray schemes after cleanup, found {remaining.Count}.");
                 }
 
                 Guid recreated = pps.EnsureCryoTrayCoolingScheme();
                 if (recreated == Guid.Empty)
                 {
-                    throw new Exception("Failed to recreate CryoTray Cooling scheme after cleanup check.");
+                    throw new Exception("Failed to recreate the Legacy profile after cleanup check.");
                 }
 
                 Console.WriteLine("PASSED");
@@ -2145,6 +2324,13 @@ namespace CryoTray.Tests
                     ShowFanSpeeds = false,
                     FanHealthAlertsEnabled = false,
                     ShowBatteryStatus = false,
+                    ShowRamBadge = true,
+                    RamTrayWhiteDigits = true,
+                    RamTrayBadgeColor = "#123456",
+                    CleanTemp = false,
+                    CleanBrowserCache = true,
+                    CleanGpuShaderCache = true,
+                    CleanPrefetch = true,
                     FanAliases = new Dictionary<string, string>
                     {
                         ["fan:Chassis Fan"] = "Top intake",
@@ -2175,6 +2361,9 @@ namespace CryoTray.Tests
                     roundTrip.ShowFanSpeeds ||
                     roundTrip.FanHealthAlertsEnabled ||
                     roundTrip.ShowBatteryStatus ||
+                    !roundTrip.ShowRamBadge ||
+                    !roundTrip.RamTrayWhiteDigits ||
+                    roundTrip.RamTrayBadgeColor != "#123456" ||
                     roundTrip.FanAliases["fan:Chassis Fan"] != "Top intake" ||
                     roundTrip.FanAliases["gpu"] != "Aux fan" ||
                     roundTrip.StorageHealthAlertsEnabled ||
@@ -2182,6 +2371,10 @@ namespace CryoTray.Tests
                     roundTrip.SaveRollbackOnUpdate ||
                     roundTrip.CpuTrayBadgeMetric != "Load" ||
                     roundTrip.GpuTrayBadgeMetric != "Ram" ||
+                    roundTrip.CleanTemp ||
+                    !roundTrip.CleanBrowserCache ||
+                    !roundTrip.CleanGpuShaderCache ||
+                    !roundTrip.CleanPrefetch ||
                     roundTrip.Theme != "System")
                 {
                     throw new Exception("AppSettings health, tray metric, or Autopilot JSON round-trip mismatch.");
@@ -2190,11 +2383,18 @@ namespace CryoTray.Tests
                 var defaults = new AppSettings();
                 if (defaults.CpuTrayBadgeMetric != "Temperature" ||
                     defaults.GpuTrayBadgeMetric != "Temperature" ||
+                    defaults.ShowRamBadge ||
+                    defaults.RamTrayWhiteDigits ||
+                    defaults.RamTrayBadgeColor != AppSettings.DefaultRamTrayBadgeColor ||
                     !defaults.ShowBatteryStatus ||
                     defaults.FanAliases.Count != 0 ||
                     !defaults.StorageHealthAlertsEnabled ||
                     !defaults.SaveRollbackOnUpdate ||
                     defaults.Theme != "Dark" ||
+                    !defaults.CleanTemp ||
+                    defaults.CleanBrowserCache ||
+                    defaults.CleanGpuShaderCache ||
+                    defaults.CleanPrefetch ||
                     ThemeService.Normalize("Light") != "Light" ||
                     ThemeService.Normalize("system") != "System" ||
                     ThemeService.Normalize("unsupported") != "Dark")
@@ -2438,11 +2638,15 @@ namespace CryoTray.Tests
                 using (var cpuBlack = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: false, whiteDigits: false))
                 using (var cpuWhite = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: true, whiteDigits: true))
                 using (var gpuWhite = tray.RenderSingleBadgeForTest(48, isCpu: false, coolingModeActive: false, whiteDigits: true))
+                using (var ramBlack = tray.RenderRamBadgeForTest(58, whiteDigits: false, colorHex: AppSettings.DefaultRamTrayBadgeColor))
+                using (var ramWhite = tray.RenderRamBadgeForTest(58, whiteDigits: true, colorHex: AppSettings.DefaultRamTrayBadgeColor))
                 using (var mergedMixed = tray.RenderMergedBadgeForTest(53, 48, coolingModeActive: false, cpuWhiteDigits: true, gpuWhiteDigits: false))
                 {
                     AssertHasDarkAndBg(cpuBlack, minBgR: 220, expectDarkInk: true, label: "CpuBlackOff");
                     AssertHasWhiteAndBg(cpuWhite, minBgB: 150, label: "CpuWhiteOn");
                     AssertHasWhiteAndBg(gpuWhite, minBgG: 110, label: "GpuWhite");
+                    AssertHasDarkAndBg(ramBlack, minBgR: 70, expectDarkInk: true, label: "RamBlack");
+                    AssertHasWhiteAndBg(ramWhite, minBgB: 70, label: "RamWhite");
 
                     Color topCorner = mergedMixed.GetPixel(16, 2);
                     Color botCorner = mergedMixed.GetPixel(16, 29);
@@ -2475,7 +2679,11 @@ namespace CryoTray.Tests
                 uint gdiBefore = NativeMethods.GetGuiResources(hProcess, 0);
                 for (int i = 0; i < 200; i++)
                 {
-                    using var b = tray.RenderSingleBadgeForTest(50 + (i % 10), isCpu: (i % 2 == 0), coolingModeActive: (i % 3 == 0), whiteDigits: (i % 2 == 1));
+                    using var b = i % 3 == 0
+                        ? tray.RenderRamBadgeForTest(40 + (i % 50), whiteDigits: i % 2 == 1,
+                            colorHex: AppSettings.DefaultRamTrayBadgeColor)
+                        : tray.RenderSingleBadgeForTest(50 + (i % 10), isCpu: (i % 2 == 0),
+                            coolingModeActive: (i % 3 == 0), whiteDigits: (i % 2 == 1));
                 }
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
@@ -2857,9 +3065,32 @@ namespace CryoTray.Tests
                                     }
                                 }
 
-                                if (itemCount != 4 || sepCount != 1 || ramMenu.Items.Count != 2)
+                                if (itemCount != 4 || sepCount != 1 || ramMenu.Items.Count != 5)
                                 {
                                     throw new Exception($"Unexpected menu structure: toolsItems={itemCount}, toolsSep={sepCount}, ramItems={ramMenu.Items.Count}");
+                                }
+
+                                var ramRowStyle = (Style)mw.FindResource("RamScopeMenuItemStyle");
+                                var ramHeaderStyle = (Style)mw.FindResource("RamScopeGroupHeaderStyle");
+                                if (ramMenu.Items[0] is not System.Windows.Controls.MenuItem scopeHeader ||
+                                    scopeHeader.IsEnabled ||
+                                    !ReferenceEquals(scopeHeader.Style, ramHeaderStyle) ||
+                                    scopeHeader.Header is null ||
+                                    string.IsNullOrWhiteSpace(scopeHeader.Header.ToString()) ||
+                                    ramMenu.Items[1] is not System.Windows.Controls.MenuItem workingSetsItem ||
+                                    !workingSetsItem.IsCheckable ||
+                                    !ReferenceEquals(workingSetsItem.Style, ramRowStyle) ||
+                                    ramMenu.Items[2] is not System.Windows.Controls.MenuItem standbyItem ||
+                                    !standbyItem.IsCheckable ||
+                                    !ReferenceEquals(standbyItem.Style, ramRowStyle) ||
+                                    ramMenu.Items[3] is not System.Windows.Controls.Separator ramSeparator ||
+                                    !ReferenceEquals(ramSeparator.Style, sepStyle) ||
+                                    ramMenu.Items[4] is not System.Windows.Controls.MenuItem cleanupItem ||
+                                    cleanupItem.IsCheckable ||
+                                    !ReferenceEquals(cleanupItem.Style, ramRowStyle) ||
+                                    cleanupItem.Header is not System.Windows.Controls.Grid)
+                                {
+                                    throw new Exception("RAM scope menu rows, group header, or cleanup entry are missing or malformed.");
                                 }
 
                                 var (toolsBmp, ramBmp) = mw.RenderWpfContextMenusForTest();
@@ -3423,6 +3654,620 @@ namespace CryoTray.Tests
             finally
             {
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+
+        private static bool TestStorageCleanupBroadRootGuard()
+        {
+            Console.Write("[TEST] Storage cleanup broad-root guard & redirected TEMP... ");
+            string safeRoot = Path.Combine(
+                Path.GetTempPath(),
+                "cryotray-cleanup-root-guard-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(safeRoot);
+
+                string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string? usersRoot = string.IsNullOrWhiteSpace(profile)
+                    ? null
+                    : Path.GetDirectoryName(profile);
+                var rejected = new List<string>();
+                void AddRejected(string? path)
+                {
+                    if (!string.IsNullOrWhiteSpace(path))
+                    {
+                        rejected.Add(path);
+                    }
+                }
+
+                AddRejected(Path.GetPathRoot(Environment.SystemDirectory));
+                AddRejected(windows);
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.System));
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.SystemX86));
+                AddRejected(profile);
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+                AddRejected(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles));
+                AddRejected(usersRoot);
+                if (!string.IsNullOrWhiteSpace(profile))
+                {
+                    AddRejected(Path.Combine(profile, "Downloads"));
+                }
+                if (!string.IsNullOrWhiteSpace(usersRoot))
+                {
+                    AddRejected(Path.Combine(usersRoot, "AnotherProfile"));
+                }
+
+                foreach (string path in rejected)
+                {
+                    if (StorageCleanupService.IsSafeCleanupRoot(path))
+                    {
+                        throw new Exception($"Broad cleanup root was accepted: {path}");
+                    }
+                }
+
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                if (!StorageCleanupService.IsSafeCleanupRoot(Path.GetTempPath()) ||
+                    !StorageCleanupService.IsSafeCleanupRoot(safeRoot) ||
+                    !StorageCleanupService.IsSafeCleanupRoot(Path.Combine(windows, "Temp")) ||
+                    !StorageCleanupService.IsSafeCleanupRoot(Path.Combine(windows, "Prefetch")) ||
+                    (!string.IsNullOrWhiteSpace(local) &&
+                     !StorageCleanupService.IsSafeCleanupRoot(
+                         Path.Combine(local, "D3DSCache"))) ||
+                    (!string.IsNullOrWhiteSpace(local) &&
+                     !StorageCleanupService.IsSafeCleanupRoot(
+                         Path.Combine(local, "Google", "Chrome", "User Data", "Default", "Cache", "Cache_Data"))) ||
+                    (!string.IsNullOrWhiteSpace(programData) &&
+                     !StorageCleanupService.IsSafeCleanupRoot(
+                         Path.Combine(programData, "NVIDIA Corporation", "NV_Cache"))))
+                {
+                    throw new Exception("A normal cleanup target or sandbox root was rejected.");
+                }
+
+                string? oldTmp = Environment.GetEnvironmentVariable("TMP");
+                string? oldTemp = Environment.GetEnvironmentVariable("TEMP");
+                try
+                {
+                    Environment.SetEnvironmentVariable("TMP", windows);
+                    Environment.SetEnvironmentVariable("TEMP", windows);
+                    if (!string.Equals(
+                            Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())),
+                            Path.TrimEndingDirectorySeparator(Path.GetFullPath(windows)),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new Exception("The redirected TEMP path was not applied by the test environment.");
+                    }
+
+                    IReadOnlyList<string> redirectedRoots = StorageCleanupService.GetTempRootsForTest();
+                    foreach (string root in redirectedRoots)
+                    {
+                        if (string.Equals(
+                                Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)),
+                                Path.TrimEndingDirectorySeparator(Path.GetFullPath(windows)),
+                                StringComparison.OrdinalIgnoreCase) ||
+                            !StorageCleanupService.IsSafeCleanupRoot(root))
+                        {
+                            throw new Exception($"Redirected TEMP produced an unsafe target root: {root}");
+                        }
+                    }
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("TMP", oldTmp);
+                    Environment.SetEnvironmentVariable("TEMP", oldTemp);
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(safeRoot))
+                    {
+                        Directory.Delete(safeRoot, true);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static bool TestStorageCleanupGuardConfirmation()
+        {
+            Console.Write("[TEST] Storage cleanup confirmation guard... ");
+            var window = new Views.StorageCleanupWindow();
+            try
+            {
+                var optIn = new[]
+                {
+                    StorageCleanupCategory.BrowserCache,
+                    StorageCleanupCategory.GpuShaderCache,
+                    StorageCleanupCategory.Prefetch
+                };
+
+                foreach (StorageCleanupCategory category in optIn)
+                {
+                    if (!window.ExerciseCleanGuardForTest(new[] { category }) ||
+                        !window.IsConfirmationVisibleForTest)
+                    {
+                        throw new Exception($"Confirmation did not open for {category}.");
+                    }
+
+                    window.HideConfirmationForTest();
+                }
+
+                if (window.ExerciseCleanGuardForTest(
+                        new[] { StorageCleanupCategory.TempFiles }) ||
+                    window.IsConfirmationVisibleForTest)
+                {
+                    throw new Exception("Temp-only cleanup opened a confirmation.");
+                }
+
+                if (!window.ExerciseCleanGuardForTest(
+                        new[]
+                        {
+                            StorageCleanupCategory.TempFiles,
+                            StorageCleanupCategory.BrowserCache
+                        }))
+                {
+                    throw new Exception(
+                        "Mixed temp and browser cleanup did not require confirmation.");
+                }
+
+                window.HideConfirmationForTest();
+                if (!window.ExerciseCleanGuardForTest(optIn))
+                {
+                    throw new Exception(
+                        "All opt-in categories did not require confirmation.");
+                }
+
+                Console.WriteLine("PASSED (3 opt-in categories confirmed; temp-only direct)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        private static bool TestStorageCleanupCancelKeepsWindowOpen()
+        {
+            Console.Write("[TEST] Storage cleanup cancel keeps window open... ");
+            var window = new Views.StorageCleanupWindow();
+            try
+            {
+                foreach (bool cleaning in new[] { false, true })
+                {
+                    using var cts = new CancellationTokenSource();
+                    int promptCalls = 0;
+                    window.ClosePromptForTest = _ =>
+                    {
+                        promptCalls++;
+                        return false;
+                    };
+
+                    bool closed = window.ExerciseCancelWhileBusyForTest(cleaning, cts);
+                    window.ClosePromptForTest = null;
+                    if (closed || window.IsClosedForTest)
+                    {
+                        throw new Exception("Cancel closed the window.");
+                    }
+
+                    if (!cts.IsCancellationRequested)
+                    {
+                        throw new Exception("Cancel did not cancel active work.");
+                    }
+
+                    if (promptCalls != 0)
+                    {
+                        throw new Exception("Cancel showed a close prompt.");
+                    }
+                }
+
+                Console.WriteLine("PASSED (scan and cleanup cancellation kept window open)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                window.ClosePromptForTest = null;
+                window.Close();
+            }
+        }
+
+        private static bool TestStorageCleanupClosePromptsWhileBusy()
+        {
+            Console.Write("[TEST] Storage cleanup close prompt while busy... ");
+            var window = new Views.StorageCleanupWindow();
+            try
+            {
+                foreach (bool cleaning in new[] { false, true })
+                {
+                    using var cts = new CancellationTokenSource();
+                    int promptCalls = 0;
+                    string? promptMessage = null;
+                    bool cancel = window.ExerciseCloseWhileBusyForTest(
+                        cleaning,
+                        cts,
+                        message =>
+                        {
+                            promptCalls++;
+                            promptMessage = message;
+                            return false;
+                        });
+                    string expected = LocalizationService.Get(
+                        cleaning
+                            ? "StorageCleanup_CloseCleanBody"
+                            : "StorageCleanup_CloseScanBody");
+
+                    if (!cancel)
+                    {
+                        throw new Exception("Close was not canceled while work was active.");
+                    }
+
+                    if (promptCalls != 1)
+                    {
+                        throw new Exception($"Expected one close prompt, got {promptCalls}.");
+                    }
+
+                    if (!string.Equals(promptMessage, expected, StringComparison.Ordinal))
+                    {
+                        throw new Exception("Close prompt used the wrong message.");
+                    }
+
+                    if (cts.IsCancellationRequested || window.IsClosedForTest)
+                    {
+                        throw new Exception("Work stopped before the user confirmed close.");
+                    }
+                }
+
+                Console.WriteLine("PASSED (scan and cleanup prompted before close)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                window.ClosePromptForTest = null;
+                window.Close();
+            }
+        }
+
+        private static bool TestStorageCleanupSafety()
+        {
+            Console.Write("[TEST] Storage cleanup containment, reparse & accounting... ");
+            string root = Path.Combine(
+                Path.GetTempPath(),
+                "cryotray-cleanup-test-" + Guid.NewGuid().ToString("N"));
+            string outside = Path.Combine(
+                Path.GetTempPath(),
+                "cryotray-cleanup-outside-" + Guid.NewGuid().ToString("N"));
+            string link = Path.Combine(root, "junction");
+            bool linkCreated = false;
+            try
+            {
+                Directory.CreateDirectory(root);
+                string nested = Path.Combine(root, "nested");
+                Directory.CreateDirectory(nested);
+                string first = Path.Combine(root, "first.tmp");
+                string second = Path.Combine(nested, "second.tmp");
+                string locked = Path.Combine(root, "locked.tmp");
+                File.WriteAllBytes(first, new byte[111]);
+                File.WriteAllBytes(second, new byte[222]);
+                File.WriteAllBytes(locked, new byte[10]);
+
+                if (!StorageCleanupService.IsPathWithinRoot(first, root) ||
+                    StorageCleanupService.IsPathWithinRoot(
+                        Path.Combine(root, "..", "escape.tmp"),
+                        root) ||
+                    !StorageCleanupService.ContainsPrivateBrowserSegment(
+                        Path.Combine(root, "Profile", "Local Storage", "cache")) ||
+                    StorageCleanupService.ContainsPrivateBrowserSegment(
+                        Path.Combine(root, "Profile", "Cache", "Cache_Data")))
+                {
+                    throw new Exception("Path containment or private browser-segment guard failed.");
+                }
+
+                if (!StorageCleanupService.IsPrefetchFile(Path.Combine(root, "boot.pf")) ||
+                    !StorageCleanupService.IsPrefetchFile(Path.Combine(root, "boot.db")) ||
+                    StorageCleanupService.IsPrefetchFile(Path.Combine(root, "boot.txt")))
+                {
+                    throw new Exception("Prefetch extension filter failed.");
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(outside);
+                    File.WriteAllText(Path.Combine(outside, "keep.txt"), "keep");
+                    Directory.CreateSymbolicLink(link, outside);
+                    linkCreated = true;
+                }
+                catch (Exception ex) when (
+                    ex is IOException ||
+                    ex is UnauthorizedAccessException ||
+                    ex is PlatformNotSupportedException)
+                {
+                }
+
+                StorageCleanupTestResult result;
+                using (var lockStream = new FileStream(
+                    locked,
+                    FileMode.Open,
+                    FileAccess.ReadWrite,
+                    FileShare.None))
+                {
+                    result = StorageCleanupService.CleanRootsForTest(
+                        new[] { root },
+                        recursive: true,
+                        prefetchOnly: false);
+                }
+
+                if (result.BytesFreed != 333 ||
+                    result.FilesDeleted != 2 ||
+                    result.SkippedLockedFiles != 1)
+                {
+                    throw new Exception(
+                        $"Unexpected cleanup accounting: freed={result.BytesFreed}, deleted={result.FilesDeleted}, skipped={result.SkippedLockedFiles}.");
+                }
+
+                if (File.Exists(first) || File.Exists(second) || !File.Exists(locked))
+                {
+                    throw new Exception("Unlocked files were not deleted or the locked file was removed.");
+                }
+
+                if (linkCreated && !File.Exists(Path.Combine(outside, "keep.txt")))
+                {
+                    throw new Exception("Cleanup followed a reparse point outside the target root.");
+                }
+
+                string prefetch = Path.Combine(root, "prefetch");
+                Directory.CreateDirectory(prefetch);
+                File.WriteAllBytes(Path.Combine(prefetch, "app.pf"), new byte[40]);
+                File.WriteAllBytes(Path.Combine(prefetch, "app.db"), new byte[20]);
+                File.WriteAllBytes(Path.Combine(prefetch, "keep.txt"), new byte[10]);
+                StorageCleanupTestResult prefetchResult = StorageCleanupService.CleanRootsForTest(
+                    new[] { prefetch },
+                    recursive: false,
+                    prefetchOnly: true);
+                if (prefetchResult.FilesDeleted != 2 ||
+                    prefetchResult.BytesFreed != 60 ||
+                    !File.Exists(Path.Combine(prefetch, "keep.txt")) ||
+                    File.Exists(Path.Combine(prefetch, "app.pf")) ||
+                    File.Exists(Path.Combine(prefetch, "app.db")))
+                {
+                    throw new Exception("Prefetch-only cleanup removed the wrong files.");
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    if (linkCreated && Directory.Exists(link))
+                    {
+                        Directory.Delete(link, recursive: false);
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    if (Directory.Exists(root))
+                    {
+                        Directory.Delete(root, true);
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    if (Directory.Exists(outside))
+                    {
+                        Directory.Delete(outside, true);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static bool TestGpuPowerAndDownloadTimerSafety()
+        {
+            Console.Write("[TEST] GPU Power Clamping & Download Timer Safety... ");
+            try
+            {
+                var vbios = GpuPowerMath.NormalizeBounds(73, 100, 120);
+                if (vbios.MinPercent != 73 || vbios.DefaultPercent != 100 || vbios.MaxPercent != 100)
+                {
+                    throw new Exception($"Unexpected normalized VBIOS bounds: {vbios}");
+                }
+
+                if (GpuPowerMath.Clamp(vbios, 70) != 73 ||
+                    GpuPowerMath.Clamp(vbios, 85) != 85 ||
+                    GpuPowerMath.Clamp(vbios, 100) != 100 ||
+                    GpuPowerMath.Clamp(vbios, 150) != 100)
+                {
+                    throw new Exception("GPU presets were not clamped to the VBIOS range and 100% ceiling.");
+                }
+
+                if (GpuPowerMath.IsUsable(GpuPowerMath.NormalizeBounds(100, 100, 100)) ||
+                    GpuPowerMath.IsUsable(GpuPowerMath.NormalizeBounds(73, 73, 100)))
+                {
+                    throw new Exception("A locked VBIOS power range was treated as controllable.");
+                }
+
+                var defaults = new AppSettings();
+                if (defaults.GpuPowerControlEnabled ||
+                    defaults.GpuReapplyPowerLimitOnStartup ||
+                    defaults.DownloadTimerEnabled ||
+                    defaults.DownloadTimerAction != "Sleep" ||
+                    defaults.DownloadTimerThresholdKbps != 200 ||
+                    defaults.DownloadTimerQuietMinutes != 5 ||
+                    !defaults.DownloadTimerDiskGuard ||
+                    !defaults.DownloadTimerWaitForStart)
+                {
+                    throw new Exception("New GPU/timer features are not safely disabled by default.");
+                }
+
+                if (DownloadTimerService.WarningDuration.TotalSeconds != 60)
+                {
+                    throw new Exception("The pre-action warning is not 60 seconds.");
+                }
+
+                var english = new ResourceDictionary
+                {
+                    Source = new Uri("pack://application:,,,/Resources/Strings.en.xaml", UriKind.Absolute)
+                };
+                if ((string)english["Settings_GpuPowerTitle"] != "GPU Power Limit Control (Opt-In)" ||
+                    (string)english["Settings_GpuPowerUnsupported"] != "Power limit control not supported by this GPU's VBIOS" ||
+                    (string)english["Settings_DownloadTimerTitle"] != "Smart Download-Completion Timer (Opt-In)" ||
+                    (string)english["Settings_DownloadTimerWaitingStart"] != "Waiting for active download..." ||
+                    (string)english["DownloadTimer_WarningBody"] != "Download finished. Entering {0} in {1}s...")
+                {
+                    throw new Exception("Required GPU/timer English copy is missing or changed.");
+                }
+
+                var options = new DownloadTimerOptions(
+                    200 * 1024,
+                    TimeSpan.FromSeconds(5),
+                    DiskGuardEnabled: true,
+                    WaitForDownloadStart: true,
+                    WarningDuration: TimeSpan.FromSeconds(3));
+                var engine = new DownloadTimerEngine();
+                engine.Arm(options);
+                DownloadTimerTick tick = engine.Advance(options, 0, 0, true);
+                if (tick.Phase != DownloadTimerPhase.WaitingForDownload)
+                {
+                    throw new Exception("Wait-for-start did not hold the timer before the first download.");
+                }
+
+                tick = engine.Advance(options, 300 * 1024, 0, true);
+                if (tick.Phase != DownloadTimerPhase.Monitoring)
+                {
+                    throw new Exception("The timer did not begin monitoring after an active download.");
+                }
+
+                for (int i = 0; i < 4; i++)
+                {
+                    tick = engine.Advance(options, 0, 0, true);
+                    if (tick.Phase != DownloadTimerPhase.Monitoring)
+                    {
+                        throw new Exception($"The quiet window completed early at second {i + 1}.");
+                    }
+                }
+
+                tick = engine.Advance(options, 0, 0, true);
+                if (tick.Phase != DownloadTimerPhase.Warning ||
+                    !tick.WarningStarted ||
+                    tick.WarningSecondsRemaining != 3)
+                {
+                    throw new Exception("The timer did not enter the 60-second warning pattern after the quiet window.");
+                }
+
+                tick = engine.Advance(options, 0, 0, true);
+                tick = engine.Advance(options, 0, 0, true);
+                tick = engine.Advance(options, 0, 0, true);
+                if (!tick.ExecuteAction || tick.Phase != DownloadTimerPhase.Disarmed)
+                {
+                    throw new Exception("The timer did not execute only after the warning grace period.");
+                }
+
+                var cancelEngine = new DownloadTimerEngine();
+                var cancelOptions = options with { QuietDuration = TimeSpan.FromSeconds(1), WaitForDownloadStart = false };
+                cancelEngine.Arm(cancelOptions);
+                cancelEngine.Advance(cancelOptions, 0, 0, true);
+                if (!cancelEngine.CancelWarning() || cancelEngine.Phase != DownloadTimerPhase.Disarmed)
+                {
+                    throw new Exception("Manual cancel did not disarm the pending power action.");
+                }
+
+                var diskEngine = new DownloadTimerEngine();
+                var diskOptions = options with
+                {
+                    QuietDuration = TimeSpan.FromSeconds(1),
+                    WaitForDownloadStart = false
+                };
+                diskEngine.Arm(diskOptions);
+                tick = diskEngine.Advance(diskOptions, 0, 5 * 1024 * 1024, true);
+                if (tick.Phase != DownloadTimerPhase.WaitingForDisk)
+                {
+                    throw new Exception("Disk unpacking did not hold the timer after downloads went quiet.");
+                }
+
+                tick = diskEngine.Advance(diskOptions, 0, 0, false);
+                if (tick.Phase != DownloadTimerPhase.WaitingForDisk)
+                {
+                    throw new Exception("An unavailable disk counter did not fail closed.");
+                }
+
+                tick = diskEngine.Advance(diskOptions, 0, 1024 * 1024, true);
+                if (tick.Phase != DownloadTimerPhase.Warning)
+                {
+                    throw new Exception("The timer did not resume after disk writes settled below 2 MB/s.");
+                }
+
+                tick = diskEngine.Advance(diskOptions, 500 * 1024, 0, true);
+                if (tick.Phase != DownloadTimerPhase.Monitoring || tick.ExecuteAction || !tick.WarningEnded)
+                {
+                    throw new Exception("Returning download activity did not cancel the pending warning.");
+                }
+
+                using (var sampler = new SystemDownloadTimerSampler())
+                {
+                    sampler.TrySampleDiskWriteBytesPerSecond(out _);
+                    Thread.Sleep(1100);
+                    if (!sampler.TrySampleDiskWriteBytesPerSecond(out double diskBytes) ||
+                        !double.IsFinite(diskBytes) ||
+                        diskBytes < 0)
+                    {
+                        throw new Exception("The live PDH physical-disk write counter could not be sampled.");
+                    }
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
             }
         }
 

@@ -653,7 +653,8 @@ namespace CryoTray.Services
                     CurrentSnapshot = snapshot;
 
                     // Add to RingBuffer
-                    _ringBuffer.AddSample(TelemetrySample.FromSnapshot(snapshot));
+                    _ringBuffer.AddSample(TelemetrySample.FromSnapshot(
+                        snapshot, PowerPlanService.Instance.ActiveProfile?.Key));
 
                     // Notify subscribers
                     TelemetryUpdated?.Invoke(snapshot);

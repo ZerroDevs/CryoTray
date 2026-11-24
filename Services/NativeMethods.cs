@@ -81,6 +81,10 @@ namespace CryoTray.Services
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS lpSystemPowerStatus);
 
+        [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
+
         [DllImport("ntdll.dll")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern int NtQuerySystemInformation(
@@ -233,6 +237,16 @@ namespace CryoTray.Services
         [DllImport("powrprof.dll", SetLastError = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern uint PowerDeleteScheme(IntPtr RootPowerKey, ref Guid SchemeGuid);
+
+        [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern uint PowerWriteFriendlyName(
+            IntPtr RootPowerKey,
+            ref Guid SchemeGuid,
+            IntPtr SubGroupOfPowerSettingsGuid,
+            IntPtr PowerSettingGuid,
+            byte[] Buffer,
+            uint BufferSize);
 
         [DllImport("powrprof.dll", SetLastError = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

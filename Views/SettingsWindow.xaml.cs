@@ -12,6 +12,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using CryoTray.Models;
 using CryoTray.Services;
 using Microsoft.Win32;
@@ -36,8 +37,10 @@ namespace CryoTray.Views
         private string _ramHotkeyKey = "M";
         private string _coolingOnFrameColor = App.DefaultCoolingOnFrameColor;
         private string _coolingOffFrameColor = App.DefaultCoolingOffFrameColor;
+        private string _ramBadgeColor = AppSettings.DefaultRamTrayBadgeColor;
         private readonly List<DiskDriveControlRow> _diskDriveRows = new();
         private readonly Dictionary<string, TextBox> _fanAliasBoxes = new(StringComparer.OrdinalIgnoreCase);
+        private readonly DispatcherTimer _gpuSliderApplyTimer;
 
         private sealed class DiskDriveControlRow
         {
@@ -85,6 +88,11 @@ namespace CryoTray.Views
         public SettingsWindow()
         {
             InitializeComponent();
+            _gpuSliderApplyTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(350)
+            };
+            _gpuSliderApplyTimer.Tick += GpuSliderApplyTimer_Tick;
             LocalizationService.Instance.ApplyWindow(this);
             Loaded += SettingsWindow_Loaded;
             Activated += SettingsWindow_Activated;
@@ -100,9 +108,12 @@ namespace CryoTray.Views
             Activated -= SettingsWindow_Activated;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnSettingsTelemetryUpdated;
             SettingsService.Instance.SettingsChanged -= OnExternalSettingsChanged;
+            GpuPowerControlService.Instance.StateChanged -= OnGpuPowerStateChanged;
+            DownloadTimerService.Instance.StatusChanged -= OnDownloadTimerStatusChanged;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
             UpdateStatusService.Instance.Changed -= OnUpdateStatusChanged;
+            _gpuSliderApplyTimer.Stop();
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
             _updateCancellation = null;
@@ -136,6 +147,11 @@ namespace CryoTray.Views
             RefreshRollbackUi();
             HardwareMonitorService.Instance.TelemetryUpdated += OnSettingsTelemetryUpdated;
             SettingsService.Instance.SettingsChanged += OnExternalSettingsChanged;
+            GpuPowerControlService.Instance.StateChanged += OnGpuPowerStateChanged;
+            DownloadTimerService.Instance.StatusChanged += OnDownloadTimerStatusChanged;
+            UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
+            UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
+            _ = GpuPowerControlService.Instance.RefreshAsync();
             _isBinding = false;
 
             if (PendingUpdate != null)
@@ -164,12 +180,21 @@ namespace CryoTray.Views
 
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (_isClosed || PanelView == null || PanelView.Visibility != Visibility.Visible)
+                if (_isClosed)
                 {
                     return;
                 }
 
-                UpdateTrayBadgeSampleTexts();
+                if ((PanelView != null && PanelView.Visibility == Visibility.Visible) ||
+                    (PanelMemory != null && PanelMemory.Visibility == Visibility.Visible))
+                {
+                    UpdateTrayBadgeSampleTexts();
+                }
+
+                if (PanelGpu != null && PanelGpu.Visibility == Visibility.Visible)
+                {
+                    UpdateGpuPowerTelemetryUi();
+                }
             }));
         }
 
@@ -192,6 +217,7 @@ namespace CryoTray.Views
                 _isBinding = true;
                 try
                 {
+                    SyncProfileSelectorsFromSettings(s);
                     if (ChkOverlayClickThrough != null && ChkOverlayClickThrough.IsChecked != s.OverlayClickThrough)
                     {
                         ChkOverlayClickThrough.IsChecked = s.OverlayClickThrough;
@@ -213,6 +239,11 @@ namespace CryoTray.Views
                     {
                         SelectTimeframeCombo(CmbCpuGraphTimeframe, s.CpuGraphTimeframeMinutes);
                     }
+                    if (ChkDownloadTimerEnabled != null &&
+                        (ChkDownloadTimerEnabled.IsChecked == true) != s.DownloadTimerEnabled)
+                    {
+                        ChkDownloadTimerEnabled.IsChecked = s.DownloadTimerEnabled;
+                    }
                 }
                 finally
                 {
@@ -223,11 +254,44 @@ namespace CryoTray.Views
             }));
         }
 
+        private void SyncProfileSelectorsFromSettings(AppSettings settings)
+        {
+            if (CmbCoolingProfile != null)
+            {
+                var coolingChoice = CmbCoolingProfile.Items
+                    .OfType<PowerProfileChoice>()
+                    .FirstOrDefault(choice => string.Equals(
+                        choice.Key,
+                        settings.PreferredCoolingProfile,
+                        StringComparison.OrdinalIgnoreCase));
+                if (coolingChoice != null && !ReferenceEquals(CmbCoolingProfile.SelectedItem, coolingChoice))
+                {
+                    CmbCoolingProfile.SelectedItem = coolingChoice;
+                }
+                UpdateProfileDescription(TxtCoolingProfileDesc, CmbCoolingProfile.SelectedItem as PowerProfileChoice);
+            }
+
+            if (CmbGamingProfile != null)
+            {
+                var gamingChoice = CmbGamingProfile.Items
+                    .OfType<PowerProfileChoice>()
+                    .FirstOrDefault(choice => string.Equals(
+                        choice.Key,
+                        settings.PreferredGamingProfile,
+                        StringComparison.OrdinalIgnoreCase));
+                if (gamingChoice != null && !ReferenceEquals(CmbGamingProfile.SelectedItem, gamingChoice))
+                {
+                    CmbGamingProfile.SelectedItem = gamingChoice;
+                }
+                UpdateProfileDescription(TxtGamingProfileDesc, CmbGamingProfile.SelectedItem as PowerProfileChoice);
+            }
+        }
+
         private void LoadSettingsIntoUI()
         {
             var s = SettingsService.Instance.Current;
 
-            LoadNormalPowerPlans();
+            LoadPowerProfiles(s);
 
             // Language
             CmbLanguage.SelectedIndex = s.Language == "العربية" ? 1 : 0;
@@ -278,7 +342,12 @@ namespace CryoTray.Views
             ChkSaveRollbackOnUpdate.IsChecked = s.SaveRollbackOnUpdate;
             UpdateNotificationControlStates();
 
-            // View Tab
+            // View, Overlay, CPU, and GPU tabs
+            _ramBadgeColor = App.NormalizeHexColor(App.ResolveFrameColor(
+                s.RamTrayBadgeColor, AppSettings.DefaultRamTrayBadgeColor));
+            ChkShowRamBadge.IsChecked = s.ShowRamBadge;
+            RdoRamBlackDigits.IsChecked = !s.RamTrayWhiteDigits;
+            RdoRamWhiteDigits.IsChecked = s.RamTrayWhiteDigits;
             ChkShowGpuBadge.IsChecked = s.ShowGpuBadge;
             SelectTrayBadgeMetric(CmbGpuBadgeMetric, s.GpuTrayBadgeMetric);
             RdoGpuBlackDigits.IsChecked = !s.GpuTrayWhiteDigits;
@@ -354,6 +423,17 @@ namespace CryoTray.Views
             ChkAutopilotForegroundOnly.IsChecked = s.AutopilotForegroundOnly;
             RefreshAutopilotWhitelist();
 
+            ChkGpuPowerEnabled.IsChecked = s.GpuPowerControlEnabled;
+            ChkGpuReapplyOnStartup.IsChecked = s.GpuReapplyPowerLimitOnStartup;
+            ChkDownloadTimerEnabled.IsChecked = s.DownloadTimerEnabled;
+            SelectComboByTag(CmbDownloadTimerAction, s.DownloadTimerAction);
+            SelectComboByTag(CmbDownloadTimerThreshold, s.DownloadTimerThresholdKbps.ToString(CultureInfo.InvariantCulture));
+            SelectComboByTag(CmbDownloadTimerQuiet, s.DownloadTimerQuietMinutes.ToString(CultureInfo.InvariantCulture));
+            ChkDownloadTimerDiskGuard.IsChecked = s.DownloadTimerDiskGuard;
+            ChkDownloadTimerWaitForStart.IsChecked = s.DownloadTimerWaitForStart;
+            UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
+            UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
+
             // CPU, disk, and GPU alert thresholds
             SldCpuThreshold.Value = s.HighTempThresholdCpu;
             ChkShowDiskTemp.IsChecked = s.ShowDiskTemp;
@@ -394,15 +474,32 @@ namespace CryoTray.Views
             RefreshFanAliasListSafely();
             RefreshHotkeyFeedback();
             RefreshRamHotkeyFeedback();
+            UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
+            UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
         }
 
         private void OnLanguageChanged()
         {
             LocalizationService.Instance.ApplyWindow(this);
+            RefreshPowerProfileChoices();
             RefreshGpuOptionsSafely();
             ApplyLocalizedText();
             RefreshPawnIoBanner();
             RefreshRollbackUi();
+        }
+
+        private void RefreshPowerProfileChoices()
+        {
+            bool previousBinding = _isBinding;
+            _isBinding = true;
+            try
+            {
+                LoadPowerProfiles(SettingsService.Instance.Current);
+            }
+            finally
+            {
+                _isBinding = previousBinding;
+            }
         }
 
         private void RefreshGpuOptionsSafely()
@@ -762,6 +859,7 @@ namespace CryoTray.Views
             SettingsContentScroll?.ScrollToTop();
             PanelGeneral.Visibility = Visibility.Collapsed;
             PanelView.Visibility = Visibility.Collapsed;
+            PanelOverlay.Visibility = Visibility.Collapsed;
             PanelCpu.Visibility = Visibility.Collapsed;
             PanelMemory.Visibility = Visibility.Collapsed;
             PanelDisk.Visibility = Visibility.Collapsed;
@@ -776,8 +874,13 @@ namespace CryoTray.Views
                 UpdateTrayBadgeSampleTexts();
                 UpdateFrameColorSwatchesUi();
             }
+            else if (TabOverlay.IsChecked == true) PanelOverlay.Visibility = Visibility.Visible;
             else if (TabCpu.IsChecked == true) PanelCpu.Visibility = Visibility.Visible;
-            else if (TabMemory.IsChecked == true) PanelMemory.Visibility = Visibility.Visible;
+            else if (TabMemory.IsChecked == true)
+            {
+                PanelMemory.Visibility = Visibility.Visible;
+                UpdateTrayBadgeSampleTexts();
+            }
             else if (TabDisk.IsChecked == true)
             {
                 PanelDisk.Visibility = Visibility.Visible;
@@ -844,6 +947,9 @@ namespace CryoTray.Views
             s.CpuTrayWhiteDigits = RdoCpuWhiteDigits.IsChecked == true;
             s.CpuTrayBadgeMetric = ReadTrayBadgeMetric(CmbCpuBadgeMetric);
             s.GpuTrayBadgeMetric = ReadTrayBadgeMetric(CmbGpuBadgeMetric);
+            s.ShowRamBadge = ChkShowRamBadge.IsChecked == true;
+            s.RamTrayWhiteDigits = RdoRamWhiteDigits.IsChecked == true;
+            s.RamTrayBadgeColor = _ramBadgeColor;
             s.MergeTrayIcons = ChkMergeTrayIcons.IsChecked == true;
             s.CoolingOnFrameColor = _coolingOnFrameColor;
             s.CoolingOffFrameColor = _coolingOffFrameColor;
@@ -878,9 +984,12 @@ namespace CryoTray.Views
             s.CpuGraphSmall = RdoCpuGraphSmall.IsChecked == true;
             s.CpuGraphTimeframeMinutes = ReadSelectedTimeframeMinutes(CmbCpuGraphTimeframe);
 
-            s.NormalPowerPlanGuid = CmbNormalPowerPlan.SelectedItem is PowerSchemeInfo normalPlan
-                ? normalPlan.Guid.ToString()
-                : PowerPlanService.BalancedGuid.ToString();
+            s.PreferredCoolingProfile = CmbCoolingProfile.SelectedItem is PowerProfileChoice coolingChoice
+                ? coolingChoice.Key
+                : PowerProfiles.CoolingKey;
+            s.PreferredGamingProfile = CmbGamingProfile.SelectedItem is PowerProfileChoice gamingChoice
+                ? gamingChoice.Key
+                : PowerProfiles.BalancedKey;
 
             s.PerfBoostMode = CmbPerfBoostMode.SelectedIndex == 1 ? 1 : 0;
             s.MaxCpuThrottlePercent = (int)SldThrottle.Value;
@@ -906,6 +1015,15 @@ namespace CryoTray.Views
             s.HighTempThresholdDisk = (int)SldDiskThreshold.Value;
             s.HighTempThresholdGpu = (int)SldGpuThreshold.Value;
             s.PreferredGpuIdentifier = CmbPrimaryGpu?.SelectedValue as string ?? "";
+
+            s.GpuReapplyPowerLimitOnStartup = ChkGpuReapplyOnStartup.IsChecked == true;
+
+            s.DownloadTimerEnabled = ChkDownloadTimerEnabled.IsChecked == true;
+            s.DownloadTimerAction = ReadComboTag(CmbDownloadTimerAction, "Sleep");
+            s.DownloadTimerThresholdKbps = ReadComboInt(CmbDownloadTimerThreshold, 200);
+            s.DownloadTimerQuietMinutes = ReadComboInt(CmbDownloadTimerQuiet, 5);
+            s.DownloadTimerDiskGuard = ChkDownloadTimerDiskGuard.IsChecked == true;
+            s.DownloadTimerWaitForStart = ChkDownloadTimerWaitForStart.IsChecked == true;
 
             if (_diskDriveRows.Count > 0)
             {
@@ -933,8 +1051,8 @@ namespace CryoTray.Views
 
             SettingsService.Instance.Save();
 
-            // Apply live power plan changes
-            PowerPlanService.Instance.ApplyCpuCoolingParameters(s.MaxCpuThrottlePercent, s.PerfBoostMode);
+            // Apply live power profile changes
+            PowerPlanService.Instance.RefreshActiveProfile();
         }
 
         private void CmbLanguage_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1062,7 +1180,7 @@ namespace CryoTray.Views
 
         private void UpdateTrayBadgeSampleTexts()
         {
-            if (TxtSampleGpuBlack == null || TxtSampleCpuOffBlack == null)
+            if (TxtSampleGpuBlack == null || TxtSampleCpuOffBlack == null || TxtSampleRamBlack == null)
             {
                 return;
             }
@@ -1075,18 +1193,26 @@ namespace CryoTray.Views
             {
                 PnlCpuBadgeDigits.IsEnabled = ChkShowCpuBadge.IsChecked == true;
             }
+            if (PnlRamBadgeOptions != null && ChkShowRamBadge != null)
+            {
+                PnlRamBadgeOptions.IsEnabled = ChkShowRamBadge.IsChecked == true;
+            }
 
             var settings = SettingsService.Instance.Current;
             bool isFahrenheit = settings.TemperatureUnit == "Fahrenheit";
             var snap = HardwareMonitorService.Instance.CurrentSnapshot;
             var cpuMetric = CryoTray.Tray.TrayIconManager.NormalizeBadgeMetric(settings.CpuTrayBadgeMetric);
             var gpuMetric = CryoTray.Tray.TrayIconManager.NormalizeBadgeMetric(settings.GpuTrayBadgeMetric);
+            var ramMetric = CryoTray.Tray.TrayIconManager.NormalizeBadgeMetric("Ram");
             int? cpuValue = CryoTray.Tray.TrayIconManager.ResolveBadgeValue(
                 cpuMetric, snap.CpuTemp, snap.CpuLoad, snap.RamUsagePercent, isFahrenheit);
             int? gpuValue = CryoTray.Tray.TrayIconManager.ResolveBadgeValue(
                 gpuMetric, snap.GpuTemp, snap.GpuLoad, snap.RamUsagePercent, isFahrenheit);
+            int? ramValue = CryoTray.Tray.TrayIconManager.ResolveBadgeValue(
+                ramMetric, snap.CpuTemp, snap.CpuLoad, snap.RamUsagePercent, isFahrenheit);
             string cpuSample = cpuValue?.ToString(CultureInfo.InvariantCulture) ?? "--";
             string gpuSample = gpuValue?.ToString(CultureInfo.InvariantCulture) ?? "--";
+            string ramSample = ramValue?.ToString(CultureInfo.InvariantCulture) ?? "--";
 
             TxtSampleCpuOffBlack.Text = cpuSample;
             TxtSampleCpuOnBlack.Text = cpuSample;
@@ -1094,6 +1220,9 @@ namespace CryoTray.Views
             TxtSampleCpuOnWhite.Text = cpuSample;
             TxtSampleGpuBlack.Text = gpuSample;
             TxtSampleGpuWhite.Text = gpuSample;
+            TxtSampleRamBlack.Text = ramSample;
+            TxtSampleRamWhite.Text = ramSample;
+            UpdateRamBadgeColorUi();
         }
 
         private void BtnColorCoolingOn_Click(object sender, RoutedEventArgs e)
@@ -1122,6 +1251,12 @@ namespace CryoTray.Views
 
         private void PickFrameColor(string currentHex, string fallbackHex, Action<string> apply)
         {
+            PickColor(currentHex, fallbackHex, apply, UpdateFrameColorSwatchesUi);
+        }
+
+        private void PickColor(string currentHex, string fallbackHex, Action<string> apply,
+            Action? afterApply = null)
+        {
             Color wpfCurrent = App.ResolveFrameColor(currentHex, fallbackHex);
             using var dialog = new WinForms.ColorDialog
             {
@@ -1141,8 +1276,51 @@ namespace CryoTray.Views
             {
                 Color picked = Color.FromRgb(dialog.Color.R, dialog.Color.G, dialog.Color.B);
                 apply(App.NormalizeHexColor(picked));
-                UpdateFrameColorSwatchesUi();
+                afterApply?.Invoke();
                 if (!_isBinding) SaveUiIntoSettings();
+            }
+        }
+
+        private void BtnColorRamBadge_Click(object sender, RoutedEventArgs e)
+        {
+            PickColor(_ramBadgeColor, AppSettings.DefaultRamTrayBadgeColor,
+                hex => _ramBadgeColor = hex, UpdateRamBadgeColorUi);
+        }
+
+        private void BtnResetColorRamBadge_Click(object sender, RoutedEventArgs e)
+        {
+            _ramBadgeColor = AppSettings.DefaultRamTrayBadgeColor;
+            UpdateRamBadgeColorUi();
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void UpdateRamBadgeColorUi()
+        {
+            if (BtnColorRamBadge == null || BdrSampleRamBlack == null || BdrSampleRamWhite == null)
+            {
+                return;
+            }
+
+            var blackBackground = CryoTray.Tray.TrayIconManager.ResolveRamBadgeColor(
+                _ramBadgeColor, whiteDigits: false);
+            var whiteBackground = CryoTray.Tray.TrayIconManager.ResolveRamBadgeColor(
+                _ramBadgeColor, whiteDigits: true);
+
+            BtnColorRamBadge.Background = CreateFrozenBrush(
+                Color.FromRgb(blackBackground.R, blackBackground.G, blackBackground.B));
+            BdrSampleRamBlack.Background = CreateFrozenBrush(
+                Color.FromRgb(blackBackground.R, blackBackground.G, blackBackground.B));
+            BdrSampleRamWhite.Background = CreateFrozenBrush(
+                Color.FromRgb(whiteBackground.R, whiteBackground.G, whiteBackground.B));
+
+            if (BtnResetColorRamBadge != null)
+            {
+                BtnResetColorRamBadge.Visibility = string.Equals(
+                    _ramBadgeColor,
+                    AppSettings.DefaultRamTrayBadgeColor,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
             }
         }
 
@@ -1268,14 +1446,386 @@ namespace CryoTray.Views
             return 1;
         }
 
-        private void CmbNormalPowerPlan_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void CmbCoolingProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            UpdateProfileDescription(TxtCoolingProfileDesc, CmbCoolingProfile.SelectedItem as PowerProfileChoice);
+            if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void CmbGamingProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateProfileDescription(TxtGamingProfileDesc, CmbGamingProfile.SelectedItem as PowerProfileChoice);
             if (!_isBinding) SaveUiIntoSettings();
         }
 
         private void CmbPrimaryGpu_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void OnGpuPowerStateChanged(GpuPowerControlState state)
+        {
+            if (_isClosed || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosed)
+                {
+                    UpdateGpuPowerUi(state);
+                }
+            }));
+        }
+
+        private void UpdateGpuPowerUi(GpuPowerControlState state)
+        {
+            if (ChkGpuPowerEnabled == null || BdrGpuPowerUnsupported == null)
+            {
+                return;
+            }
+
+            bool previous = _isBinding;
+            _isBinding = true;
+            try
+            {
+                ChkGpuPowerEnabled.IsChecked = state.IsEnabled;
+                bool supported = state.IsSupported;
+                bool interactive = supported && !state.IsBusy && state.IsEnabled;
+
+                ChkGpuPowerEnabled.IsEnabled = supported && !state.IsBusy;
+                ChkGpuReapplyOnStartup.IsEnabled = supported;
+                BtnGpuPowerCool.IsEnabled = interactive;
+                BtnGpuPowerBalanced.IsEnabled = interactive;
+                BtnGpuPowerFull.IsEnabled = interactive;
+                BtnGpuPowerReset.IsEnabled = interactive;
+                SldGpuPowerLimit.IsEnabled = interactive;
+                BdrGpuPowerUnsupported.Visibility = !supported && !state.IsBusy
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+                if (supported)
+                {
+                    SldGpuPowerLimit.Minimum = state.MinPercent;
+                    SldGpuPowerLimit.Maximum = state.DefaultPercent;
+                    if (!_gpuSliderApplyTimer.IsEnabled && double.IsFinite(state.CurrentPercent))
+                    {
+                        SldGpuPowerLimit.Value = Math.Clamp(
+                            state.CurrentPercent,
+                            state.MinPercent,
+                            state.DefaultPercent);
+                    }
+
+                    TxtGpuPowerLimitPercent.Text = $"{SldGpuPowerLimit.Value:0.#}%";
+                    TxtGpuPowerCurrent.Text = LocalizationService.Format(
+                        "Settings_GpuPowerCurrent",
+                        (double.IsFinite(state.CurrentPercent) ? state.CurrentPercent : state.DefaultPercent)
+                            .ToString("0.#", CultureInfo.CurrentCulture));
+                    TxtGpuPowerRange.Text = LocalizationService.Format(
+                        "Settings_GpuPowerRange",
+                        state.MinPercent.ToString("0.#", CultureInfo.CurrentCulture),
+                        state.MaxPercent.ToString("0.#", CultureInfo.CurrentCulture),
+                        state.DefaultPercent.ToString("0.#", CultureInfo.CurrentCulture));
+                }
+                else
+                {
+                    SldGpuPowerLimit.Minimum = 70;
+                    SldGpuPowerLimit.Maximum = 100;
+                    TxtGpuPowerLimitPercent.Text = "--";
+                    TxtGpuPowerCurrent.Text = "--";
+                    TxtGpuPowerRange.Text = string.Empty;
+                }
+
+                if (state.IsBusy)
+                {
+                    TxtGpuPowerStatus.Text = LocalizationService.Get("Settings_GpuPowerProbing");
+                }
+                else if (!supported)
+                {
+                    TxtGpuPowerStatus.Text = LocalizationService.Get("Settings_GpuPowerUnsupportedDetail");
+                }
+                else if (!string.IsNullOrWhiteSpace(state.Detail))
+                {
+                    TxtGpuPowerStatus.Text = LocalizationService.Get("Settings_GpuPowerFailed");
+                }
+                else
+                {
+                    TxtGpuPowerStatus.Text = string.Empty;
+                }
+            }
+            finally
+            {
+                _isBinding = previous;
+            }
+
+            UpdateGpuPowerTelemetryUi();
+        }
+
+        private void UpdateGpuPowerTelemetryUi()
+        {
+            if (TxtGpuPowerCoreValue == null)
+            {
+                return;
+            }
+
+            var snapshot = HardwareMonitorService.Instance.CurrentSnapshot;
+            GpuTelemetry? gpu = HardwareMonitorService.SelectPrimaryGpu(
+                snapshot.Gpus,
+                SettingsService.Instance.Current.PreferredGpuIdentifier);
+            bool useFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+
+            TxtGpuPowerCoreValue.Text = gpu != null && double.IsFinite(gpu.Temperature) && gpu.Temperature > 0
+                ? FormatTemperatureValue(gpu.Temperature, useFahrenheit)
+                : "--";
+            TxtGpuPowerHotspotValue.Text = gpu?.HotspotTemp is double hotspot && double.IsFinite(hotspot) && hotspot > 0
+                ? FormatTemperatureValue(hotspot, useFahrenheit)
+                : "--";
+            TxtGpuPowerBoardValue.Text = gpu?.PowerWatts is int watts && watts > 0
+                ? $"{watts} W"
+                : "--";
+        }
+
+        private static string FormatTemperatureValue(double celsius, bool useFahrenheit)
+        {
+            double value = useFahrenheit ? (celsius * 9 / 5.0) + 32 : celsius;
+            return $"{value:0.#}°{(useFahrenheit ? "F" : "C")}";
+        }
+
+        private async void ChkGpuPowerEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            bool enabled = ChkGpuPowerEnabled.IsChecked == true;
+            if (enabled)
+            {
+                bool applied = await GpuPowerControlService.Instance.EnableAsync();
+                if (!applied)
+                {
+                    _isBinding = true;
+                    ChkGpuPowerEnabled.IsChecked = false;
+                    _isBinding = false;
+                }
+            }
+            else
+            {
+                await GpuPowerControlService.Instance.DisableAsync();
+            }
+
+            UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
+        }
+
+        private async void BtnGpuPowerCool_Click(object sender, RoutedEventArgs e)
+        {
+            await GpuPowerControlService.Instance.ApplyPercentAsync(70);
+        }
+
+        private async void BtnGpuPowerBalanced_Click(object sender, RoutedEventArgs e)
+        {
+            await GpuPowerControlService.Instance.ApplyPercentAsync(85);
+        }
+
+        private async void BtnGpuPowerFull_Click(object sender, RoutedEventArgs e)
+        {
+            await GpuPowerControlService.Instance.ApplyPercentAsync(100);
+        }
+
+        private async void BtnGpuPowerReset_Click(object sender, RoutedEventArgs e)
+        {
+            await GpuPowerControlService.Instance.ResetAsync();
+        }
+
+        private void SldGpuPowerLimit_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtGpuPowerLimitPercent != null)
+            {
+                TxtGpuPowerLimitPercent.Text = $"{SldGpuPowerLimit.Value:0.#}%";
+            }
+
+            if (_isBinding || _gpuSliderApplyTimer == null)
+            {
+                return;
+            }
+
+            _gpuSliderApplyTimer.Stop();
+            _gpuSliderApplyTimer.Start();
+        }
+
+        private async void GpuSliderApplyTimer_Tick(object? sender, EventArgs e)
+        {
+            _gpuSliderApplyTimer.Stop();
+            if (!_isClosed && GpuPowerControlService.Instance.State.IsEnabled)
+            {
+                await GpuPowerControlService.Instance.ApplyPercentAsync(SldGpuPowerLimit.Value);
+            }
+        }
+
+        private static void SelectComboByTag(ComboBox combo, string value)
+        {
+            for (int i = 0; i < combo.Items.Count; i++)
+            {
+                if (combo.Items[i] is ComboBoxItem item &&
+                    string.Equals(item.Tag?.ToString(), value, StringComparison.OrdinalIgnoreCase))
+                {
+                    combo.SelectedIndex = i;
+                    return;
+                }
+            }
+
+            if (combo.Items.Count > 0)
+            {
+                combo.SelectedIndex = 0;
+            }
+        }
+
+        private static string ReadComboTag(ComboBox combo, string fallback)
+        {
+            return combo.SelectedItem is ComboBoxItem item && item.Tag is string tag
+                ? tag
+                : fallback;
+        }
+
+        private static int ReadComboInt(ComboBox combo, int fallback)
+        {
+            return combo.SelectedItem is ComboBoxItem item &&
+                int.TryParse(item.Tag?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+                ? value
+                : fallback;
+        }
+
+        private void DownloadTimerOption_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isBinding)
+            {
+                SaveUiIntoSettings();
+            }
+        }
+
+        private void ChkDownloadTimerEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            settings.DownloadTimerEnabled = ChkDownloadTimerEnabled.IsChecked == true;
+            SettingsService.Instance.Save();
+            DownloadTimerService.Instance.SyncWithSettings();
+            UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
+        }
+
+        private void OnDownloadTimerStatusChanged(DownloadTimerStatus status)
+        {
+            if (_isClosed || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosed)
+                {
+                    UpdateDownloadTimerUi(status);
+                }
+            }));
+        }
+
+        private void UpdateDownloadTimerUi(DownloadTimerStatus status)
+        {
+            if (status.Phase == DownloadTimerPhase.Disarmed &&
+                ChkDownloadTimerEnabled != null &&
+                ChkDownloadTimerEnabled.IsChecked == true)
+            {
+                _isBinding = true;
+                try
+                {
+                    ChkDownloadTimerEnabled.IsChecked = false;
+                }
+                finally
+                {
+                    _isBinding = false;
+                }
+            }
+
+            if (TxtDownloadTimerStatus == null || TxtDownloadTimerSpeed == null)
+            {
+                return;
+            }
+
+            string download = FormatTransferRate(status.DownloadBytesPerSecond);
+            string disk = status.DiskActivityAvailable
+                ? FormatTransferRate(status.DiskWriteBytesPerSecond)
+                : LocalizationService.Get("Settings_DownloadTimerDiskUnavailable");
+            TxtDownloadTimerSpeed.Text = LocalizationService.Format(
+                "Settings_DownloadTimerSpeedLine", download, disk);
+
+            switch (status.Phase)
+            {
+                case DownloadTimerPhase.WaitingForDownload:
+                    TxtDownloadTimerStatus.Text = LocalizationService.Get("Settings_DownloadTimerWaitingStart");
+                    break;
+                case DownloadTimerPhase.Monitoring:
+                    if (status.QuietElapsed > TimeSpan.Zero)
+                    {
+                        TxtDownloadTimerStatus.Text = LocalizationService.Format(
+                            "Settings_DownloadTimerLowActivity",
+                            FormatTimerDuration(status.QuietElapsed),
+                            FormatTimerDuration(status.QuietDuration));
+                    }
+                    else if (status.DownloadBytesPerSecond > 0)
+                    {
+                        TxtDownloadTimerStatus.Text = LocalizationService.Format(
+                            "Settings_DownloadTimerDownloading", download);
+                    }
+                    else
+                    {
+                        TxtDownloadTimerStatus.Text = LocalizationService.Get("Settings_DownloadTimerArmed");
+                    }
+                    break;
+                case DownloadTimerPhase.WaitingForDisk:
+                    TxtDownloadTimerStatus.Text = LocalizationService.Get("Settings_DownloadTimerWaitingDisk");
+                    break;
+                case DownloadTimerPhase.Warning:
+                    TxtDownloadTimerStatus.Text = LocalizationService.Format(
+                        "Settings_DownloadTimerWarning",
+                        DownloadActionLabel(status.Action),
+                        status.WarningSecondsRemaining);
+                    break;
+                default:
+                    TxtDownloadTimerStatus.Text = LocalizationService.Get("Settings_DownloadTimerDisarmed");
+                    break;
+            }
+        }
+
+        private static string DownloadActionLabel(DownloadPowerAction action)
+        {
+            return action switch
+            {
+                DownloadPowerAction.Hibernate => LocalizationService.Get("Settings_DownloadTimerHibernate"),
+                DownloadPowerAction.ShutDown => LocalizationService.Get("Settings_DownloadTimerShutDown"),
+                _ => LocalizationService.Get("Settings_DownloadTimerSleep")
+            };
+        }
+
+        private static string FormatTimerDuration(TimeSpan duration)
+        {
+            int totalSeconds = Math.Max(0, (int)Math.Round(duration.TotalSeconds));
+            return $"{totalSeconds / 60:00}:{totalSeconds % 60:00}";
+        }
+
+        private static string FormatTransferRate(double bytesPerSecond)
+        {
+            double value = Math.Max(0, bytesPerSecond);
+            if (value >= 1024 * 1024)
+            {
+                return $"{value / (1024 * 1024):0.0} MB/s";
+            }
+
+            return $"{value / 1024:0.0} KB/s";
         }
 
         private void LoadGpuOptions()
@@ -1324,20 +1874,56 @@ namespace CryoTray.Views
             public override string ToString() => DisplayName;
         }
 
-        private void LoadNormalPowerPlans()
+        private void LoadPowerProfiles(AppSettings settings)
         {
-            var plans = PowerPlanService.Instance.GetInstalledSchemes()
-                .Where(plan => !plan.Name.Equals(PowerPlanService.CryoTrayCoolingSchemeName,
-                    StringComparison.OrdinalIgnoreCase))
-                .OrderBy(plan => plan.Guid == PowerPlanService.BalancedGuid ? 0 : 1)
-                .ThenBy(plan => plan.Name, StringComparer.CurrentCultureIgnoreCase)
+            var coolingChoices = PowerProfiles.CoolingProfiles
+                .Select(CreateProfileChoice)
                 .ToList();
+            CmbCoolingProfile.ItemsSource = coolingChoices;
+            CmbCoolingProfile.SelectedItem = coolingChoices.FirstOrDefault(choice =>
+                string.Equals(choice.Key, settings.PreferredCoolingProfile, StringComparison.OrdinalIgnoreCase))
+                ?? coolingChoices[0];
+            UpdateProfileDescription(TxtCoolingProfileDesc, CmbCoolingProfile.SelectedItem as PowerProfileChoice);
 
-            CmbNormalPowerPlan.ItemsSource = plans;
+            var gamingChoices = PowerProfiles.GamingProfiles
+                .Select(CreateProfileChoice)
+                .ToList();
+            CmbGamingProfile.ItemsSource = gamingChoices;
+            CmbGamingProfile.SelectedItem = gamingChoices.FirstOrDefault(choice =>
+                string.Equals(choice.Key, settings.PreferredGamingProfile, StringComparison.OrdinalIgnoreCase))
+                ?? gamingChoices.First(choice => choice.Key == PowerProfiles.BalancedKey);
+            UpdateProfileDescription(TxtGamingProfileDesc, CmbGamingProfile.SelectedItem as PowerProfileChoice);
+        }
 
-            Guid selectedGuid = PowerPlanService.Instance.GetNormalPowerPlanGuid();
-            CmbNormalPowerPlan.SelectedItem = plans.FirstOrDefault(plan => plan.Guid == selectedGuid)
-                ?? plans.FirstOrDefault(plan => plan.Guid == PowerPlanService.BalancedGuid);
+        private static PowerProfileChoice CreateProfileChoice(PowerProfileDefinition profile)
+        {
+            Color color = (Color)ColorConverter.ConvertFromString(profile.Palette.Accent);
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return new PowerProfileChoice
+            {
+                Key = profile.Key,
+                DisplayName = $"{LocalizationService.Get(profile.NameKey)} · {LocalizationService.Get(profile.BadgeKey)}",
+                Description = LocalizationService.Get(profile.DescriptionKey),
+                AccentBrush = brush
+            };
+        }
+
+        private static void UpdateProfileDescription(TextBlock? target, PowerProfileChoice? choice)
+        {
+            if (target != null)
+            {
+                target.Text = choice?.Description ?? "";
+            }
+        }
+
+        private sealed class PowerProfileChoice
+        {
+            public string Key { get; init; } = "";
+            public string DisplayName { get; init; } = "";
+            public string Description { get; init; } = "";
+            public Brush AccentBrush { get; init; } = Brushes.Transparent;
+            public override string ToString() => DisplayName;
         }
 
         private void ChkLaunchStartup_Changed(object sender, RoutedEventArgs e)
@@ -1974,6 +2560,8 @@ namespace CryoTray.Views
         {
             // Restore defaults in settings.json
             SettingsService.Instance.Reset();
+            DownloadTimerService.Instance.CancelAndDisarm();
+            _ = GpuPowerControlService.Instance.DisableAsync();
             StartupTaskService.TrySetStartup(SettingsService.Instance.Current.LaunchOnStartup, out _);
 
             // Restore CryoTray Cooling Windows power scheme to exact baseline .pow state

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CryoTray | Cooling control for the Windows tray</title>
-  <meta id="meta-description" name="description" content="CryoTray is a Windows tray utility for low-heat cooling, CPU and GPU telemetry, RAM cleanup, storage health, and bilingual controls.">
+  <meta id="meta-description" name="description" content="CryoTray is a Windows tray utility for low-heat cooling, CPU and GPU telemetry, RAM cleanup, storage health, opt-in GPU power limits, a download-completion timer, and bilingual controls.">
   <meta name="theme-color" content="#0d0d0d">
   <link rel="icon" type="image/png" href="assets/cryotray-icon.png">
   <link rel="stylesheet" href="css/styles.css">
@@ -557,8 +557,8 @@
       <div class="container">
         <header class="section-head features-head">
           <div>
-            <h2 data-i18n="features.title">Six jobs, one tray icon.</h2>
-            <p class="section-copy" data-i18n="features.body">Cooling, telemetry, cleanup, and health checks live in the same Windows app. No cloud account and no separate dashboard service.</p>
+            <h2 data-i18n="features.title">Eight jobs, one tray icon.</h2>
+            <p class="section-copy" data-i18n="features.body">Cooling, telemetry, cleanup, opt-in power limits, and health checks live in the same Windows app. No cloud account and no separate dashboard service.</p>
           </div>
         </header>
 
@@ -650,6 +650,57 @@
           </article>
 
           <article class="feature-card">
+            <div class="feature-visual power-visual" aria-hidden="true">
+              <div class="power-head">
+                <span data-i18n="features.powerLabel">GPU power limit</span>
+                <span class="state-tag on" data-i18n="features.powerOn">On</span>
+              </div>
+              <div class="power-readout">
+                <bdi dir="ltr">70%</bdi>
+                <span data-i18n="features.powerPreset">Cool preset</span>
+              </div>
+              <div class="power-track"><span></span><i></i></div>
+              <div class="power-scale">
+                <span data-i18n="features.powerMin">VBIOS minimum</span>
+                <span data-i18n="features.powerDefault">Factory default</span>
+              </div>
+              <div class="visual-caption" data-i18n="features.powerCaption">Off by default. Unsupported VBIOS stays disabled.</div>
+            </div>
+            <div class="feature-copy">
+              <h3 data-i18n="features.powerTitle">A GPU power limit you turn on</h3>
+              <p data-i18n="features.powerBody">Lower the board power limit to cut GPU and hotspot temperatures. The control starts at the card's factory limit, restores it when you switch it off or close CryoTray, and stays disabled when the VBIOS will not allow changes.</p>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-visual timer-visual" aria-hidden="true">
+              <div class="timer-head">
+                <span data-i18n="features.timerLabel">Smart Download Timer</span>
+                <span class="state-tag on" data-i18n="features.timerArmed">Armed</span>
+              </div>
+              <div class="timer-facts">
+                <div class="timer-fact">
+                  <span data-i18n="features.timerQuiet">Quiet window</span>
+                  <bdi dir="auto" data-i18n="features.timerQuietValue">5 min</bdi>
+                </div>
+                <div class="timer-fact">
+                  <span data-i18n="features.timerDownload">Download</span>
+                  <bdi dir="ltr">200 KB/s</bdi>
+                </div>
+                <div class="timer-fact">
+                  <span data-i18n="features.timerDisk">Disk</span>
+                  <bdi dir="ltr">2 MB/s</bdi>
+                </div>
+              </div>
+              <div class="visual-caption" data-i18n="features.timerCaption">A 60-second warning appears before Sleep, Hibernate, or Shut Down.</div>
+            </div>
+            <div class="feature-copy">
+              <h3 data-i18n="features.timerTitle">A download timer that waits for the disk</h3>
+              <p data-i18n="features.timerBody">Arm a timer that watches download speed and disk activity, shows a 60-second warning, then puts the PC to Sleep, Hibernate, or Shut Down. It disarms itself after firing or when you cancel.</p>
+            </div>
+          </article>
+
+          <article class="feature-card">
             <div class="feature-visual health-visual" aria-hidden="true">
               <div class="health-head">
                 <span data-i18n="features.fanArmed">Fan armed</span>
@@ -695,7 +746,7 @@
             </div>
           </article>
         </div>
-        <p class="feature-note" data-i18n="features.sampleNote">Panels show sample readings from the app.</p>
+        <p class="feature-note" data-i18n="features.sampleNote">Panels show sample states from the app.</p>
       </div>
     </section>
   </main>

@@ -15,6 +15,7 @@ When proposing or implementing changes, keep these core design values in mind:
 3. **No Paywalls, No Telemetry**: CryoTray is completely free, open-source, and private. Never add telemetry, analytics, ad frameworks, or locked features.
 4. **Dark, Pixel-Perfect UI**: Maintain the dark aesthetic, crisp vector artwork, smooth animations, and modeless docking behavior across all views.
 5. **Full Bilingual Support**: Every user-facing string must exist in both English (`Strings.en.xaml`) and Arabic (`Strings.ar.xaml`) with correct right-to-left (RTL) handling.
+6. **Opt-In System Controls**: GPU power and download-timer features default off. GPU vendor libraries load only from System32, GPU writes clamp to the VBIOS range, and the native default is restored on disable, exit, unhandled exceptions, and session ending. The timer keeps its 60-second warning and cancel path and persists auto-disarm.
 
 ---
 
@@ -25,6 +26,7 @@ When proposing or implementing changes, keep these core design values in mind:
 - **SDK**: [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (version `8.0.300` or newer).
 - **IDE / Editor**: Visual Studio 2022 (with *.NET desktop development* workload), Visual Studio Code (with *C# Dev Kit*), or JetBrains Rider.
 - **Hardware Drivers**: [PawnIO 2.x](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) installed on the host machine for low-level CPU/motherboard sensor access.
+- **GPU Driver**: A current NVIDIA or AMD display driver for the opt-in GPU power limit. Unsupported or locked VBIOS ranges leave the control disabled.
 
 ### Getting the Code
 ```powershell
@@ -47,7 +49,7 @@ dotnet build -c Release
 CryoTray targets `net8.0-windows` with both `UseWPF=true` and `UseWindowsForms=true`.
 
 ### Run Automated Verification Tests
-CryoTray includes a built-in automated test suite that validates ring buffers, power plan integration, system queries, GDI leak prevention, WPF window instantiation, and per-core sensor logic:
+CryoTray includes a built-in automated test suite that validates ring buffers, power plan integration, system queries, GDI leak prevention, WPF window instantiation, per-core sensor logic, storage cleanup guards, GPU power bounds and defaults, and download-timer warning/cancel safety:
 ```powershell
 dotnet bin\Release\net8.0-windows\CryoTray.dll /test
 ```
@@ -100,16 +102,20 @@ Hardware polling runs on an asynchronous 1-second interval (`HardwareMonitorServ
 - Static system inventory (WMI) is queried once on startup or when explicitly opening the System Information window.
 
 ### 4. Modeless Utility Windows
-`SettingsWindow`, `SystemInfoWindow`, and `StressTestWindow` open as modeless, independently tracked windows:
+`SettingsWindow`, `SystemInfoWindow`, `StressTestWindow`, and `StorageCleanupWindow` open as modeless, independently tracked windows:
 - They must dock adjacent to `MainWindow` above the taskbar via `DockSideBySide()`.
 - They must not lock the main dashboard or cause it to hide on deactivation.
+- Storage Cleanup opens once as a 392 x 630 side panel, activates on reopen, and closes cleanly with Cancel or Escape.
 
 ### 5. Localization & RTL Rules
 - Add new strings to `Resources/Strings.en.xaml` and `Resources/Strings.ar.xaml`.
 - Use dynamic resource bindings (`Text="{DynamicResource StringKey}"`).
 - In Arabic (RTL) mode: UI layouts mirror horizontally, but hardware model names, numbers, clocks, and charts must remain left-to-right (`FlowDirection="LeftToRight"`).
 
-### 6. Commit Message Conventions
+### 6. Opt-In System Controls
+GPU power and download-timer features cross into hardware and OS power state. Keep both disabled by default, load GPU vendor libraries only from `%SystemRoot%\System32`, clamp every GPU write to the live VBIOS range, serialize driver calls, and restore the native default on disable, exit, unhandled exceptions, and session ending. Preserve the timer's 60-second warning and cancel path, persist auto-disarm, and fail closed when disk sampling is unavailable. Add tests for clamped presets, unsupported hardware, warning cancellation, and auto-disarm.
+
+### 7. Commit Message Conventions
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `feat:` A new user-facing feature
 - `fix:` A bug fix
@@ -124,7 +130,7 @@ feat(telemetry): add per-core CPU power readout support
 fix(tray): prevent tooltip cutoff when merged badge is active
 ```
 
-### 7. Versioning Scheme (`VERSION`)
+### 8. Versioning Scheme (`VERSION`)
 CryoTray uses three-part semantic versioning rooted at `0.0.100`:
 - **Current Baseline**: `0.0.103` (defined in the root `VERSION` file).
 - **Subsequent Updates**: Increment sequentially (`0.0.103`, `0.0.104`, `0.0.105`, etc.).
@@ -140,6 +146,7 @@ Before opening a pull request, verify:
 - [ ] Code compiles cleanly with zero warnings and zero errors (`dotnet build -c Release`).
 - [ ] All automated tests pass (`dotnet bin\Release\net8.0-windows\CryoTray.dll /test`).
 - [ ] Any new UI strings are localized in both `Strings.en.xaml` and `Strings.ar.xaml`.
+- [ ] New system-level controls are opt-in, restore system state on exit, and have tests for unsupported hardware and cancellation.
 - [ ] No GDI handle leaks are introduced (verify via test or Windows Task Manager GDI Objects column).
 - [ ] If releasing an update, the patch version in `VERSION` is bumped sequentially (e.g., `0.0.100` -> `0.0.101`).
 - [ ] Commit history is clean and follows Conventional Commits.

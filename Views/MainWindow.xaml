@@ -145,6 +145,145 @@
             </Setter>
         </Style>
 
+        <Style x:Key="PowerProfileMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="FontFamily" Value="{StaticResource SegoeUIVariableText}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="ProfileRowBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Path x:Name="ProfileCheckMark"
+                                      Data="M1,5 L4.5,8.5 L10,2"
+                                      Stroke="{DynamicResource AccentTextBrush}"
+                                      StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      HorizontalAlignment="Left"
+                                      VerticalAlignment="Center"
+                                      Visibility="Collapsed"/>
+                                <ContentPresenter Grid.Column="1"
+                                                  ContentSource="Header"
+                                                  HorizontalAlignment="Stretch"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ProfileCheckMark" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ProfileRowBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                <Setter TargetName="ProfileRowBorder" Property="BorderBrush" Value="{DynamicResource MenuHoverBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RamScopeGroupHeaderStyle" TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="FontFamily" Value="{StaticResource SegoeUIVariableText}"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="10,6,10,3"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter ContentSource="Header"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RamScopeMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="FontFamily" Value="{StaticResource SegoeUIVariableText}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="RamScopeRowBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Path x:Name="RamScopeCheckMark"
+                                      Data="M1,5 L4.5,8.5 L10,2"
+                                      Stroke="{DynamicResource RamAccentBrush}"
+                                      StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      HorizontalAlignment="Left"
+                                      VerticalAlignment="Center"
+                                      Visibility="Collapsed"/>
+                                <ContentPresenter Grid.Column="1"
+                                                  ContentSource="Header"
+                                                  HorizontalAlignment="Stretch"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="RamScopeCheckMark" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="RamScopeRowBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                <Setter TargetName="RamScopeRowBorder" Property="BorderBrush" Value="{DynamicResource MenuHoverBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="DarkMenuSeparatorStyle" TargetType="Separator">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Focusable" Value="False"/>
@@ -1183,7 +1322,66 @@
                             </Grid>
                         </Viewbox>
 
-                        <TextBlock Text="{DynamicResource Main_CoolingMode}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{DynamicResource Main_CoolingMode}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="16" FontWeight="SemiBold"/>
+                            <Button x:Name="BtnPowerProfileMenu"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Margin="0,1,0,0"
+                                    Cursor="Hand"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="0"
+                                    FocusVisualStyle="{x:Null}"
+                                    ToolTip="{DynamicResource Settings_PowerProfiles}"
+                                    AutomationProperties.Name="{DynamicResource Settings_PowerProfiles}"
+                                    Click="BtnPowerProfileMenu_Click">
+                                <Button.ContextMenu>
+                                    <ContextMenu x:Name="PowerProfileMenu"
+                                                 Style="{StaticResource RamDarkContextMenuStyle}"
+                                                 Opened="PowerProfileMenu_Opened"/>
+                                </Button.ContextMenu>
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="ProfileButtonBorder"
+                                                Background="Transparent"
+                                                BorderBrush="Transparent"
+                                                BorderThickness="1"
+                                                CornerRadius="3"
+                                                Padding="2,1">
+                                            <ContentPresenter VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ProfileButtonBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                            </Trigger>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding IsKeyboardFocused, RelativeSource={RelativeSource TemplatedParent}}" Value="True"/>
+                                                    <Condition Binding="{Binding ShowKeyboardFocusCues, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" Value="True"/>
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter TargetName="ProfileButtonBorder" Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}"/>
+                                            </MultiDataTrigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtActivePowerProfile"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="10.5"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxWidth="250"
+                                               VerticalAlignment="Center"/>
+                                    <Path Data="M0,0 L3.2,3.2 L6.4,0"
+                                          Stroke="{DynamicResource TextTertiaryBrush}"
+                                          StrokeThickness="1.25"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          Margin="5,1,0,0"
+                                          VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- Right: Info + Smooth Animated Pill Toggle Switch matching Camomile -->
@@ -1503,16 +1701,106 @@
                                     AutomationProperties.Name="{DynamicResource Ram_OptimizeAutomation}">
                                 <Button.ContextMenu>
                                     <ContextMenu x:Name="RamScopeMenu"
+                                                 MinWidth="340"
                                                  Style="{StaticResource RamDarkContextMenuStyle}"
                                                  Opened="RamScopeMenu_Opened">
+                                        <MenuItem x:Name="MenuRamScopeHeader"
+                                                  Header="{DynamicResource Ram_MenuScopeHeader}"
+                                                  Style="{StaticResource RamScopeGroupHeaderStyle}"
+                                                  IsEnabled="False"
+                                                  Focusable="False"
+                                                  AutomationProperties.Name="{DynamicResource Ram_MenuScopeHeader}"/>
                                         <MenuItem x:Name="MenuRamFreeWorkingSets"
-                                                  Header="{DynamicResource Ram_MenuFreeWorkingSets}"
+                                                  Style="{StaticResource RamScopeMenuItemStyle}"
                                                   IsCheckable="True"
-                                                  Click="MenuRamScope_Click"/>
+                                                  Click="MenuRamScope_Click"
+                                                  AutomationProperties.Name="{DynamicResource Ram_MenuFreeWorkingSets}"
+                                                  AutomationProperties.HelpText="{DynamicResource Ram_MenuFreeWorkingSets}">
+                                            <MenuItem.Header>
+                                                <Grid VerticalAlignment="Center">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Ellipse Width="8" Height="8"
+                                                             Fill="{DynamicResource RamAccentBrush}"
+                                                             Margin="0,0,8,0"
+                                                             VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{DynamicResource Ram_MenuFreeWorkingSetsShort}"
+                                                               FontSize="12.5"
+                                                               FontWeight="SemiBold"
+                                                               Margin="0,0,12,0"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{DynamicResource Ram_MenuFreeWorkingSetsBadge}"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                               FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </MenuItem.Header>
+                                        </MenuItem>
                                         <MenuItem x:Name="MenuRamClearStandby"
-                                                  Header="{DynamicResource Ram_MenuClearStandby}"
+                                                  Style="{StaticResource RamScopeMenuItemStyle}"
                                                   IsCheckable="True"
-                                                  Click="MenuRamScope_Click"/>
+                                                  Click="MenuRamScope_Click"
+                                                  AutomationProperties.Name="{DynamicResource Ram_MenuClearStandby}"
+                                                  AutomationProperties.HelpText="{DynamicResource Ram_MenuClearStandby}">
+                                            <MenuItem.Header>
+                                                <Grid VerticalAlignment="Center">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Ellipse Width="8" Height="8"
+                                                             Fill="{DynamicResource RamAccentBrush}"
+                                                             Margin="0,0,8,0"
+                                                             VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{DynamicResource Ram_MenuClearStandbyShort}"
+                                                               FontSize="12.5"
+                                                               FontWeight="SemiBold"
+                                                               Margin="0,0,12,0"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{DynamicResource Ram_MenuClearStandbyBadge}"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                               FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </MenuItem.Header>
+                                        </MenuItem>
+                                        <Separator Style="{StaticResource DarkMenuSeparatorStyle}"/>
+                                        <MenuItem x:Name="MenuRamStorageCleanup"
+                                                  Style="{StaticResource RamScopeMenuItemStyle}"
+                                                  Click="MenuRamStorageCleanup_Click"
+                                                  AutomationProperties.Name="{DynamicResource Ram_StorageCleanup}">
+                                            <MenuItem.Header>
+                                                <Grid VerticalAlignment="Center">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="16"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{DynamicResource Ram_StorageCleanup}"
+                                                               FontSize="12.5"
+                                                               FontWeight="SemiBold"
+                                                               Margin="0,0,12,0"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{DynamicResource Ram_StorageCleanupBadge}"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                               FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </MenuItem.Header>
+                                        </MenuItem>
                                     </ContextMenu>
                                 </Button.ContextMenu>
                                 <Button.Template>
@@ -1780,7 +2068,7 @@
                         </StackPanel>
                     </Grid>
 
-                    <!-- GPU detail expansion, hidden unless enabled in Settings > View. -->
+                    <!-- GPU detail expansion, hidden unless enabled in Settings > GPU. -->
                     <Grid x:Name="GpuDetailsRow" Height="26" Visibility="Collapsed" Margin="36,0,0,0">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" FlowDirection="LeftToRight">
                             <StackPanel x:Name="GpuVramUsageGroup" Orientation="Horizontal" Margin="0,0,16,0">

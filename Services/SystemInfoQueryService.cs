@@ -768,6 +768,13 @@ namespace CryoTray.Services
             sb.AppendLine($"CryoTray {UpdateService.CurrentVersion}");
             sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
             sb.AppendLine($"OS: {data.OperatingSystem}");
+            var activeProfile = PowerPlanService.Instance.GetActiveProfile();
+            string activeProfileName = activeProfile != null
+                ? LocalizationService.Get(activeProfile.NameKey)
+                : PowerPlanService.Instance.GetInstalledSchemes()
+                    .FirstOrDefault(scheme => scheme.IsActive)?.Name ?? "Unknown";
+            Guid activeProfileGuid = activeProfile?.SchemeGuid ?? PowerPlanService.Instance.GetActiveSchemeGuid();
+            sb.AppendLine($"Power profile: {activeProfileName} ({activeProfileGuid})");
             sb.AppendLine($"CPU: {(string.IsNullOrWhiteSpace(data.ProcessorName) ? snapshot.CpuName : data.ProcessorName)}");
             sb.AppendLine(
                 $"  Temp: {FormatTemp(snapshot.CpuTemp)} | Load: {FormatPercent(snapshot.CpuLoad)} | Power: {FormatWatts(snapshot.CpuPackageWatts)}");

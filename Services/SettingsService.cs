@@ -71,6 +71,21 @@ namespace CryoTray.Services
             }
         }
 
+        internal void SaveWithoutNotification()
+        {
+            lock (_ioLock)
+            {
+                try
+                {
+                    WriteAtomicJson(SettingsFile, Current);
+                }
+                catch
+                {
+                    // Ignore
+                }
+            }
+        }
+
         internal static void WriteAtomicJson(string targetPath, AppSettings settings)
         {
             string? directory = Path.GetDirectoryName(targetPath);

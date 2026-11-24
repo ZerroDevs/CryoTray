@@ -5,6 +5,8 @@ namespace CryoTray.Models
 {
     public class AppSettings
     {
+        public const string DefaultRamTrayBadgeColor = "#62B0E8";
+
         public string Language { get; set; } = "English"; // "English" or "العربية"
         public string Theme { get; set; } = "Dark"; // "Dark", "Light", or "System"
         public string TemperatureUnit { get; set; } = "Celsius"; // "Celsius" or "Fahrenheit"
@@ -34,11 +36,20 @@ namespace CryoTray.Models
         public string RamHotkeyModifiers { get; set; } = "Ctrl+Alt";
         public string RamHotkeyKey { get; set; } = "M";
 
+        // Storage & Cache Cleanup
+        public bool CleanTemp { get; set; } = true;
+        public bool CleanBrowserCache { get; set; } = false;
+        public bool CleanGpuShaderCache { get; set; } = false;
+        public bool CleanPrefetch { get; set; } = false;
+
         // View
         public bool ShowGpuBadge { get; set; } = true;
         public bool ShowCpuBadge { get; set; } = true;
+        public bool ShowRamBadge { get; set; } = false;
         public bool CpuTrayWhiteDigits { get; set; } = false;
         public bool GpuTrayWhiteDigits { get; set; } = false;
+        public bool RamTrayWhiteDigits { get; set; } = false;
+        public string RamTrayBadgeColor { get; set; } = DefaultRamTrayBadgeColor;
         public string CpuTrayBadgeMetric { get; set; } = "Temperature";
         public string GpuTrayBadgeMetric { get; set; } = "Temperature";
         public string CoolingOnFrameColor { get; set; } = "#2B88D8";
@@ -76,6 +87,9 @@ namespace CryoTray.Models
         // CPU & Power Plan
         public string CoolingPowerPlanGuid { get; set; } = "";
         public string NormalPowerPlanGuid { get; set; } = "381b4222-f694-41f0-9685-ff5bb260df2e"; // Balanced
+        public string PreferredCoolingProfile { get; set; } = "Cooling";
+        public string PreferredGamingProfile { get; set; } = PowerProfiles.BalancedKey;
+        public string OriginalActivePowerPlanGuid { get; set; } = "";
         public int MaxCpuThrottlePercent { get; set; } = 99; // Default 99%
         public int PerfBoostMode { get; set; } = 0; // 0 = Disabled (Default), 1 = Enabled
 
@@ -115,6 +129,19 @@ namespace CryoTray.Models
         public bool FanHealthAlertsEnabled { get; set; } = true;
         public Dictionary<string, string> FanAliases { get; set; } = new();
         public bool StorageHealthAlertsEnabled { get; set; } = true;
+
+        // Opt-in GPU power limit control (off for fresh installs and upgrades)
+        public bool GpuPowerControlEnabled { get; set; } = false;
+        public double GpuLastPowerLimitPercent { get; set; } = 100;
+        public bool GpuReapplyPowerLimitOnStartup { get; set; } = false;
+
+        // Opt-in download-completion power timer (disarmed for fresh installs and upgrades)
+        public bool DownloadTimerEnabled { get; set; } = false;
+        public string DownloadTimerAction { get; set; } = "Sleep";
+        public int DownloadTimerThresholdKbps { get; set; } = 200;
+        public int DownloadTimerQuietMinutes { get; set; } = 5;
+        public bool DownloadTimerDiskGuard { get; set; } = true;
+        public bool DownloadTimerWaitForStart { get; set; } = true;
 
         // Updates
         public bool AutomaticUpdateChecks { get; set; } = true;

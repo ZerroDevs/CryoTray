@@ -1,4 +1,4 @@
-Power Scheme GUID: 4e2a2b94-6646-493e-9f10-64f712e088aa  (Camomile)
+Power Scheme GUID: 4e2a2b94-6646-493e-9f10-64f712e088aa  (CryoTray Cooling)
   Subgroup GUID: fea3413e-7e05-4911-9a71-700331f1c294  (Settings belonging to no subgroup)
     GUID Alias: SUB_NONE
     Power Setting GUID: 0e796bdb-100d-47d6-a2d5-f7d2daa51f51  (Require a password on wakeup)

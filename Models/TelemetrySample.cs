@@ -21,6 +21,7 @@ namespace CryoTray.Models
         public double RamUsedGb { get; set; } = double.NaN;
         public double RamUsagePercent { get; set; } = double.NaN;
         public bool CoolingModeActive { get; set; }
+        public string? PowerProfileKey { get; set; }
         public KeyValuePair<string, double>[]? DriveTemps { get; set; }
         public KeyValuePair<string, double>[]? GpuTemps { get; set; }
         public KeyValuePair<string, double>[]? GpuLoads { get; set; }
@@ -30,7 +31,7 @@ namespace CryoTray.Models
         public double StressIterationsPerSecond { get; set; } = double.NaN;
 
         /// <summary>Creates a telemetry sample from a full hardware snapshot.</summary>
-        public static TelemetrySample FromSnapshot(HardwareSnapshot snapshot)
+        public static TelemetrySample FromSnapshot(HardwareSnapshot snapshot, string? powerProfileKey = null)
         {
             KeyValuePair<string, double>[]? driveTemps = null;
             if (snapshot.StorageDrives is { Count: > 0 } drives)
@@ -81,6 +82,7 @@ namespace CryoTray.Models
                 RamUsedGb = snapshot.RamUsedGb,
                 RamUsagePercent = snapshot.RamUsagePercent,
                 CoolingModeActive = snapshot.CoolingModeActive,
+                PowerProfileKey = powerProfileKey,
                 DriveTemps = driveTemps,
                 GpuTemps = gpuTemps,
                 GpuLoads = gpuLoads,

@@ -12,7 +12,7 @@
   <strong>A native Windows system tray hardware monitor and low-heat CPU power utility, created by ZeroNuxi under ZerroDevs.</strong>
 </p>
 
-CryoTray keeps CPU, GPU, and storage temperatures visible without leaving a large monitoring window open. It combines a compact tray badge, an on-demand dashboard, a floating telemetry overlay, and a dedicated Windows power plan that lowers processor heat. Everything runs locally, with no account and no telemetry.
+CryoTray keeps CPU, GPU, and storage temperatures visible without leaving a large monitoring window open. It combines a compact tray badge, an on-demand dashboard, a floating telemetry overlay, six CryoTray power profiles for cooling and gaming, and the Windows Balanced default. An opt-in GPU board-power limit and an opt-in download-completion timer add targeted heat and shutdown controls; both are off until enabled. Everything runs locally, with no account and no telemetry.
 
 CryoTray does not control fans or voltages. Cooling Mode changes Windows processor power policy and is intended to reduce heat, not replace BIOS thermal protection.
 
@@ -20,8 +20,10 @@ CryoTray does not control fans or voltages. Cooling Mode changes Windows process
 
 - [At a glance](#at-a-glance)
 - [Feature tour](#feature-tour)
-- [Cooling Mode](#cooling-mode)
+- [Cooling Mode and power profiles](#cooling-mode-and-power-profiles)
+- [GPU power limit](#gpu-power-limit)
 - [Autopilot](#autopilot)
+- [Smart Download Timer](#smart-download-timer)
 - [Tray behavior and alerts](#tray-behavior-and-alerts)
 - [Floating overlay](#floating-overlay)
 - [Utility windows](#utility-windows)
@@ -44,11 +46,12 @@ CryoTray does not control fans or voltages. Cooling Mode changes Windows process
 | --- | --- |
 | Platform | Windows 10 and Windows 11, x64 |
 | Runtime | .NET 8 with WPF and Windows Forms |
-| Privileges | Administrator, required by the application manifest for hardware sensor access |
+| Privileges | Administrator, required by the application manifest for hardware sensor access and system-level power controls |
 | Sensor source | LibreHardwareMonitorLib 0.9.6, with WMI used only for system inventory |
 | Sensor driver | PawnIO 2.x for low-level CPU and motherboard access |
 | Tray badges | GPU, CPU, or one combined split badge |
-| Cooling method | A dedicated `CryoTray Cooling` Windows power plan |
+| Cooling method | Six CryoTray Windows power profiles plus the Windows Balanced default |
+| Opt-in controls | GPU board-power limit and Smart Download Timer; both disabled by default |
 | Overlay | Optional always-on-top telemetry panel with selectable metrics |
 | Appearance | **Dark** (default), **Light**, or **System**; shared by every window and the tray menu |
 | Localization | English and Arabic, including right-to-left layouts |
@@ -69,25 +72,25 @@ The CPU section includes:
 - An underline on every core tied for the hottest reading.
 - Current CPU clock speed (with optional nominal base speed toggle) and, when the processor exposes it, package power.
 - A live CPU chart with 1, 5, 10, 30, and 60 minute timeframes, switchable between the full-width **Large** graph and a compact inline **Small** `CPU (AMD)` / `CPU (Intel)` row (or hidden).
-- An animated six-petal cooling fan that spins faster in Cooling Mode and shifts from custom/default ice blue to copper with the active power plan.
+- An animated six-petal cooling fan that spins faster in Cooling Mode and follows the active profile: ice blue for Cooling and Legacy, emerald for Gaming (Low), amber for Gaming (Medium), copper for Gaming (High) and Windows Balanced, and crimson for Gaming (Ultimate). The CPU chart preserves each sample's plan color: Cooling and Legacy blue, Balanced and High copper, Low emerald, Medium amber, and Ultimate crimson. A plan change only colors new samples, so older runs keep the color they were recorded with.
 
 The GPU section includes:
 
 - Current GPU temperature and load.
-- An inline GPU chart synchronized with the selected timeframe, plotting temperature, power, or load (selectable under **Settings > View**).
+- An inline GPU chart synchronized with the selected timeframe, plotting temperature, power, or load (selectable under **Settings > GPU**).
 - GPU power, hotspot temperature, VRAM temperature, fan speed, and the GPU name when the hardware reports them.
-- An optional details row with VRAM used/total, core and memory clocks, and any reported performance limit (off by default; enable **Show GPU details** under Settings > View).
+- An optional details row with VRAM used/total, core and memory clocks, and any reported performance limit (off by default; enable **Show GPU details** under Settings > GPU).
 - Per-readout visibility controls, so the row can stay compact.
 
 The storage area lists detected storage drives with drive letters (`SSD (C:)` / `HDD (D:)`), badge letters inside the drive icon, inline SMART health percentages, and temperatures or optional per-drive live temperature graphs (`1` to `60` minute window). Hovering a drive shows its model, health, and status; individual drives can be hidden from **Settings > Disk**, or all storage rows can be toggled off via **Show SSD/HDD temperature**.
 
-The RAM row shows live used and usable capacity, utilization percentage, a `2 px` real-time breakdown indicator (`In Use`, `Standby`, `Free`), an inline `Optimize RAM` split action button (with persisted working-set/modified and standby cleaning scopes), and a live-updating hover/click `Memory Breakdown` tooltip (`Installed`, `In Use`, `Available`, `Free`, `Standby`, `Modified`, `Cached`, `Hardware Reserved`, and session `Last freed`).
+The RAM row shows live used and usable capacity, utilization percentage, a `2 px` real-time breakdown indicator (`In Use`, `Standby`, `Free`), an inline `Optimize RAM` split action button (with persisted working-set/modified and standby cleaning scopes), a dropdown that opens **Storage & Cache Cleanup...**, and a live-updating hover/click `Memory Breakdown` tooltip (`Installed`, `In Use`, `Available`, `Free`, `Standby`, `Modified`, `Cached`, `Hardware Reserved`, and session `Last freed`). The chevron menu uses the same row language as the profile selector: a muted `Cleanup scope` label, bare checkmarks, scope dots, compact titles with right-aligned descriptors, and a separated utility row.
 
 The dashboard also exposes optional Overlay and Autopilot rows, a Cooling Mode switch, and title-bar icons for Settings, System Information, and the CPU Temperature Test. The title icons use the cooling accent while their window is open and remain neutral when closed.
 
 ### Modeless utility windows
 
-Settings, System Information, and CPU Temperature Test open as independent modeless windows. Opening one does not disable the dashboard, and the dashboard remains clickable. Clicking the same title icon again closes that utility. All three can be open at the same time.
+Settings, System Information, and CPU Temperature Test open as independent modeless windows. Opening one does not disable the dashboard, and the dashboard remains clickable. Clicking the same title icon again closes that utility. Storage & Cache Cleanup opens as a modeless companion from the RAM row, and all four can be open at the same time.
 
 Keyboard focus remains visible with an accent border. Mouse interaction does not leave the white focus outline that previously appeared around title-bar buttons.
 
@@ -125,25 +128,32 @@ Settings > About checks the latest GitHub release and can download and install a
 
 If you are upgrading from `v0.0.100`, use the setup manually once. That release's updater prefers ZIP assets and can fail before the new installer runs. `v0.0.101` and later correctly choose the setup for installed copies.
 
-## Cooling Mode
+## Cooling Mode and power profiles
 
-Cooling Mode activates a Windows power scheme named `CryoTray Cooling`. The scheme is embedded in the application as `Resources\CryoTray.pow` and imported automatically on first use when it is not already installed.
+Cooling Mode activates one of CryoTray's six deterministic Windows power profiles or the built-in Windows Balanced plan. Cooling Mode on uses the preferred cooling profile; Cooling Mode off uses the preferred off profile, which defaults to Windows Balanced. The active plan is synchronized every two seconds, so changes made through Windows' own power settings are reflected in the UI.
 
 <p align="center">
   <img src="Images/Cooling_ON.png" alt="Cooling Mode on" width="260">
   <img src="Images/Cooling_OFF.png" alt="Cooling Mode off" width="260">
 </p>
 
-<p align="center"><em>Cooling Mode on in ice blue, off in copper.</em></p>
+<p align="center"><em>Cooling ON in ice blue, OFF in copper, with emerald, amber, and crimson tiers for gaming.</em></p>
 
-The default Cooling Mode configuration:
+| Profile | Badge | When to use it |
+| --- | --- | --- |
+| `CryoTray — Cooling` | Default | Maximum thermal reduction and quiet operation for browsing, downloads, and light desktop work |
+| `CryoTray Cooling - Legacy` | Classic | The original CryoTray cooling tuning, with 0% AC EPP and every core unparked |
+| `Windows Balanced` | Windows Default | Standard Windows plan, used by default when Cooling Mode is off |
+| `CryoTray — Gaming (Low)` | Cool Gaming | Esports, indie games, or thin laptops where heat matters more than peak boost |
+| `CryoTray — Gaming (Medium)` | Balanced | AAA games that need smooth frame times without unnecessary heat |
+| `CryoTray — Gaming (High)` | Full Boost | Demanding games that need full CPU boost and no PCIe, USB, or NVMe power saving |
+| `CryoTray — Gaming (Ultimate)` | Zero Latency | Competitive play and benchmarks, with 100% minimum processor state |
 
-- Processor Performance Boost Mode, `PERFBOOSTMODE`: disabled.
-- Maximum Processor State, `PROCTHROTTLEMAX`: 99%.
+The default cooling profile disables boost (`PERFBOOSTMODE` 0) and caps the processor at 99% (`PROCTHROTTLEMAX`). The Legacy profile keeps the original tuning and still honors the Boost Mode and Maximum Processor State controls in Settings > CPU. Windows Balanced is the default off profile; pick a CryoTray gaming profile if Cooling Mode off should use tuned gaming values.
 
-Both values can be changed in Settings > CPU. The processor maximum can be set from 50% to 100%, and boost can be enabled when full performance is preferred. These values are applied to the CryoTray Cooling scheme, not to the normal power plan.
+The active-plan label under the dashboard Cooling Mode switch is a compact dropdown. It groups the same **Cooling** and **Cooling Off** choices in one menu and shows checkmarks for both preferred profiles from Settings. Selecting a profile saves it and applies it immediately when that mode is active; selecting from the inactive group updates the future preference. Changes made in Settings appear in the dropdown, and changes made in the dropdown appear in Settings.
 
-When Cooling Mode is off, CryoTray activates the configured normal power plan. Balanced is the default. Turning Cooling Mode on switches to the CryoTray plan; turning it off restores the normal plan. The active plan is synchronized every two seconds, so changes made through Windows' own power settings are reflected in the UI.
+At most one CryoTray plan is installed at a time. Switching duplicates the Windows Balanced scheme into the target profile's fixed GUID, writes its AC and DC values, activates it, then deletes the other five CryoTray plans. Choosing Windows Balanced activates it and deletes every installed CryoTray plan, so none are left behind. Built-in Windows plans and third-party plans are never modified or deleted. The original active plan is captured before the first switch and restored when power management is disabled on exit or CryoTray is uninstalled. An old single `CryoTray Cooling` plan from an earlier version is migrated to the Legacy profile.
 
 Cooling Mode is available from:
 
@@ -153,22 +163,50 @@ Cooling Mode is available from:
 - A configurable global hotkey supporting `Ctrl`, `Alt`, `Shift`, and `Win` plus `A-Z`, `0-9`, or `F1-F12`, disabled by default.
 - The `Enable Cooling Mode on app launch` setting.
 
-Because the application runs elevated, it can import and activate power schemes without an additional prompt after launch.
+Because the application runs elevated, it can create and activate power schemes without an additional prompt after launch.
+
+## GPU power limit
+
+The GPU power limit is an opt-in control in **Settings > GPU**. It is off by default. Enabling it reads the board power range exposed by the VBIOS, applies the native default, and then enables:
+
+- **Cool (70%)**: sets the board power limit to 70%, clamped up to the VBIOS minimum when that minimum is higher.
+- **Balanced (85%)**: sets the board power limit to 85%, using the same VBIOS clamp.
+- **Full / Default (100%)**: restores the native VBIOS default, capped at 100%.
+- **Fine power limit**: a slider bounded by the VBIOS minimum and 100%.
+- **Reset**: restores the native VBIOS default without turning the control off.
+
+The chosen value is written through the installed NVIDIA or AMD driver. Every vendor call is serialized on a background thread, every write is read back, and the native default is restored when the control is switched off, when CryoTray exits normally, on an unhandled exception, and when Windows ends the session. A saved preset is re-applied at startup only when **Re-apply last GPU preset on CryoTray startup** is enabled; otherwise the native default is applied once.
+
+Support depends on the GPU, driver, and VBIOS. Firmware that reports a locked or unusable range shows **Power limit control not supported by this GPU's VBIOS** and leaves the switch disabled. The control changes board power limits only. It does not change fan curves, voltages, or BIOS settings.
 
 ## Autopilot
 
-Autopilot monitors running processes every 2.5 seconds using a single Win32 `CreateToolhelp32Snapshot` scan and can optionally watch for active fullscreen 3D or borderless games via `SHQueryUserNotificationState`. If a whitelisted app or a fullscreen game is active while Cooling Mode is on, Autopilot pauses Cooling Mode for full performance and restores it once clear.
+Autopilot monitors running processes every 2.5 seconds using a single Win32 `CreateToolhelp32Snapshot` scan and can optionally watch for active fullscreen 3D or borderless games via `SHQueryUserNotificationState`. If a whitelisted app or a fullscreen game is active while Cooling Mode is on, Autopilot switches to the preferred off profile; when the game closes, it restores the preferred cooling profile.
 
 Important behavior:
 
-- Autopilot only pauses cooling that is already active. It does not turn Cooling Mode on by itself.
+- Autopilot only switches away from a cooling profile that is already active. It does not turn Cooling Mode on by itself.
 - Entries are stored by executable name, so a selected game can be matched regardless of its install path.
-- Fullscreen auto-pause can be enabled from Settings > Autopilot independently of or alongside the whitelist.
+- Fullscreen auto-switch can be enabled from Settings > Autopilot independently of or alongside the whitelist.
 - Foreground-only pause is available under Settings > Autopilot. When enabled, a whitelisted app pauses Cooling Mode only while it owns the foreground window, so a background launcher cannot keep Cooling Mode off after the game closes.
 - Running applications can be picked from a list, or a portable executable can be added with the file browser.
 - Removing an entry will not affect any process that is already running; the next poll updates the state.
 
 Autopilot is useful for games that should not be limited by the low-heat processor settings. Users who never enable Cooling Mode do not need Autopilot.
+
+## Smart Download Timer
+
+The Smart Download Timer is an opt-in control in **Settings > Autopilot** and the tray menu. It is disarmed by default.
+
+When armed, CryoTray samples received traffic from non-loopback, non-tunnel network adapters once per second. It can wait for an active download before starting, then requires a continuous quiet window below the selected threshold. The defaults are 5 minutes below 200 KB/s. The optional disk guard holds the timer while total disk writes are at or above 2 MB/s, so unpacking or installation work is not interrupted; if the disk counter cannot be read, the guard fails closed.
+
+After the quiet window, a topmost warning counts down for 60 seconds and offers **Cancel**. Returning download or disk activity cancels the warning. When the countdown ends, CryoTray performs the selected action:
+
+- **Sleep** (default) through `SetSuspendState`.
+- **Hibernate** through `SetSuspendState` when Windows hibernation is enabled.
+- **Shut Down** through the System32 `shutdown.exe` with fixed `/s /t 0` arguments.
+
+The timer disarms itself after firing or a manual cancel, and persists the disarmed state, so waking the PC cannot immediately put it back to sleep. Closing the warning window, including with Alt+F4, also cancels the action. Session ending stops the timer.
 
 ## Tray behavior and alerts
 
@@ -194,7 +232,7 @@ The startup task is created through Windows Task Scheduler as `CryoTray` using T
 
 ## Floating overlay
 
-The floating overlay is a small always-on-top telemetry panel for use alongside games, benchmarks, or other full-window applications. Enable an Overlay row on the dashboard, then use that row to show or hide the panel. The overlay remembers its position between sessions.
+The floating overlay is a small always-on-top telemetry panel for use alongside games, benchmarks, or other full-window applications. Enable **Show Overlay row** under Settings > Overlay, then use that row to show or hide the panel. The overlay remembers its position between sessions.
 
 Selectable metrics:
 
@@ -205,7 +243,7 @@ Selectable metrics:
 
 The overlay groups CPU, GPU, RAM, and battery metrics separately and hides empty groups automatically. If every metric is disabled, it shows `No metrics selected` instead of an empty panel. Opacity is adjustable from 0% to 100%; at 0% the background becomes fully transparent while the text remains visible.
 
-When **Click-through overlay** is enabled (`WS_EX_TRANSPARENT`), mouse clicks pass directly to games and windows underneath and the close button is hidden. You can disable click-through from Settings > View or the system tray context menu. Otherwise, the overlay can be dragged by its surface and closed with its close button. Exclusive fullscreen applications may cover desktop overlays; borderless windowed mode generally works better.
+When **Click-through overlay** is enabled (`WS_EX_TRANSPARENT`), mouse clicks pass directly to games and windows underneath and the close button is hidden. You can disable click-through from Settings > Overlay or the system tray context menu. Otherwise, the overlay can be dragged by its surface and closed with its close button. Exclusive fullscreen applications may cover desktop overlays; borderless windowed mode generally works better.
 
 ## Utility windows
 
@@ -245,9 +283,20 @@ System Information reads the machine inventory when the window opens and refresh
 
 `Save to...` writes a plain-text system report. **Copy** copies a shorter diagnostics snapshot containing the app version, CPU, GPU, temperatures, RAM, fan states, and drive health. Copied diagnostics omit serial numbers, PC names, and file paths. Missing values from unsupported hardware or unavailable WMI providers are shown as unknown or not reported instead of failing the window.
 
+### Storage & Cache Cleanup
+
+Open **Storage & Cache Cleanup...** from the dropdown beside **Optimize RAM**. It opens as a 392 x 630 modeless companion beside the dashboard. The panel scans four categories asynchronously, then shows selected bytes and files found, `Selected X of Y` with a selection-aware category distribution bar, system-drive free space with a usage bar, and the reclaimable size and file count beside each category:
+
+- **User & System Temporary Files** (checked by default): leftovers under `%TEMP%` and `%WINDIR%\Temp`. The Temp roots themselves are never removed.
+- **Web Browser Cache** (opt-in): cache directories for Chrome, Edge, Brave, Opera/Opera GX, and Firefox only. Cookies, passwords, logins, history, bookmarks, sessions, local storage, and IndexedDB are never touched. If a supported browser is running, active files are skipped safely.
+- **GPU & DirectX Shader Cache** (opt-in): compiled DirectX, NVIDIA, AMD, and Intel shader caches. Caches rebuild on first launch and may cause brief stutter, so this is mainly useful after a GPU driver update introduces stutter.
+- **Windows Prefetch** (advanced, opt-in): only `.pf` and `.db` files. Windows rebuilds this data, so cold starts are temporarily slower after clearing it.
+
+Reparse points are skipped, every path is checked against its category root, locked files are counted separately, and the freed size is counted only after a successful delete. The service refuses drive roots, Windows and System32, user profiles, LocalAppData, AppData, ProgramData, Program Files, and other broad system folders, so a redirected TEMP path cannot turn cleanup into a system-wide delete. Checkbox choices persist in the settings file. The primary action shows the selected bytes (`Clean 3.84 GB`), stays disabled with no selection, while scanning, and before the first scan completes, and asks for confirmation only when a browser, GPU shader, or Prefetch category is selected. Scan and cleanup progress are shown in the panel; Cancel stops active work without closing it, closing during work asks first, and scan failures offer Rescan. After cleanup, the result includes freed bytes by category.
+
 ### Settings
 
-Settings opens as a modeless companion window and includes eight tabs: General, View, CPU, Memory, Disk, GPU, Autopilot, and About. The footer can export all settings to JSON, import them back, or reset them to defaults. Changes apply immediately and are saved to disk.
+Settings opens as a modeless companion window and includes nine tabs: General, View, Overlay, CPU, Memory, Disk, GPU, Autopilot, and About. The footer can export all settings to JSON, import them back, or reset them to defaults. Changes apply immediately and are saved to disk.
 
 ## Settings reference
 
@@ -266,9 +315,9 @@ Settings opens as a modeless companion window and includes eight tabs: General, 
 | Show computer name | Adds the PC name to the dashboard title area |
 | Launch app on PC startup | Creates or removes the `CryoTray` Task Scheduler entry |
 | Launch app in background mode | Starts without opening the dashboard |
-| Enable Cooling Mode on app launch | Activates the cooling plan at startup |
-| Auto-enable Cooling Mode on battery | Switches to Cooling Mode when AC power disconnects and restores the normal plan when plugged back in |
-| Disable Cooling Mode on closing the app | When Cooling Mode is on, prompts before exit and switches to the normal power plan; enabled by default |
+| Enable Cooling Mode on app launch | Activates the preferred cooling profile at startup |
+| Auto-enable Cooling Mode on battery | Switches to the preferred cooling profile when AC power disconnects and to the preferred off profile when plugged back in |
+| Disable Cooling Mode on closing the app | Prompts when Cooling Mode is on, then restores the original Windows plan on exit; enabled by default |
 | Pin window to taskbar | Controls whether the dashboard appears in the taskbar |
 | Always on top | Keeps the dashboard above other windows |
 | Hide on focus loss | Hides the dashboard when it loses focus, unless Always on top is enabled |
@@ -286,27 +335,31 @@ Settings opens as a modeless companion window and includes eight tabs: General, 
 | Window Frame Colors | Customizes the border/accent frame colors for `"Cooling ON"` mode (`#2B88D8` default) and `"Cooling OFF"` mode (`#C26A47` default) with reset buttons |
 | Anchor dashboard to tray | Positions the dashboard above the notification area |
 | Show RAM usage row | Displays zero-WMI physical memory usage (`GlobalMemoryStatusEx`) on the dashboard |
-| Show Overlay row | Adds the overlay control row to the dashboard |
 | Show Autopilot row | Adds the Autopilot control row to the dashboard |
+| CPU / GPU badge value | Shows temperature, load, or RAM percentage in each tray badge (temperature by default) |
+| Show motherboard fan speeds | Adds the read-only fan RPM row and Fan health section to System Information (enabled by default) |
+
+### Overlay
+
+| Setting | Effect |
+| --- | --- |
+| Show Overlay row | Adds the overlay control row to the dashboard |
 | Click-through overlay | Sets `WS_EX_TRANSPARENT` so mouse clicks pass through the floating overlay |
 | Overlay readouts | Selects CPU, GPU, optional RAM, and battery metrics for the floating panel |
 | Show battery percentage | Adds charge level and charging state to the overlay and tray tooltip; hidden on systems without a battery |
 | Overlay opacity | Sets the overlay background transparency from 0% to 100% |
-| Dashboard readouts | Controls CPU power and GPU power, temperature, name, hotspot, VRAM, and fan visibility |
-| Show GPU details | Adds VRAM use, clocks, and performance-limit state under the GPU row (off by default) |
-| GPU graph metric | Plots temperature, power, or load in the GPU chart (temperature by default) |
-| CPU / GPU badge value | Shows temperature, load, or RAM percentage in each tray badge (temperature by default) |
-| Show motherboard fan speeds | Adds the read-only fan RPM row and Fan health section to System Information (enabled by default) |
 
 ### CPU
 
 | Setting | Effect |
 | --- | --- |
+| Show CPU power usage | Shows or hides package power in the dashboard CPU section |
 | Show CPU clock speed | Shows or hides the dashboard CPU clock speed row (with **Show base speed**, enabled by default) |
 | Show CPU temperature graph | Shows or hides the dashboard CPU chart, selects timeframe (`1/5/10/30/60 min`), and chooses **Large** (default) or **Small** inline layout |
-| Power plan when cooling is off | Selects the plan restored when Cooling Mode is disabled |
-| Processor Performance Boost Mode | Disables boost for lower heat or enables aggressive boost |
-| Maximum Processor State | Sets the processor limit used by the cooling scheme, from 50% to 100% |
+| Preferred cooling profile | Selects `CryoTray — Cooling` (default) or `CryoTray Cooling - Legacy` for Cooling Mode on |
+| Preferred profile when Cooling is off | Selects Windows Balanced (default), Gaming Low, Gaming Medium, Gaming High, or Gaming Ultimate |
+| Processor Performance Boost Mode | Tunes boost for the Legacy cooling profile |
+| Maximum Processor State | Tunes the Legacy cooling profile limit, from 50% to 100% |
 | High temperature alert threshold | Sets the CPU threshold from 60 °C to 100 °C |
 
 ### Memory
@@ -318,13 +371,21 @@ Settings opens as a modeless companion window and includes eight tabs: General, 
 | CPU idle guard | Checks real CPU utilization via `GetSystemTimes` over 1 second before running auto-optimization so cleanup never interrupts active games or heavy work (`< 10%` usage required) |
 | Global RAM shortcut | Configures a custom hotkey (default `Ctrl + Alt + M`) via `RegisterHotKey` to optimize memory immediately from anywhere |
 
-### Disk and GPU
+### Disk
 
-The Disk tab includes a master **Show SSD/HDD temperature** toggle, an optional **Warn when drive health drops** watch, a storage alert threshold (40 °C to 85 °C), and per-drive checkboxes (`ExcludedDrives`) to hide them or enable per-drive **Show SSD graph** / **Show HDD graph** inline charts with individual `1` to `60` minute timeframes (`DiskGraphDrives`, `DiskGraphTimeframes`). The GPU tab lets you choose the Primary GPU (defaulting to Auto, which prioritizes discrete graphics) and sets the graphics alert threshold, from 50 °C to 95 °C. Sensors that are missing or blocked by an uninstalled PawnIO driver display `--` or an unavailable notice instead of synthetic fallback values, and drives without a valid temperature sensor are skipped for alerts.
+The Disk tab includes a master **Show SSD/HDD temperature** toggle, an optional **Warn when drive health drops** watch, a storage alert threshold (40 °C to 85 °C), and per-drive checkboxes (`ExcludedDrives`) to hide them or enable per-drive **Show SSD graph** / **Show HDD graph** inline charts with individual `1` to `60` minute timeframes (`DiskGraphDrives`, `DiskGraphTimeframes`). Sensors that are missing or blocked by an uninstalled PawnIO driver display `--` or an unavailable notice instead of synthetic fallback values, and drives without a valid temperature sensor are skipped for alerts.
+
+### GPU
+
+The GPU tab chooses the Primary GPU (defaulting to Auto, which prioritizes discrete graphics) and sets the graphics alert threshold, from 50 °C to 95 °C. It also contains the dashboard readout toggles for GPU power, temperature, name, hotspot, VRAM, and fan visibility; the **Show GPU details** toggle with its VRAM, clock, and performance-limit hint; and the **GPU graph metric** selector for temperature, power, or load.
+
+The same tab hosts the opt-in **GPU Power Limit Control** card. It is off by default. When enabled, it applies the native VBIOS default and exposes Cool, Balanced, Full / Default, Reset, and a fine slider clamped to the VBIOS range. The optional **Re-apply last GPU preset on CryoTray startup** checkbox is off by default. Unsupported or locked firmware leaves the card disabled with the exact VBIOS message.
 
 ### Autopilot
 
 Enable Autopilot, toggle automatic pause during fullscreen 3D games and apps, choose a running application, or browse to an executable. The optional **Pause only while a whitelisted app is in the foreground** checkbox restricts the whitelist match to the current foreground process, so background launchers do not pause Cooling Mode on their own. The whitelist and both pause preferences are saved with the rest of the settings. Entries can be removed individually.
+
+The tab also hosts the opt-in **Smart Download-Completion Timer**. It is disarmed by default. Choose Sleep, Hibernate, or Shut Down, a download speed threshold, a quiet confirmation duration, the disk guard, and whether to wait for an active download. The same toggle is available in the tray menu. A 60-second warning with Cancel always precedes the selected power action.
 
 ### About
 
@@ -450,9 +511,9 @@ The executable includes an integration test harness:
 dotnet .\bin\Release\net8.0-windows\CryoTray.dll /test
 ```
 
-Run it elevated for full sensor coverage. The 40 checks cover ring buffer stats, GPU detail formatting, the sustained hotspot-to-edge alert and its cooldown, live process CPU/GPU sampling, `CryoTray Cooling` power-plan lifecycle and uninstall cleanup, WMI/EDID system queries, GDI icon handle cleanup, English and Arabic RTL localization, theme persistence and normalization, all five WPF windows, per-core temperature mapping and honest `NaN` fallback safety, alert cooldown and drive exclusion filtering, fan health arming, GPU fan and idle-stop guards, storage health transitions and cooldowns, tray badge metric resolution, foreground-only Autopilot matching, multi-GPU selection, PawnIO detection, overlay `WS_EX_TRANSPARENT` click-through, custom hotkey capture/registration, `Toolhelp32` process scan and fullscreen state, `EventWaitHandle` activation signaling, `GlobalMemoryStatusEx` + NT page-list RAM breakdown (`NtQuerySystemInformation(80)`), dynamic byte formatting, `GetSystemTimes` CPU-idle math, kernel memory optimization (`NtSetSystemInformation`) and privilege fallback, RAM tooltip hover/pin lifecycle, `TelemetryCsvService` export, `StartupTaskService` XML & elevated Task Scheduler sync, dashboard SSD drive-letter labels, timed Cooling Mode pause/resume, stress-test Cooling OFF vs ON delta, retained-throughput, and FPS-impact calculations, dark owner-drawn tray context menu rendering, custom Cooling ON/OFF frame colors, Black vs White tray badge digit rendering, CPU clock/base-speed formatting, Small/Large CPU graph layouts, per-drive inline temperature history lookup, zero-hardcoding hardware vendor/snapshot clone integrity, and dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering without white icon gutters.
+Run it elevated for full sensor coverage. The 56 checks cover ring buffer stats, GPU detail formatting, the sustained hotspot-to-edge alert and its cooldown, live process CPU/GPU sampling, the six-profile whitelist engine, Windows Balanced cleanup, power-plan lifecycle and uninstall cleanup, GPU power clamping and VBIOS-default handling, WMI/EDID system queries, GDI icon handle cleanup, English and Arabic RTL localization, theme persistence and normalization, WPF window instantiation across the dashboard, Settings, System Information, stress test, overlay, and Storage Cleanup, per-core temperature mapping and honest `NaN` fallback safety, alert cooldown and drive exclusion filtering, fan health arming, GPU fan and idle-stop guards, storage health transitions and cooldowns, storage cleanup path and broad-root guards, cleanup confirmation and active-cancel/close guards, tray badge metric resolution, foreground-only Autopilot matching, multi-GPU selection, PawnIO detection, overlay `WS_EX_TRANSPARENT` click-through, custom hotkey capture/registration, `Toolhelp32` process scan and fullscreen state, `EventWaitHandle` activation signaling, `GlobalMemoryStatusEx` + NT page-list RAM breakdown (`NtQuerySystemInformation(80)`), dynamic byte formatting, `GetSystemTimes` CPU-idle math, kernel memory optimization (`NtSetSystemInformation`) and privilege fallback, RAM tooltip hover/pin lifecycle, `TelemetryCsvService` export, `StartupTaskService` XML & elevated Task Scheduler sync, dashboard SSD drive-letter labels, timed Cooling Mode pause/resume, stress-test Cooling OFF vs ON delta, retained-throughput, and FPS-impact calculations, dark owner-drawn tray context menu rendering, custom Cooling ON/OFF frame colors, Black vs White tray badge digit rendering, CPU clock/base-speed formatting, Small/Large CPU graph layouts, per-drive inline temperature history lookup, zero-hardcoding hardware vendor/snapshot clone integrity, download-timer wait-for-start, quiet-window, disk-guard, warning-cancel, and auto-disarm behavior, and dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering without white icon gutters.
 
-This is not an isolated unit test suite. It reads real hardware, creates or modifies the `CryoTray Cooling` power plan, resets that scheme's stored parameters, and may require multiple CPU cores. Use it on a test machine or accept that it touches those system settings.
+This is not an isolated unit test suite. It reads real hardware, creates or modifies CryoTray power profiles, resets stored parameters, and may require multiple CPU cores. Use it on a test machine or accept that it touches those system settings. The GPU power checks validate bounds, defaults, and unsupported copy without writing a real board-power limit, and the download-timer checks exercise the pure engine and sampler guards without performing a shutdown.
 
 ### CPU sensor dump
 
@@ -474,7 +535,7 @@ This builds the application into a separate output folder, which is useful when 
 
 ## Data, privacy, and updates
 
-CryoTray does not include analytics, advertising, accounts, or remote telemetry. Hardware readings stay on the machine.
+CryoTray does not include analytics, advertising, accounts, or remote telemetry. Hardware readings stay on the machine. Local network-interface byte counters used by the Smart Download Timer also stay on the machine.
 
 Local files:
 
@@ -503,6 +564,7 @@ CryoTray.exe
 │   ├── single-instance mutex and EventWaitHandle activation
 │   ├── tray manager and dashboard lifecycle
 │   ├── global hotkey registration and battery power rule
+│   ├── GPU power restore and download-timer warning/cleanup
 │   ├── temperature alert routing
 │   └── automatic update scheduling and /uninstall-cleanup
 ├── HardwareMonitorService
@@ -517,12 +579,21 @@ CryoTray.exe
 ├── TelemetryCsvService
 │   └── ring-buffer export and continuous 1 Hz CSV recording
 ├── PowerPlanService
-│   ├── CryoTray Cooling scheme import and uninstall cleanup
-│   ├── active power-plan switching
-│   └── PERFBOOSTMODE / PROCTHROTTLEMAX updates
+│   ├── six deterministic profile GUIDs with activate-first cleanup
+│   ├── Windows Balanced activation with zero-plan cleanup
+│   ├── Balanced duplicate, AC/DC writes, and active scheme sync
+│   └── Legacy PERFBOOSTMODE / PROCTHROTTLEMAX updates
+├── GpuPowerControlService
+│   ├── System32-only NVAPI, ADLX, and ADL backends
+│   ├── serialized VBIOS-clamped writes and native-default restore
+│   └── opt-in startup re-apply
 ├── AutopilotService
 │   ├── CreateToolhelp32Snapshot process whitelist polling every 2.5 seconds
 │   └── SHQueryUserNotificationState fullscreen 3D auto-pause
+├── DownloadTimerService
+│   ├── pure one-second DownloadTimerEngine
+│   ├── network and PDH disk sampling
+│   └── topmost 60-second warning and fixed power action
 ├── TemperatureAlertService
 │   ├── per-component thresholds
 │   └── 10 minute cooldown and 3 °C re-arm hysteresis
@@ -554,6 +625,7 @@ Key implementation choices:
 - **Localization resources.** English and Arabic strings live in XAML resource dictionaries, and the application reapplies localization when the language changes.
 - **Theme resources.** Shared brushes in `App.xaml` are swapped at runtime by `ThemeService`; dark is the default, light is a full warm-neutral palette, and System follows the Windows app theme.
 - **Power-plan fallback.** The embedded `.pow` file is imported through `powercfg`; existing schemes are reused by name.
+- **Opt-in system controls.** GPU power writes and the download timer stay disabled until enabled. GPU writes are serialized, clamped to the VBIOS range, and restored on exit; the timer shows a 60-second cancelable warning and disarms after firing or cancellation.
 - **Single instance.** A named mutex prevents duplicate tray instances.
 
 ## Project layout
@@ -566,11 +638,12 @@ LICENSE                      Apache License 2.0
 NOTICE                       attribution and redistribution notice
 app.manifest                 administrator privilege and DPI settings
 Models/                      settings, telemetry snapshots, and system info models
-Services/                    hardware, power, settings, updates, alerts, localization
+Services/                    hardware, power, settings, updates, alerts, localization, GPU power, timer
+Services/GpuPower/           NVIDIA NVAPI, AMD ADLX, and AMD ADL power-limit backends
 Tray/                        tray icons, badge rendering, and context menu
-Views/                       dashboard, settings, overlay, stress test, system info
+Views/                       dashboard, settings, overlay, stress test, system info, cleanup, timer warning
 Images/                      banner, logo, application icon, and state artwork
-Resources/                   XAML strings, theme resources, embedded power scheme
+Resources/                   XAML strings, theme resources, legacy power scheme
 Tests/                       runtime verification and CPU sensor diagnostics
 .github/workflows/           Windows release packaging and GitHub release publication
 ```
@@ -581,9 +654,11 @@ Tests/                       runtime verification and CPU sensor diagnostics
 - **Administrator access is required.** Hardware sensor access and power-plan changes need elevation.
 - **Sensor coverage varies by hardware.** Some processors, GPUs, and drives expose only a subset of the values shown in the UI. Missing cells and unavailable states are expected on unsupported sensors.
 - **No fan or voltage control.** Cooling Mode is a Windows processor power policy. It does not issue fan commands, undervolt the CPU, or alter BIOS settings.
+- **GPU power control depends on the GPU and VBIOS.** It needs a supported NVIDIA or AMD desktop GPU with an unlocked VBIOS power range. Unsupported or locked firmware leaves the control disabled. It does not change fan curves, voltages, or BIOS settings.
+- **The download timer performs real power actions.** Sleep, Hibernate, and Shut Down execute after a visible 60-second warning. The timer disarms after firing or cancellation, but it should only be armed when an automatic power action is intended.
 - **Per-core temperatures may not be available.** When a CPU exposes only a package or CCD sensor, CryoTray distributes the available reading across the reported cores for display. The hottest reading remains the authoritative sensor value.
 - **Overlay limitations.** Exclusive fullscreen applications can cover any topmost desktop overlay. The overlay is not designed to be a game cheat overlay or to inject into another process.
-- **Power settings have system-wide effects.** Enabling Cooling Mode changes the active Windows power scheme. Review the selected normal plan before relying on it for battery life or performance.
+- **Power settings have system-wide effects.** Enabling Cooling Mode changes the active Windows power profile. Review the preferred off profile before relying on it for battery life or performance.
 - **Stress testing is real load.** The CPU Temperature Test spins work on every logical processor. Use it responsibly and monitor temperatures.
 
 ## Troubleshooting
@@ -595,10 +670,10 @@ Tests/                       runtime verification and CPU sensor diagnostics
 | Tray temperatures do not update | Make sure the dashboard or tray shell is running and that a supported sensor reports a positive temperature |
 | Dashboard disappears when clicking elsewhere | Disable `Hide on focus loss`, or enable `Always on top` |
 | Hotkey does nothing | Enable the hotkey, record a shortcut in Settings > General, and watch for any conflict warning shown below the box |
-| Cooling Mode does not change | Run the app elevated and confirm `CryoTray Cooling` appears in Windows power settings; the app recreates the scheme if it was removed |
+| Cooling Mode does not change | Run the app elevated and confirm the selected CryoTray profile appears in Windows power settings; the app recreates it if it was removed |
 | Autopilot does not pause cooling | Confirm Cooling Mode is on, Autopilot is enabled, and the executable name is on the whitelist |
 | Overlay is invisible in a game | Use borderless windowed mode; exclusive fullscreen can cover desktop overlays |
-| Overlay is empty | Select at least one CPU or GPU metric in Settings > View |
+| Overlay is empty | Select at least one CPU or GPU metric in Settings > Overlay |
 | Update check fails | Verify internet access to GitHub, then try again; releases must include a valid version and downloadable asset |
 | Update download is rejected | Check that the `.sha256` asset is present and matches the downloaded archive |
 | Arabic layout looks wrong | Switch back to English and then Arabic to force a full localization refresh, and report the affected window |

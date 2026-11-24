@@ -254,11 +254,12 @@ namespace CryoTray.Views
             ThemeService.ThemeChanged += OnThemeChanged;
 
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingModeChanged;
+            PowerPlanService.Instance.ProfileChanged += OnProfileChanged;
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             MemoryOptimizerService.Instance.OptimizingStateChanged += OnRamOptimizingStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted += OnRamOptimizationCompleted;
 
-            UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
+            UpdateTheme(PowerPlanService.Instance.ActiveProfile, false);
             UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
             SetRamOptimizingVisualState(MemoryOptimizerService.Instance.IsOptimizing);
             StartFanAnimation();
@@ -276,6 +277,10 @@ namespace CryoTray.Views
             if (ToolsContextMenu != null)
             {
                 ToolsContextMenu.IsOpen = false;
+            }
+            if (PowerProfileMenu != null)
+            {
+                PowerProfileMenu.IsOpen = false;
             }
             CpuCoresPopup.IsOpen = false;
         }
@@ -308,6 +313,7 @@ namespace CryoTray.Views
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingModeChanged;
+            PowerPlanService.Instance.ProfileChanged -= OnProfileChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
             MemoryOptimizerService.Instance.OptimizingStateChanged -= OnRamOptimizingStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted -= OnRamOptimizationCompleted;
@@ -345,6 +351,8 @@ namespace CryoTray.Views
         {
             var s = SettingsService.Instance.Current;
             _isApplyingSettings = true;
+            UpdateActiveProfileLabel();
+            RefreshPowerProfileMenuChecks();
             try
             {
                 TxtAppTitle.Text = s.ShowComputerName
@@ -526,6 +534,7 @@ namespace CryoTray.Views
 
         private SettingsWindow? _settingsWindow;
         private SystemInfoWindow? _systemInfoWindow;
+        private StorageCleanupWindow? _storageCleanupWindow;
         private StressTestWindow? _stressTestWindow;
         private bool _isChildDialogOpen;
 
@@ -546,18 +555,271 @@ namespace CryoTray.Views
             {
                 ToolsContextMenu.IsOpen = false;
             }
+            if (PowerProfileMenu != null)
+            {
+                PowerProfileMenu.IsOpen = false;
+            }
             Close();
         }
 
         private void OnCoolingModeChanged(bool isCooling)
         {
-            Dispatcher.Invoke(() => UpdateTheme(isCooling, true));
+            Dispatcher.Invoke(() => UpdateTheme(PowerPlanService.Instance.ActiveProfile, true));
         }
 
-        private void UpdateTheme(bool isCooling, bool animate)
+        private void OnProfileChanged()
         {
-            Color target1 = (Color)ColorConverter.ConvertFromString(isCooling ? "#255D8E" : "#9E4531");
-            Color target2 = (Color)ColorConverter.ConvertFromString(isCooling ? "#1E9FD0" : "#C26A45");
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                UpdateTheme(PowerPlanService.Instance.ActiveProfile, true);
+                UpdateActiveProfileLabel();
+            }));
+        }
+
+        private void UpdateActiveProfileLabel()
+        {
+            var profile = PowerPlanService.Instance.ActiveProfile;
+            if (TxtActivePowerProfile == null)
+            {
+                return;
+            }
+
+            TxtActivePowerProfile.Text = profile == null
+                ? ""
+                : $"{LocalizationService.Get(profile.NameKey)} · {LocalizationService.Get(profile.BadgeKey)}";
+            TxtActivePowerProfile.ToolTip = profile == null
+                ? null
+                : LocalizationService.Get(profile.DescriptionKey);
+        }
+
+        private void BtnPowerProfileMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (PowerProfileMenu == null)
+            {
+                return;
+            }
+
+            PowerProfileMenu.PlacementTarget = BtnPowerProfileMenu;
+            PowerProfileMenu.Placement = PlacementMode.Bottom;
+            PowerProfileMenu.HorizontalOffset = 0;
+            PowerProfileMenu.VerticalOffset = 2;
+            PowerProfileMenu.FlowDirection = FlowDirection;
+            PowerProfileMenu.IsOpen = true;
+        }
+
+        private void PowerProfileMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            if (PowerProfileMenu == null)
+            {
+                return;
+            }
+
+            PowerProfileMenu.FlowDirection = FlowDirection;
+            BuildPowerProfileMenu();
+        }
+
+        private void BuildPowerProfileMenu()
+        {
+            if (PowerProfileMenu == null)
+            {
+                return;
+            }
+
+            PowerProfileMenu.Items.Clear();
+
+            var settings = SettingsService.Instance.Current;
+            string coolingKey = PowerProfiles.GetCooling(settings.PreferredCoolingProfile).Key;
+            string gamingKey = PowerProfiles.GetGaming(settings.PreferredGamingProfile).Key;
+
+            int rowIndex = 0;
+            AddPowerProfileGroup("Main_ProfileMenu_Cooling", PowerProfiles.CoolingProfiles, coolingKey, ref rowIndex);
+            AddPowerProfileMenuSeparator();
+            AddPowerProfileGroup("Main_ProfileMenu_CoolingOff", PowerProfiles.GamingProfiles, gamingKey, ref rowIndex);
+        }
+
+        private void AddPowerProfileGroup(
+            string headerKey,
+            IReadOnlyList<PowerProfileDefinition> profiles,
+            string selectedKey,
+            ref int rowIndex)
+        {
+            if (PowerProfileMenu == null)
+            {
+                return;
+            }
+
+            string headerText = LocalizationService.Get(headerKey);
+            var header = new TextBlock
+            {
+                Text = headerText,
+                FontSize = 10.5,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 1, 0, 0)
+            };
+            header.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+
+            var headerItem = new MenuItem
+            {
+                Header = header,
+                IsEnabled = false,
+                Focusable = false,
+                Padding = new Thickness(10, 7, 10, 4)
+            };
+            AutomationProperties.SetName(headerItem, headerText);
+            PowerProfileMenu.Items.Add(headerItem);
+
+            foreach (var profile in profiles)
+            {
+                var item = new MenuItem
+                {
+                    Header = CreatePowerProfileMenuHeader(profile),
+                    Tag = profile.Key,
+                    IsCheckable = true,
+                    IsChecked = string.Equals(profile.Key, selectedKey, StringComparison.OrdinalIgnoreCase),
+                    Style = TryFindResource("PowerProfileMenuItemStyle") as Style
+                };
+                if (rowIndex % 2 == 1)
+                {
+                    item.SetResourceReference(Control.BackgroundProperty, "AlternateRowBrush");
+                }
+                AutomationProperties.SetName(
+                    item,
+                    $"{LocalizationService.Get(profile.NameKey)} · {LocalizationService.Get(profile.BadgeKey)}");
+                AutomationProperties.SetHelpText(item, LocalizationService.Get(profile.DescriptionKey));
+                item.Click += PowerProfileMenuItem_Click;
+                PowerProfileMenu.Items.Add(item);
+                rowIndex++;
+            }
+        }
+
+        private void AddPowerProfileMenuSeparator()
+        {
+            if (PowerProfileMenu == null)
+            {
+                return;
+            }
+
+            var separator = new Separator();
+            if (TryFindResource("DarkMenuSeparatorStyle") is Style separatorStyle)
+            {
+                separator.Style = separatorStyle;
+            }
+            PowerProfileMenu.Items.Add(separator);
+        }
+
+        private static Grid CreatePowerProfileMenuHeader(PowerProfileDefinition profile)
+        {
+            var header = new Grid
+            {
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var dot = new Ellipse
+            {
+                Width = 8,
+                Height = 8,
+                Fill = CreateFrozenBrush(profile.Palette.Accent),
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(dot, 0);
+            header.Children.Add(dot);
+
+            var name = new TextBlock
+            {
+                Text = LocalizationService.Get(profile.NameKey),
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 12, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            name.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            Grid.SetColumn(name, 1);
+            header.Children.Add(name);
+
+            var badge = new TextBlock
+            {
+                Text = LocalizationService.Get(profile.BadgeKey),
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            badge.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            Grid.SetColumn(badge, 2);
+            header.Children.Add(badge);
+
+            return header;
+        }
+
+        private void PowerProfileMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not MenuItem { Tag: string key })
+            {
+                return;
+            }
+
+            var profile = PowerProfiles.Get(key);
+            if (profile == null)
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            if (profile.IsCooling)
+            {
+                settings.PreferredCoolingProfile = profile.Key;
+            }
+            else
+            {
+                settings.PreferredGamingProfile = profile.Key;
+            }
+
+            SettingsService.Instance.Save();
+            PowerPlanService.Instance.RefreshActiveProfile();
+            RefreshPowerProfileMenuChecks();
+        }
+
+        private void RefreshPowerProfileMenuChecks()
+        {
+            if (PowerProfileMenu == null)
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            string coolingKey = PowerProfiles.GetCooling(settings.PreferredCoolingProfile).Key;
+            string gamingKey = PowerProfiles.GetGaming(settings.PreferredGamingProfile).Key;
+
+            foreach (var item in PowerProfileMenu.Items.OfType<MenuItem>())
+            {
+                if (item.Tag is not string key)
+                {
+                    continue;
+                }
+
+                var profile = PowerProfiles.Get(key);
+                if (profile == null)
+                {
+                    continue;
+                }
+
+                item.IsChecked = string.Equals(
+                    key,
+                    profile.IsCooling ? coolingKey : gamingKey,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private void UpdateTheme(PowerProfileDefinition? profile, bool animate)
+        {
+            bool isCooling = profile?.IsCooling == true;
+            ProfilePalette palette = profile?.Palette ?? PowerProfiles.GamingHighProfile.Palette;
+
+            Color target1 = ParseColor(palette.BannerTop);
+            Color target2 = ParseColor(palette.BannerBottom);
 
             if (animate)
             {
@@ -572,11 +834,11 @@ namespace CryoTray.Views
                 GradStop2.Color = target2;
             }
 
-            ApplyFanTheme(isCooling);
+            ApplyFanTheme(palette, isCooling);
 
             if (isCooling)
             {
-                // Toggle Switch state: ON (Blue track, white thumb)
+                // Cooling and Legacy keep the exact original blue ON treatment.
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
                 TogglePillBorder.Background = ThemeService.GetBrush("AccentBrush");
                 TxtToggleState.Text = LocalizationService.Get("Common_On");
@@ -588,9 +850,23 @@ namespace CryoTray.Views
                 ToggleThumb.HorizontalAlignment = HorizontalAlignment.Right;
                 ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
             }
+            else if (profile != null)
+            {
+                // Gaming profiles carry their own tier accent on the OFF toggle.
+                TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
+                TogglePillBorder.Background = new SolidColorBrush(ParseColor(palette.ToggleTrack));
+                TxtToggleState.Text = LocalizationService.Get("Common_Off");
+                TxtToggleState.Foreground = new SolidColorBrush(ParseColor(palette.ToggleText));
+                TxtToggleState.HorizontalAlignment = HorizontalAlignment.Right;
+                TxtToggleState.Margin = new Thickness(0, 0, 7, 0);
+
+                ToggleThumb.Fill = new SolidColorBrush(ParseColor(palette.ToggleThumb));
+                ToggleThumb.HorizontalAlignment = HorizontalAlignment.Left;
+                ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
+            }
             else
             {
-                // Toggle Switch state: OFF (Brown track, coral thumb)
+                // No CryoTray profile is active; keep the original neutral OFF state.
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
                 TogglePillBorder.Background = ThemeService.GetBrush("ToggleOffTrackBrush");
                 TxtToggleState.Text = LocalizationService.Get("Common_Off");
@@ -606,20 +882,23 @@ namespace CryoTray.Views
             DrawCpuChart();
         }
 
-        private void ApplyFanTheme(bool isCooling)
+        private static Color ParseColor(string hex) =>
+            (Color)ColorConverter.ConvertFromString(hex);
+
+        private void ApplyFanTheme(ProfilePalette palette, bool isCooling)
         {
-            Color accent = (Color)ColorConverter.ConvertFromString(isCooling ? "#35D7FF" : "#F08A4B");
-            Color ring = (Color)ColorConverter.ConvertFromString(isCooling ? "#1A7A99" : "#8A4728");
-            Color circuits = (Color)ColorConverter.ConvertFromString(isCooling ? "#1F9FC4" : "#C56B3C");
-            Color dots = (Color)ColorConverter.ConvertFromString(isCooling ? "#8FF4FF" : "#FFD0A3");
-            Color tileTop = (Color)ColorConverter.ConvertFromString(isCooling ? "#071A2B" : "#1A0E0A");
-            Color tileMiddle = (Color)ColorConverter.ConvertFromString(isCooling ? "#0B2A40" : "#2A160F");
-            Color tileBottom = (Color)ColorConverter.ConvertFromString(isCooling ? "#071722" : "#140B08");
-            Color petalTop = (Color)ColorConverter.ConvertFromString(isCooling ? "#E9FDFF" : "#FFE3B5");
-            Color petalMiddle = (Color)ColorConverter.ConvertFromString(isCooling ? "#9DE8FF" : "#FFAD5C");
-            Color petalBottom = (Color)ColorConverter.ConvertFromString(isCooling ? "#3FAFD9" : "#C94A1E");
-            Color petalOutline = (Color)ColorConverter.ConvertFromString(isCooling ? "#C8F7FF" : "#FFC07A");
-            Color petalVein = (Color)ColorConverter.ConvertFromString(isCooling ? "#E8FFFF" : "#FFE2B8");
+            Color accent = ParseColor(palette.FanAccent);
+            Color ring = ParseColor(palette.FanRing);
+            Color circuits = ParseColor(palette.FanCircuit);
+            Color dots = ParseColor(palette.FanDots);
+            Color tileTop = ParseColor(palette.FanTileTop);
+            Color tileMiddle = ParseColor(palette.FanTileMiddle);
+            Color tileBottom = ParseColor(palette.FanTileBottom);
+            Color petalTop = ParseColor(palette.PetalTop);
+            Color petalMiddle = ParseColor(palette.PetalMiddle);
+            Color petalBottom = ParseColor(palette.PetalBottom);
+            Color petalOutline = ParseColor(palette.PetalOutline);
+            Color petalVein = ParseColor(palette.PetalVein);
 
             FanTile.BorderBrush = new SolidColorBrush(accent);
             FanGlowEffect.Color = accent;
@@ -1594,15 +1873,17 @@ namespace CryoTray.Views
             int start = 0;
             while (start < n - 1)
             {
-                bool mode = samples[start].CoolingModeActive;
+                PowerProfileDefinition segmentProfile = GetCpuSampleProfile(samples[start]);
+                string segmentKey = segmentProfile.Key;
                 int end = start;
-                while (end < n - 1 && samples[end + 1].CoolingModeActive == mode)
+                while (end < n - 1 &&
+                       string.Equals(GetCpuSampleProfile(samples[end + 1]).Key, segmentKey, StringComparison.Ordinal))
                 {
                     end++;
                 }
 
                 int segEnd = Math.Min(end + 1, n - 1);
-                DrawCpuSegment(plotCanvas, samples, start, segEnd, mode, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
+                DrawCpuSegment(plotCanvas, samples, start, segEnd, segmentProfile, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
                 start = end + 1;
             }
 
@@ -1616,12 +1897,18 @@ namespace CryoTray.Views
             }
         }
 
+        private static PowerProfileDefinition GetCpuSampleProfile(TelemetrySample sample)
+        {
+            return PowerProfiles.Get(sample.PowerProfileKey)
+                ?? (sample.CoolingModeActive ? PowerProfiles.CoolingProfile : PowerProfiles.BalancedProfile);
+        }
+
         private static void DrawCpuSegment(
             Canvas targetCanvas,
             List<TelemetrySample> samples,
             int start,
             int end,
-            bool isCooling,
+            PowerProfileDefinition profile,
             double minT,
             double maxT,
             double stepX,
@@ -1646,12 +1933,8 @@ namespace CryoTray.Views
                 return;
             }
 
-            Color lineColor = isCooling
-                ? (Color)ColorConverter.ConvertFromString("#3B9BCB")
-                : (Color)ColorConverter.ConvertFromString("#C77950");
-            Color areaTop = isCooling
-                ? (Color)ColorConverter.ConvertFromString("#1A5A7E")
-                : (Color)ColorConverter.ConvertFromString("#6A3320");
+            Color lineColor = ParseColor(profile.Palette.ChartLine);
+            Color areaTop = ParseColor(profile.Palette.ChartArea);
 
             var areaBrush = new LinearGradientBrush
             {
@@ -2068,11 +2351,8 @@ namespace CryoTray.Views
                 "Main_CpuChartValue", Math.Round(displayTemp), unit);
             TxtCpuChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
 
-            Color accent = sample.CoolingModeActive
-                ? ThemeService.GetColor("CpuAccentBrush")
-                : ThemeService.GetColor("CoolingOffTextBrush");
-
-            DrawChartHoverMarker(hoverCanvas, x, y, plotH, accent);
+            PowerProfileDefinition hoverProfile = GetCpuSampleProfile(sample);
+            DrawChartHoverMarker(hoverCanvas, x, y, plotH, ParseColor(hoverProfile.Palette.ChartLine));
             ShowChartTooltip(CpuChartTooltip, targetCanvas, x, y, width);
         }
 
@@ -2649,6 +2929,7 @@ namespace CryoTray.Views
         {
             if (ReferenceEquals(window, _settingsWindow)) _settingsWindow = null;
             if (ReferenceEquals(window, _systemInfoWindow)) _systemInfoWindow = null;
+            if (ReferenceEquals(window, _storageCleanupWindow)) _storageCleanupWindow = null;
             if (ReferenceEquals(window, _stressTestWindow)) _stressTestWindow = null;
 
             UpdateChildDialogState();
@@ -2659,6 +2940,7 @@ namespace CryoTray.Views
         {
             _isChildDialogOpen = _settingsWindow != null ||
                 _systemInfoWindow != null ||
+                _storageCleanupWindow != null ||
                 _stressTestWindow != null;
         }
 
@@ -2890,8 +3172,9 @@ namespace CryoTray.Views
                 return;
             }
 
-            RamScopeMenu.PlacementTarget = BtnOptimizeRam;
+            RamScopeMenu.PlacementTarget = BtnOptimizeRamMenu;
             RamScopeMenu.Placement = PlacementMode.Bottom;
+            RamScopeMenu.HorizontalOffset = 0;
             RamScopeMenu.VerticalOffset = 4;
             RamScopeMenu.IsOpen = true;
         }
@@ -2936,6 +3219,23 @@ namespace CryoTray.Views
             ms.Position = 0;
             using var temp = new System.Drawing.Bitmap(ms);
             return new System.Drawing.Bitmap(temp);
+        }
+
+        private void MenuRamStorageCleanup_Click(object sender, RoutedEventArgs e)
+        {
+            if (_storageCleanupWindow != null)
+            {
+                _storageCleanupWindow.Activate();
+                return;
+            }
+
+            var window = new StorageCleanupWindow { Owner = this };
+            DockSideBySide(window);
+            _storageCleanupWindow = window;
+            window.Closed += (_, _) => UntrackChildWindow(window);
+            UpdateChildDialogState();
+            window.Show();
+            window.Activate();
         }
 
         private void MenuRamScope_Click(object sender, RoutedEventArgs e)
@@ -3434,7 +3734,11 @@ namespace CryoTray.Views
             LocalizationService.Instance.ApplyWindow(this);
             _ssdRowSignature = null;
             ApplySettings();
-            UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
+            if (PowerProfileMenu?.IsOpen == true)
+            {
+                BuildPowerProfileMenu();
+            }
+            UpdateTheme(PowerPlanService.Instance.ActiveProfile, false);
             UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
         }
 
@@ -3443,7 +3747,7 @@ namespace CryoTray.Views
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 _ssdRowSignature = null;
-                UpdateTheme(PowerPlanService.Instance.IsCoolingModeActive, false);
+                UpdateTheme(PowerPlanService.Instance.ActiveProfile, false);
                 UpdateTitleIconStates();
                 UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
             }));

@@ -527,6 +527,13 @@
                         <TextBlock Text="{DynamicResource Settings_TabView}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
+                <RadioButton x:Name="TabOverlay" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabOverlay}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="M1,2 L15,2 L15,14 L1,14 Z M9,8 L14,8 L14,13 L9,13 Z"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.1" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
+                        <TextBlock Text="{DynamicResource Settings_TabOverlay}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </RadioButton>
                 <RadioButton x:Name="TabCpu" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabCpu}">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="M5,4 L11,4 L11,10 L5,10 Z M7,6 L9,6 L9,8 L7,8 Z M7,2 L7,4 M9,2 L9,4 M7,10 L7,12 M9,10 L9,12 M3,6 L5,6 M3,8 L5,8 M11,6 L13,6 M11,8 L13,8"
@@ -886,11 +893,18 @@
 
                     <TextBlock Text="{DynamicResource Settings_DashboardRows}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
                     <CheckBox x:Name="ChkShowRamRow" Content="{DynamicResource Settings_ShowRamRow}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowOverlayRow" Content="{DynamicResource Settings_ShowOverlayRow}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowAutopilotRow" Content="{DynamicResource Settings_ShowAutopilotRow}" Checked="SettingChanged" Unchecked="SettingChanged"/>
 
-                    <TextBlock Text="{DynamicResource Settings_OverlayReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,4"/>
-                    <TextBlock Text="{DynamicResource Settings_OverlayReadoutsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <TextBlock Text="{DynamicResource Settings_SystemInfoReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
+                    <CheckBox x:Name="ChkShowFanSpeeds" Content="{DynamicResource Settings_ShowFanSpeeds}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_ShowFanSpeedsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,0"/>
+                </StackPanel>
+
+                <!-- OVERLAY TAB -->
+                <StackPanel x:Name="PanelOverlay" Visibility="Collapsed">
+                    <CheckBox x:Name="ChkShowOverlayRow" Content="{DynamicResource Settings_ShowOverlayRow}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,0,0,12"/>
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,0,0,14"/>
+
                     <CheckBox x:Name="ChkOverlayClickThrough" Content="{DynamicResource Settings_OverlayClickThrough}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,2,0,2"/>
                     <TextBlock Text="{DynamicResource Settings_OverlayClickThroughHint}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,0,0,10"/>
                     <TextBlock Text="{DynamicResource Settings_OverlayOpacity}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,4"/>
@@ -910,6 +924,8 @@
                         <TextBlock Grid.Column="1" x:Name="TxtOverlayOpacity" Text="90%" Foreground="{DynamicResource AccentTextBrush}" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
                     </Grid>
                     <TextBlock Text="{DynamicResource Settings_OverlayOpacityDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <TextBlock Text="{DynamicResource Settings_OverlayReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,8,0,4"/>
+                    <TextBlock Text="{DynamicResource Settings_OverlayReadoutsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
                     <CheckBox x:Name="ChkOverlayCpuTemp" Content="{DynamicResource Settings_OverlayCpuTemp}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkOverlayCpuLoad" Content="{DynamicResource Settings_OverlayCpuLoad}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkOverlayCpuPower" Content="{DynamicResource Settings_OverlayCpuPower}" Checked="SettingChanged" Unchecked="SettingChanged"/>
@@ -922,43 +938,11 @@
                         <CheckBox x:Name="ChkShowBatteryStatus" Content="{DynamicResource Settings_ShowBatteryStatus}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                         <TextBlock Text="{DynamicResource Settings_ShowBatteryStatusDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,6"/>
                     </StackPanel>
-
-                    <TextBlock Text="{DynamicResource Settings_DashboardReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
-                    <CheckBox x:Name="ChkShowCpuPower" Content="{DynamicResource Settings_ShowCpuPower}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowGpuPower" Content="{DynamicResource Settings_ShowGpuPower}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowGpuTemp" Content="{DynamicResource Settings_ShowGpuTemp}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowGpuName" Content="{DynamicResource Settings_ShowGpuName}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowGpuHotspot" Content="{DynamicResource Settings_ShowGpuHotspot}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowGpuVram" Content="{DynamicResource Settings_ShowGpuVram}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowGpuFan" Content="{DynamicResource Settings_ShowGpuFan}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <CheckBox x:Name="ChkShowGpuDetails" Content="{DynamicResource Settings_ShowGpuDetails}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <TextBlock Text="{DynamicResource Settings_ShowGpuDetailsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,8"/>
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="126"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="{DynamicResource Settings_GpuGraphMetric}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
-                        <ComboBox x:Name="CmbGpuGraphMetric"
-                                  Grid.Column="1"
-                                  Width="126"
-                                  HorizontalAlignment="Left"
-                                  Style="{StaticResource SettingsMiniComboStyle}"
-                                  SelectionChanged="CmbGpuGraphMetric_SelectionChanged"
-                                  AutomationProperties.Name="{DynamicResource Settings_GpuGraphMetric}">
-                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphTemperature}" Tag="Temperature" IsSelected="True"/>
-                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphPower}" Tag="Power"/>
-                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphLoad}" Tag="Load"/>
-                        </ComboBox>
-                    </Grid>
-
-                    <TextBlock Text="{DynamicResource Settings_SystemInfoReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,16,0,10"/>
-                    <CheckBox x:Name="ChkShowFanSpeeds" Content="{DynamicResource Settings_ShowFanSpeeds}" Checked="SettingChanged" Unchecked="SettingChanged"/>
-                    <TextBlock Text="{DynamicResource Settings_ShowFanSpeedsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,0"/>
                 </StackPanel>
 
                 <!-- CPU TAB -->
                 <StackPanel x:Name="PanelCpu" Visibility="Collapsed">
+                    <CheckBox x:Name="ChkShowCpuPower" Content="{DynamicResource Settings_ShowCpuPower}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkShowCpuClock" Content="{DynamicResource Settings_ShowCpuClock}" Checked="ChkCpuDisplay_Changed" Unchecked="ChkCpuDisplay_Changed" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkShowCpuBaseSpeed" Content="{DynamicResource Settings_ShowCpuBaseSpeed}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,10"/>
 
@@ -988,14 +972,42 @@
 
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,10,0,16"/>
 
-                    <TextBlock Text="{DynamicResource Settings_PowerPlanOff}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
-                    <TextBlock Text="{DynamicResource Settings_PowerPlanDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" Margin="0,0,0,10"/>
-                    <ComboBox x:Name="CmbNormalPowerPlan"
-                              DisplayMemberPath="Name"
-                              SelectedValuePath="Guid"
-                              AutomationProperties.Name="{DynamicResource Settings_PowerPlanOff}"
-                              SelectionChanged="CmbNormalPowerPlan_SelectionChanged"/>
-                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,18,0,18"/>
+                    <TextBlock Text="{DynamicResource Settings_PowerProfiles}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
+                    <TextBlock Text="{DynamicResource Settings_PowerProfilesDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="{DynamicResource Settings_PreferredCoolingProfile}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"/>
+                    <ComboBox x:Name="CmbCoolingProfile"
+                              HorizontalAlignment="Stretch"
+                              AutomationProperties.Name="{DynamicResource Settings_PreferredCoolingProfile}"
+                              SelectionChanged="CmbCoolingProfile_SelectionChanged">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="8" Height="8" Fill="{Binding AccentBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock x:Name="TxtCoolingProfileDesc" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,14"/>
+
+                    <TextBlock Text="{DynamicResource Settings_PreferredGamingProfile}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"/>
+                    <ComboBox x:Name="CmbGamingProfile"
+                              HorizontalAlignment="Stretch"
+                              AutomationProperties.Name="{DynamicResource Settings_PreferredGamingProfile}"
+                              SelectionChanged="CmbGamingProfile_SelectionChanged">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="8" Height="8" Fill="{Binding AccentBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock x:Name="TxtGamingProfileDesc" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,14"/>
+
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,4,0,18"/>
 
                     <TextBlock Text="{DynamicResource Settings_CoolingControls}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
                     <TextBlock Text="{DynamicResource Settings_CoolingControlsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" Margin="0,0,0,14"/>
@@ -1033,6 +1045,35 @@
 
                 <!-- MEMORY TAB -->
                 <StackPanel x:Name="PanelMemory" Visibility="Collapsed">
+                    <TextBlock Text="{DynamicResource Settings_MemoryTrayBadge}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="ChkShowRamBadge" Content="{DynamicResource Settings_ShowRamBadge}" Checked="ChkTrayBadge_Changed" Unchecked="ChkTrayBadge_Changed" Margin="0,4,0,6"/>
+                    <StackPanel x:Name="PnlRamBadgeOptions" Margin="28,0,0,0" IsEnabled="False">
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <RadioButton x:Name="RdoRamBlackDigits" GroupName="RamTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_BlackDigits}" Checked="ChkTrayBadge_Changed"/>
+                            <Border x:Name="BdrSampleRamBlack" Width="22" Height="20" Background="#62B0E8" CornerRadius="1" Margin="10,0,0,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleRamBlack" Text="--" Foreground="#141414" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <RadioButton x:Name="RdoRamWhiteDigits" GroupName="RamTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_WhiteDigits}" Checked="ChkTrayBadge_Changed"/>
+                            <Border x:Name="BdrSampleRamWhite" Width="22" Height="20" Background="#2F6E9E" CornerRadius="1" Margin="10,0,0,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                                <TextBlock x:Name="TxtSampleRamWhite" Text="--" Foreground="#FFFFFF" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{DynamicResource Settings_BadgeColor}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnColorRamBadge" Style="{StaticResource ColorSwatchButtonStyle}" Background="#62B0E8" Click="BtnColorRamBadge_Click" AutomationProperties.Name="{DynamicResource Settings_BadgeColor}"/>
+                                <Button x:Name="BtnResetColorRamBadge" Content="↺" Style="{StaticResource SettingsFooterButton}" Padding="6,2" Margin="6,0,0,0" Click="BtnResetColorRamBadge_Click" ToolTip="{DynamicResource Settings_ResetColorTooltip}" AutomationProperties.Name="{DynamicResource Settings_ResetColorTooltip}" Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,14,0,16"/>
+
                     <TextBlock Text="{DynamicResource Settings_RamCleaningOptions}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,4"/>
                     <TextBlock Text="{DynamicResource Settings_RamCleaningDesc}" Foreground="{DynamicResource TextTertiaryBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkRamFreeWorkingSets" Content="{DynamicResource Settings_RamFreeWorkingSets}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,8,0,8"/>
@@ -1173,6 +1214,181 @@
                         <Slider x:Name="SldGpuThreshold" Minimum="50" Maximum="95" Value="80" ValueChanged="SldGpuThreshold_ValueChanged" AutomationProperties.Name="{DynamicResource Settings_CpuAlertThreshold}"/>
                         <TextBlock Grid.Column="1" x:Name="TxtGpuThreshold" Text="80°C" Foreground="{DynamicResource GpuAccentBrush}" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
                     </Grid>
+
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,2,0,14"/>
+
+                    <TextBlock Text="{DynamicResource Settings_DashboardReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="ChkShowGpuPower" Content="{DynamicResource Settings_ShowGpuPower}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuTemp" Content="{DynamicResource Settings_ShowGpuTemp}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuName" Content="{DynamicResource Settings_ShowGpuName}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuHotspot" Content="{DynamicResource Settings_ShowGpuHotspot}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuVram" Content="{DynamicResource Settings_ShowGpuVram}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuFan" Content="{DynamicResource Settings_ShowGpuFan}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuDetails" Content="{DynamicResource Settings_ShowGpuDetails}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_ShowGpuDetailsDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,8"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="126"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{DynamicResource Settings_GpuGraphMetric}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CmbGpuGraphMetric"
+                                  Grid.Column="1"
+                                  Width="126"
+                                  HorizontalAlignment="Left"
+                                  Style="{StaticResource SettingsMiniComboStyle}"
+                                  SelectionChanged="CmbGpuGraphMetric_SelectionChanged"
+                                  AutomationProperties.Name="{DynamicResource Settings_GpuGraphMetric}">
+                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphTemperature}" Tag="Temperature" IsSelected="True"/>
+                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphPower}" Tag="Power"/>
+                            <ComboBoxItem Content="{DynamicResource Settings_GpuGraphLoad}" Tag="Load"/>
+                        </ComboBox>
+                    </Grid>
+
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,6,0,14"/>
+
+                    <Border Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="14,12">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Settings_GpuPowerTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{DynamicResource Settings_GpuPowerDesc}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,5,0,0"/>
+
+                            <ToggleButton x:Name="ChkGpuPowerEnabled"
+                                          Style="{StaticResource AutopilotToggleStyle}"
+                                          Content="{DynamicResource Settings_GpuPowerEnable}"
+                                          Checked="ChkGpuPowerEnabled_Changed"
+                                          Unchecked="ChkGpuPowerEnabled_Changed"
+                                          Margin="0,14,0,8"/>
+
+                            <Border x:Name="BdrGpuPowerUnsupported"
+                                    Background="{DynamicResource DangerSoftBackgroundBrush}"
+                                    BorderBrush="{DynamicResource DangerTextBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="9,6"
+                                    Margin="0,0,0,10"
+                                    Visibility="Collapsed">
+                                <TextBlock Text="{DynamicResource Settings_GpuPowerUnsupported}"
+                                           Foreground="{DynamicResource DangerTextBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"/>
+                            </Border>
+
+                            <TextBlock x:Name="TxtGpuPowerStatus"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,8"/>
+                            <TextBlock x:Name="TxtGpuPowerCurrent"
+                                       Foreground="{DynamicResource GpuAccentBrush}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,10"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Button x:Name="BtnGpuPowerCool"
+                                        Content="{DynamicResource Settings_GpuPowerCool}"
+                                        Click="BtnGpuPowerCool_Click"
+                                        Style="{StaticResource SettingsFooterButton}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,5,6"/>
+                                <Button x:Name="BtnGpuPowerBalanced"
+                                        Grid.Column="1"
+                                        Content="{DynamicResource Settings_GpuPowerBalanced}"
+                                        Click="BtnGpuPowerBalanced_Click"
+                                        Style="{StaticResource SettingsFooterButton}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="5,0,0,6"/>
+                                <Button x:Name="BtnGpuPowerFull"
+                                        Grid.Row="1"
+                                        Content="{DynamicResource Settings_GpuPowerFull}"
+                                        Click="BtnGpuPowerFull_Click"
+                                        Style="{StaticResource SettingsFooterButton}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,5,0"/>
+                                <Button x:Name="BtnGpuPowerReset"
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        Content="{DynamicResource Settings_GpuPowerReset}"
+                                        Click="BtnGpuPowerReset_Click"
+                                        Style="{StaticResource SettingsFooterButton}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="5,0,0,0"/>
+                            </Grid>
+
+                            <Grid Margin="0,6,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="54"/>
+                                </Grid.ColumnDefinitions>
+                                <Slider x:Name="SldGpuPowerLimit"
+                                        Minimum="70"
+                                        Maximum="100"
+                                        Value="100"
+                                        TickFrequency="1"
+                                        IsSnapToTickEnabled="True"
+                                        ValueChanged="SldGpuPowerLimit_ValueChanged"
+                                        AutomationProperties.Name="{DynamicResource Settings_GpuPowerSlider}"/>
+                                <TextBlock Grid.Column="1"
+                                           x:Name="TxtGpuPowerLimitPercent"
+                                           Text="100%"
+                                           Foreground="{DynamicResource AccentTextBrush}"
+                                           FontWeight="Bold"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           FlowDirection="LeftToRight"/>
+                            </Grid>
+                            <TextBlock x:Name="TxtGpuPowerRange"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="10.5"
+                                       Margin="0,0,0,8"/>
+
+                            <Grid Margin="0,2,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Settings_GpuPowerCore}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10"/>
+                                    <TextBlock x:Name="TxtGpuPowerCoreValue" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12" FontWeight="SemiBold" FlowDirection="LeftToRight" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="{DynamicResource Settings_GpuPowerHotspot}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10"/>
+                                    <TextBlock x:Name="TxtGpuPowerHotspotValue" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12" FontWeight="SemiBold" FlowDirection="LeftToRight" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{DynamicResource Settings_GpuPowerBoard}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10"/>
+                                    <TextBlock x:Name="TxtGpuPowerBoardValue" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12" FontWeight="SemiBold" FlowDirection="LeftToRight" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <CheckBox x:Name="ChkGpuReapplyOnStartup"
+                                      Content="{DynamicResource Settings_GpuPowerReapply}"
+                                      Checked="SettingChanged"
+                                      Unchecked="SettingChanged"
+                                      Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- AUTOPILOT TAB -->
@@ -1274,6 +1490,107 @@
                                FontSize="11"
                                TextWrapping="Wrap"
                                Margin="0,8,0,0"/>
+
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,18,0,14"/>
+
+                    <Border Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="14,12">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Settings_DownloadTimerTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{DynamicResource Settings_DownloadTimerDesc}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,5,0,0"/>
+
+                            <ToggleButton x:Name="ChkDownloadTimerEnabled"
+                                          Style="{StaticResource AutopilotToggleStyle}"
+                                          Content="{DynamicResource Settings_DownloadTimerEnable}"
+                                          Checked="ChkDownloadTimerEnabled_Changed"
+                                          Unchecked="ChkDownloadTimerEnabled_Changed"
+                                          Margin="0,14,0,10"/>
+
+                            <TextBlock Text="{DynamicResource Settings_DownloadTimerAction}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="11.5"
+                                       Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbDownloadTimerAction"
+                                      SelectionChanged="DownloadTimerOption_SelectionChanged"
+                                      Margin="0,0,0,10"
+                                      AutomationProperties.Name="{DynamicResource Settings_DownloadTimerAction}">
+                                <ComboBoxItem Content="{DynamicResource Settings_DownloadTimerSleep}" Tag="Sleep"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_DownloadTimerHibernate}" Tag="Hibernate"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_DownloadTimerShutDown}" Tag="ShutDown"/>
+                            </ComboBox>
+
+                            <TextBlock Text="{DynamicResource Settings_DownloadTimerThreshold}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="11.5"
+                                       Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbDownloadTimerThreshold"
+                                      SelectionChanged="DownloadTimerOption_SelectionChanged"
+                                      Margin="0,0,0,10"
+                                      FlowDirection="LeftToRight"
+                                      HorizontalContentAlignment="Right"
+                                      AutomationProperties.Name="{DynamicResource Settings_DownloadTimerThreshold}">
+                                <ComboBoxItem Content="100 KB/s" Tag="100"/>
+                                <ComboBoxItem Content="200 KB/s" Tag="200"/>
+                                <ComboBoxItem Content="500 KB/s" Tag="500"/>
+                                <ComboBoxItem Content="1 MB/s" Tag="1024"/>
+                            </ComboBox>
+
+                            <TextBlock Text="{DynamicResource Settings_DownloadTimerQuiet}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="11.5"
+                                       Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbDownloadTimerQuiet"
+                                      SelectionChanged="DownloadTimerOption_SelectionChanged"
+                                      Margin="0,0,0,8"
+                                      AutomationProperties.Name="{DynamicResource Settings_DownloadTimerQuiet}">
+                                <ComboBoxItem Content="{DynamicResource Settings_DownloadTimer3Min}" Tag="3"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_DownloadTimer5Min}" Tag="5"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_DownloadTimer10Min}" Tag="10"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_DownloadTimer15Min}" Tag="15"/>
+                            </ComboBox>
+
+                            <CheckBox x:Name="ChkDownloadTimerDiskGuard"
+                                      Content="{DynamicResource Settings_DownloadTimerDiskGuard}"
+                                      Checked="SettingChanged"
+                                      Unchecked="SettingChanged"
+                                      Margin="0,6,0,4"/>
+                            <CheckBox x:Name="ChkDownloadTimerWaitForStart"
+                                      Content="{DynamicResource Settings_DownloadTimerWaitForStart}"
+                                      Checked="SettingChanged"
+                                      Unchecked="SettingChanged"
+                                      Margin="0,0,0,10"/>
+
+                            <Border Background="{DynamicResource PanelAltBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="9,7">
+                                <StackPanel>
+                                    <TextBlock x:Name="TxtDownloadTimerSpeed"
+                                               Text="--"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                               FontSize="10.5"/>
+                                    <TextBlock x:Name="TxtDownloadTimerStatus"
+                                               Text="{DynamicResource Settings_DownloadTimerDisarmed}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="11.5"
+                                               TextWrapping="Wrap"
+                                               Margin="0,3,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- ABOUT TAB -->
