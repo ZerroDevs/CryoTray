@@ -41,7 +41,7 @@
                                     VerticalAlignment="Center">
                                 <Path x:Name="CheckMark"
                                       Data="M2,7 L6,11 L14,3"
-                                      Stroke="#FFFFFF"
+                                      Stroke="{DynamicResource AccentButtonTextBrush}"
                                       StrokeThickness="2.1"
                                       Visibility="Collapsed"
                                       HorizontalAlignment="Center"
@@ -60,8 +60,8 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="CheckBorder" Property="Background" Value="#2B88D8"/>
-                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="#2B88D8"/>
+                                <Setter TargetName="CheckBorder" Property="Background" Value="{DynamicResource AccentButtonBrush}"/>
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{DynamicResource AccentButtonBrush}"/>
                                 <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -346,6 +346,7 @@
                        Placement="Bottom"
                        IsOpen="{TemplateBinding IsDropDownOpen}"
                        AllowsTransparency="True"
+                       FlowDirection="LeftToRight"
                        Focusable="False"
                        PopupAnimation="Slide">
                     <Border x:Name="DropDownBorder"
@@ -376,12 +377,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="ItemBorder" Property="Background" Value="#2B88D8"/>
-                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AccentButtonBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentButtonTextBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AccentBrush}"/>
-                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AccentButtonBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentButtonTextBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -431,7 +432,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#2B88D8"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                                 <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -769,7 +770,7 @@
                     </Border>
                 </Popup>
             </Grid>
-            <Button Grid.Column="2" HorizontalAlignment="Right" Click="BtnClose_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="5" VerticalAlignment="Center" AutomationProperties.Name="{DynamicResource Settings_CloseAutomation}">
+            <Button Grid.Column="2" HorizontalAlignment="Right" Click="BtnClose_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="5" MinWidth="32" MinHeight="32" VerticalAlignment="Center" AutomationProperties.Name="{DynamicResource Settings_CloseAutomation}">
                 <Path Data="M1,1 L10,10 M10,1 L1,10"
                       Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.3"
                       Width="11" Height="11" Stretch="Uniform"/>
@@ -886,7 +887,7 @@
         </Border>
 
         <!-- Content Area -->
-        <ScrollViewer x:Name="SettingsContentScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+        <ScrollViewer x:Name="SettingsContentScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16" AutomationProperties.Name="{DynamicResource Settings_ContentAutomation}">
             <ScrollViewer.Resources>
                 <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource SettingsSearchScrollBarStyle}"/>
             </ScrollViewer.Resources>
@@ -900,7 +901,7 @@
                             <ColumnDefinition Width="126"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="{DynamicResource Settings_Language}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" x:Name="CmbLanguage" HorizontalAlignment="Left" Width="126" SelectionChanged="CmbLanguage_SelectionChanged">
+                        <ComboBox Grid.Column="1" x:Name="CmbLanguage" HorizontalAlignment="Left" Width="126" SelectionChanged="CmbLanguage_SelectionChanged" AutomationProperties.Name="{DynamicResource Settings_Language}">
                             <ComboBoxItem Content="English" IsSelected="True"/>
                             <ComboBoxItem Content="العربية"/>
                         </ComboBox>
@@ -913,7 +914,7 @@
                             <ColumnDefinition Width="126"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="{DynamicResource Settings_TemperatureUnits}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" x:Name="CmbTempUnits" HorizontalAlignment="Left" Width="126" SelectionChanged="CmbTempUnits_SelectionChanged">
+                        <ComboBox Grid.Column="1" x:Name="CmbTempUnits" HorizontalAlignment="Left" Width="126" SelectionChanged="CmbTempUnits_SelectionChanged" AutomationProperties.Name="{DynamicResource Settings_TemperatureUnits}">
                             <ComboBoxItem Content="{DynamicResource Settings_Celsius}" IsSelected="True"/>
                             <ComboBoxItem Content="{DynamicResource Settings_Fahrenheit}"/>
                         </ComboBox>
@@ -2431,13 +2432,13 @@
         <!-- Footer Buttons -->
         <Grid Grid.Row="4" Margin="0,10,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                <Button x:Name="BtnExport" Click="BtnExport_Click" Style="{StaticResource SettingsFooterButton}" Margin="0,0,8,0">
+                <Button x:Name="BtnExport" Click="BtnExport_Click" Style="{StaticResource SettingsFooterButton}" Margin="0,0,8,0" AutomationProperties.Name="{DynamicResource Settings_Export}">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="M6,12 L6,2 M2,6 L6,2 L10,6" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.4" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_Export}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
-                <Button x:Name="BtnImport" Click="BtnImport_Click" Style="{StaticResource SettingsFooterButton}">
+                <Button x:Name="BtnImport" Click="BtnImport_Click" Style="{StaticResource SettingsFooterButton}" AutomationProperties.Name="{DynamicResource Settings_Import}">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="M6,2 L6,12 M2,8 L6,12 L10,8" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.4" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_Import}" VerticalAlignment="Center"/>
@@ -2445,7 +2446,7 @@
                 </Button>
             </StackPanel>
 
-            <Button x:Name="BtnReset" Click="BtnReset_Click" Style="{StaticResource SettingsFooterButton}" HorizontalAlignment="Right">
+            <Button x:Name="BtnReset" Click="BtnReset_Click" Style="{StaticResource SettingsFooterButton}" HorizontalAlignment="Right" AutomationProperties.Name="{DynamicResource Settings_Reset}">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="M2,7 A4,4 0 1,1 4,11 M2,7 L2,3 M2,7 L6,7" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.4" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     <TextBlock Text="{DynamicResource Settings_Reset}" VerticalAlignment="Center"/>

@@ -139,6 +139,7 @@ namespace CryoTray.Views
         public MainWindow()
         {
             InitializeComponent();
+            TextScaleService.Attach(this, scaleHeight: false);
             _expandedHeight = Height;
             LocalizationService.Instance.ApplyWindow(this);
             DataContext = this;
@@ -570,6 +571,8 @@ namespace CryoTray.Views
                 height += UpdateSuccessBanner.Height;
             }
 
+            height *= TextScaleService.Factor;
+
             Rect monitorWorkArea = WindowPlacementHelper.GetMonitorWorkAreaDips(this);
             double maxWorkHeight = Math.Max(260, monitorWorkArea.Height - 24);
             height = Math.Clamp(height, 260, maxWorkHeight);
@@ -906,6 +909,11 @@ namespace CryoTray.Views
 
             Color target1 = ParseColor(palette.BannerTop);
             Color target2 = ParseColor(palette.BannerBottom);
+            if (ThemeService.IsHighContrast)
+            {
+                target1 = SystemColors.WindowColor;
+                target2 = SystemColors.WindowColor;
+            }
 
             if (animate)
             {
@@ -926,13 +934,14 @@ namespace CryoTray.Views
             {
                 // Cooling and Legacy keep the exact original blue ON treatment.
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
-                TogglePillBorder.Background = ThemeService.GetBrush("AccentBrush");
+                TogglePillBorder.Background = ThemeService.GetBrush(
+                    ThemeService.IsHighContrast ? "AccentBrush" : "AccentButtonBrush");
                 TxtToggleState.Text = LocalizationService.Get("Common_On");
-                TxtToggleState.Foreground = Brushes.White;
+                TxtToggleState.Foreground = ThemeService.GetBrush("AccentButtonTextBrush");
                 TxtToggleState.HorizontalAlignment = HorizontalAlignment.Left;
                 TxtToggleState.Margin = new Thickness(7, 0, 0, 0);
 
-                ToggleThumb.Fill = Brushes.White;
+                ToggleThumb.Fill = ThemeService.GetBrush("AccentButtonTextBrush");
                 ToggleThumb.HorizontalAlignment = HorizontalAlignment.Right;
                 ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
             }
@@ -963,6 +972,13 @@ namespace CryoTray.Views
                 ToggleThumb.Fill = ThemeService.GetBrush("ToggleOffThumbBrush");
                 ToggleThumb.HorizontalAlignment = HorizontalAlignment.Left;
                 ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
+            }
+
+            if (ThemeService.IsHighContrast && !isCooling)
+            {
+                TogglePillBorder.Background = ThemeService.GetBrush("WindowBackgroundBrush");
+                TxtToggleState.Foreground = ThemeService.GetBrush("TextPrimaryBrush");
+                ToggleThumb.Fill = ThemeService.GetBrush("TextPrimaryBrush");
             }
 
             DrawCpuChart();
@@ -3340,6 +3356,11 @@ namespace CryoTray.Views
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             ShowKeyboardFocusCues = true;
+            if (e.Key == Key.Escape && CpuCoresPopup.IsOpen)
+            {
+                CpuCoresPopup.IsOpen = false;
+                e.Handled = true;
+            }
             if (e.Key == Key.Escape && RamBreakdownToolTip.IsOpen)
             {
                 CloseRamBreakdownToolTip();
@@ -3997,7 +4018,7 @@ namespace CryoTray.Views
             }
 
             double desiredOffsetX = CpuTempHoverZone.ActualWidth - popupWidth;
-            var placement = PlacementMode.Top;
+            var placement = PlacementMode.Bottom;
 
             if (TryGetMonitorWorkArea(out Rect workArea))
             {
@@ -4011,19 +4032,13 @@ namespace CryoTray.Views
                 double maxLeft = Math.Max(minLeft, workArea.Right - popupWidth - 4);
                 popupLeft = Math.Clamp(popupLeft, minLeft, maxLeft);
 
-                bool fitsAbove = targetTop - popupHeight - 6 >= workArea.Top + 4;
-                if (!fitsAbove)
-                {
-                    placement = PlacementMode.Bottom;
-                }
-
                 CpuCoresPopup.Placement = placement;
                 CpuCoresPopup.HorizontalOffset = popupLeft - targetLeft;
                 CpuCoresPopup.VerticalOffset = 6;
                 return;
             }
 
-            CpuCoresPopup.Placement = PlacementMode.Top;
+            CpuCoresPopup.Placement = PlacementMode.Bottom;
             CpuCoresPopup.HorizontalOffset = desiredOffsetX;
             CpuCoresPopup.VerticalOffset = 6;
         }

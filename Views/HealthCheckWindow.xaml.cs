@@ -29,6 +29,7 @@ namespace CryoTray.Views
             _postUpdate = postUpdate;
             _firstRun = firstRun;
             InitializeComponent();
+            TextScaleService.Attach(this);
             LocalizationService.Instance.ApplyWindow(this);
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;

@@ -120,6 +120,7 @@ namespace CryoTray
 
             base.OnStartup(e);
 
+            TextScaleService.Initialize();
             ApplyWindowAccent();
             PowerPlanService.Instance.ProfileChanged += OnPowerPlanProfileChanged;
             PowerPlanService.Instance.CoolingModeChanged += OnPowerPlanCoolingChanged;

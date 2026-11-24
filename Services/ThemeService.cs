@@ -53,6 +53,8 @@ namespace CryoTray.Services
             ["AccentPressedBrush"] = "#1E6FAE",
             ["AccentSoftBrush"] = "#1E5C91",
             ["AccentTextBrush"] = "#2B88D8",
+            ["AccentButtonBrush"] = "#1E6FAE",
+            ["AccentButtonTextBrush"] = "#FFFFFF",
             ["SearchMatchBrush"] = "#6FB8F2",
             ["CpuAccentBrush"] = "#4FC3F7",
             ["GpuAccentBrush"] = "#7CB342",
@@ -132,6 +134,8 @@ namespace CryoTray.Services
             ["AccentPressedBrush"] = "#0F5C95",
             ["AccentSoftBrush"] = "#DCEAF6",
             ["AccentTextBrush"] = "#1B6CB3",
+            ["AccentButtonBrush"] = "#1B6CB3",
+            ["AccentButtonTextBrush"] = "#FFFFFF",
             ["SearchMatchBrush"] = "#155A94",
             ["CpuAccentBrush"] = "#0B6E99",
             ["GpuAccentBrush"] = "#4C7A22",
@@ -179,6 +183,8 @@ namespace CryoTray.Services
         public static event EventHandler? ThemeChanged;
 
         public static bool IsLight => _effectiveMode == "Light";
+
+        public static bool IsHighContrast => _isHighContrast;
 
         public static string ConfiguredMode => _configuredMode;
 
@@ -354,6 +360,8 @@ namespace CryoTray.Services
             resources["AccentPressedBrush"] = highlight;
             resources["AccentSoftBrush"] = highlight;
             resources["AccentTextBrush"] = hotTrack;
+            resources["AccentButtonBrush"] = highlight;
+            resources["AccentButtonTextBrush"] = highlightText;
             resources["SearchMatchBrush"] = hotTrack;
             resources["SelectionBrush"] = highlight;
             resources["SelectionTextBrush"] = highlightText;

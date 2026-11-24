@@ -19,6 +19,7 @@ namespace CryoTray.Views
         public SessionReportWindow()
         {
             InitializeComponent();
+            TextScaleService.Attach(this);
             LocalizationService.Instance.ApplyWindow(this);
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
@@ -229,6 +230,7 @@ namespace CryoTray.Views
             {
                 UpdatesPanel.Children.Add(CreateTimelineRow(item, index++));
             }
+
         }
 
         private static void AddDetailRow(StackPanel panel, string label, string value)
@@ -279,8 +281,8 @@ namespace CryoTray.Views
                 Padding = new Thickness(10, 7, 10, 7)
             };
             var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(82) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var time = new TextBlock
@@ -290,7 +292,8 @@ namespace CryoTray.Views
                 FontSize = 10.5,
                 FontFamily = new FontFamily("Consolas, Cascadia Mono, Segoe UI"),
                 FlowDirection = FlowDirection.LeftToRight,
-                VerticalAlignment = VerticalAlignment.Top
+                VerticalAlignment = VerticalAlignment.Top,
+                MinWidth = 58
             };
             var kind = new TextBlock
             {
@@ -299,7 +302,9 @@ namespace CryoTray.Views
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
-                VerticalAlignment = VerticalAlignment.Top
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(6, 0, 6, 0),
+                MinWidth = 58
             };
             var text = new TextBlock
             {
@@ -309,6 +314,11 @@ namespace CryoTray.Views
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Top
             };
+            if (!ContainsArabic(item.Text))
+            {
+                text.FlowDirection = FlowDirection.LeftToRight;
+                text.TextAlignment = TextAlignment.Left;
+            }
             Grid.SetColumn(kind, 1);
             Grid.SetColumn(text, 2);
             grid.Children.Add(time);
@@ -320,6 +330,19 @@ namespace CryoTray.Views
                 $"{LocalizationService.Get(KindKey(item.Kind))}. {item.Text}");
             border.Child = grid;
             return border;
+        }
+
+        private static bool ContainsArabic(string value)
+        {
+            foreach (char character in value)
+            {
+                if (character >= '\u0600' && character <= '\u06FF')
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static Brush KindBrush(SessionTimelineEvent item) => item.Kind switch

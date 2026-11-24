@@ -97,6 +97,7 @@ namespace CryoTray.Views
         public SettingsWindow()
         {
             InitializeComponent();
+            TextScaleService.Attach(this);
             _gpuSliderApplyTimer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(350)

@@ -196,6 +196,8 @@
     <sys:String x:Key="Main_Timeframe10">10 min</sys:String>
     <sys:String x:Key="Main_Timeframe30">30 min</sys:String>
     <sys:String x:Key="Main_Timeframe60">60 min</sys:String>
+    <sys:String x:Key="Main_TimeframeAutomation">Graph time range</sys:String>
+    <sys:String x:Key="Main_CpuTemperatureAutomation">CPU temperature details</sys:String>
     <sys:String x:Key="Main_AboutTitle">About CryoTray</sys:String>
     <sys:String x:Key="Main_AboutBody">CryoTray
 Created by ZeroNuxi | ZerroDevs
@@ -204,6 +206,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
 
     <sys:String x:Key="Settings_Title">Settings</sys:String>
     <sys:String x:Key="Settings_CloseAutomation">Close settings</sys:String>
+    <sys:String x:Key="Settings_ContentAutomation">Settings content</sys:String>
     <sys:String x:Key="Settings_TabGeneral">General</sys:String>
     <sys:String x:Key="Settings_TabView">View</sys:String>
     <sys:String x:Key="Settings_TabOverlay">Overlay</sys:String>
