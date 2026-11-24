@@ -650,13 +650,22 @@ namespace CryoTray.Tests
         private static bool TestApplicationDirectoryProtection()
         {
             Console.Write("[TEST] Protected application folder... ");
+            // A real installed app lives under Program Files. Using ProgramData
+            // made this test depend on the hosted runner's parent ACLs.
+            string programFiles = Environment.GetFolderPath(
+                Environment.SpecialFolder.ProgramFiles);
             string testDirectory = Path.Combine(
-                UpdateStorage.RootPath, "app-verify-" + Guid.NewGuid().ToString("N"));
+                programFiles, "CryoTray-Protect-Test-" + Guid.NewGuid().ToString("N"));
             string unsafeDirectory = Path.Combine(
                 Path.GetTempPath(), "cryotray-location-" + Guid.NewGuid().ToString("N"));
 
             try
             {
+                if (string.IsNullOrWhiteSpace(programFiles))
+                {
+                    throw new InvalidOperationException("Program Files path is unavailable.");
+                }
+
                 UpdateStorage.EnsureUpdateRoot();
                 Directory.CreateDirectory(testDirectory);
                 File.WriteAllText(Path.Combine(testDirectory, "CryoTray.exe"), "test");
