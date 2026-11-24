@@ -67,6 +67,10 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{DynamicResource TextTertiaryBrush}"/>
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="CheckBorder" Property="BorderThickness" Value="2"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -481,6 +485,86 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <Style x:Key="SettingsSearchScrollBarStyle" TargetType="ScrollBar">
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="MinWidth" Value="8"/>
+            <Setter Property="Margin" Value="2,0,0,0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                  Focusable="False"
+                                                  Opacity="0"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb MinHeight="24" Cursor="Hand">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbSurface"
+                                                        Width="6"
+                                                        Background="{DynamicResource TextMutedBrush}"
+                                                        CornerRadius="3"
+                                                        HorizontalAlignment="Center"/>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="{DynamicResource TextMutedBrush}"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsDragging" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                  Focusable="False"
+                                                  Opacity="0"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsSearchResultItemStyle" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ResultSurface"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8,6"
+                                Margin="0,1"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ResultSurface" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ResultSurface" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                <Setter TargetName="ResultSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Border Background="{DynamicResource WindowBackgroundBrush}"
@@ -504,27 +588,107 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock Text="{DynamicResource Settings_Title}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Grid Grid.Column="1" Width="178" HorizontalAlignment="Right" Margin="12,0,10,0">
-                <TextBox x:Name="TxtSettingsSearch"
-                         Height="30"
-                         Padding="8,4,8,4"
-                         Background="{DynamicResource InputBackgroundBrush}"
-                         BorderBrush="{DynamicResource InputBorderBrush}"
-                         Foreground="{DynamicResource TextPrimaryBrush}"
-                         FontSize="12"
-                         TextChanged="TxtSettingsSearch_TextChanged"
-                         KeyDown="TxtSettingsSearch_KeyDown"
-                         AutomationProperties.Name="{DynamicResource Settings_SearchPlaceholder}"/>
-                <TextBlock x:Name="TxtSettingsSearchPlaceholder"
-                           Text="{DynamicResource Settings_SearchPlaceholder}"
-                           Foreground="{DynamicResource TextMutedBrush}"
-                           FontSize="12"
-                           Margin="10,0,0,0"
-                           VerticalAlignment="Center"
-                           IsHitTestVisible="False"/>
+            <Grid Grid.Column="1" Width="300" HorizontalAlignment="Right" Margin="12,0,10,0">
+                <Border x:Name="SettingsSearchSurface"
+                        Height="30"
+                        Background="{DynamicResource InputBackgroundBrush}"
+                        BorderThickness="1"
+                        CornerRadius="2"
+                        SnapsToDevicePixels="True">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid Margin="6,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="24"/>
+                        </Grid.ColumnDefinitions>
+                        <Path Grid.Column="0"
+                              Data="M7,1.5 A5.5,5.5 0 1,0 7,12.5 A5.5,5.5 0 1,0 7,1.5 M11,11 L15,15"
+                              Stroke="{DynamicResource TextMutedBrush}"
+                              StrokeThickness="1.3"
+                              Width="15" Height="15"
+                              Stretch="Uniform"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"
+                              IsHitTestVisible="False"/>
+                        <Grid Grid.Column="1">
+                            <TextBox x:Name="TxtSettingsSearch"
+                                     Padding="0"
+                                     VerticalContentAlignment="Center"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     Foreground="{DynamicResource TextPrimaryBrush}"
+                                     FontSize="12"
+                                     TextChanged="TxtSettingsSearch_TextChanged"
+                                     PreviewKeyDown="TxtSettingsSearch_PreviewKeyDown"
+                                     AutomationProperties.Name="{DynamicResource Settings_SearchPlaceholder}"
+                                     AutomationProperties.HelpText="{DynamicResource Settings_SearchShortcut}"/>
+                            <TextBlock x:Name="TxtSettingsSearchPlaceholder"
+                                       Text="{DynamicResource Settings_SearchPlaceholder}"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       IsHitTestVisible="False"/>
+                        </Grid>
+                        <Button x:Name="BtnClearSettingsSearch"
+                                Grid.Column="2"
+                                Width="24" Height="24"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="0"
+                                Cursor="Hand"
+                                Visibility="Collapsed"
+                                Click="BtnClearSettingsSearch_Click"
+                                ToolTip="{DynamicResource Settings_SearchClear}"
+                                AutomationProperties.Name="{DynamicResource Settings_SearchClear}">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="ClearSurface"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            BorderThickness="1"
+                                            CornerRadius="3">
+                                        <Path x:Name="ClearGlyph"
+                                              Data="M1,1 L8,8 M8,1 L1,8"
+                                              Stroke="{DynamicResource TextMutedBrush}"
+                                              StrokeThickness="1.3"
+                                              Width="9" Height="9"
+                                              Stretch="Uniform"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="ClearSurface" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                            <Setter TargetName="ClearGlyph" Property="Stroke" Value="{DynamicResource TextPrimaryBrush}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="ClearSurface" Property="Background" Value="{DynamicResource ActiveBackgroundBrush}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsKeyboardFocused" Value="True">
+                                            <Setter TargetName="ClearSurface" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </Grid>
+                </Border>
                 <Popup x:Name="SettingsSearchPopup"
+                       FlowDirection="LeftToRight"
                        Placement="Bottom"
-                       PlacementTarget="{Binding ElementName=TxtSettingsSearch}"
+                       PlacementTarget="{Binding ElementName=SettingsSearchSurface}"
                        StaysOpen="False"
                        AllowsTransparency="True"
                        PopupAnimation="None">
@@ -533,20 +697,74 @@
                             BorderThickness="1"
                             CornerRadius="6"
                             Padding="6"
-                            Width="292"
-                            MaxHeight="270"
+                            Width="300"
+                            MaxHeight="380"
                             Margin="0,4,0,0">
                         <Grid>
-                            <TextBlock x:Name="TxtSettingsSearchEmpty"
-                                       Text="{DynamicResource Settings_SearchNoResults}"
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock x:Name="TxtSettingsSearchSummary"
+                                       Grid.Row="0"
                                        Foreground="{DynamicResource TextMutedBrush}"
-                                       FontSize="11.5"
-                                       TextWrapping="Wrap"
-                                       Margin="6,5"
+                                       FontSize="10.5"
+                                       FontWeight="SemiBold"
+                                       Margin="6,3,6,5"
                                        Visibility="Collapsed"/>
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="250">
-                                <StackPanel x:Name="PnlSettingsSearchResults"/>
-                            </ScrollViewer>
+                            <Grid Grid.Row="1">
+                                <ListBox x:Name="LstSettingsSearchResults"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Padding="0"
+                                         MaxHeight="286"
+                                         IsTabStop="False"
+                                         SelectionMode="Single"
+                                         HorizontalContentAlignment="Stretch"
+                                         ItemContainerStyle="{StaticResource SettingsSearchResultItemStyle}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         AutomationProperties.Name="{DynamicResource Settings_SearchResultsAutomation}"
+                                         Visibility="Collapsed">
+                                    <ListBox.Resources>
+                                        <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource SettingsSearchScrollBarStyle}"/>
+                                    </ListBox.Resources>
+                                </ListBox>
+                                <StackPanel x:Name="PnlSettingsSearchEmpty"
+                                            Margin="18,14,18,16"
+                                            Visibility="Collapsed">
+                                    <Path Data="M7,1.5 A5.5,5.5 0 1,0 7,12.5 A5.5,5.5 0 1,0 7,1.5 M11,11 L15,15"
+                                          Stroke="{DynamicResource TextMutedBrush}"
+                                          StrokeThickness="1.3"
+                                          Width="20" Height="20"
+                                          Stretch="Uniform"
+                                          HorizontalAlignment="Center"/>
+                                    <TextBlock Text="{DynamicResource Settings_SearchNoResults}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="11.5"
+                                               FontWeight="SemiBold"
+                                               TextAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               Margin="0,8,0,0"/>
+                                    <TextBlock Text="{DynamicResource Settings_SearchNoResultsHint}"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               FontSize="10.5"
+                                               TextAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               Margin="0,3,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                            <Border Grid.Row="2"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="0,1,0,0"
+                                    Margin="0,4,0,0"
+                                    Padding="6,5,6,1">
+                                <TextBlock x:Name="TxtSettingsSearchKeyboardHint"
+                                           Text="{DynamicResource Settings_SearchKeyboardHint}"
+                                           Foreground="{DynamicResource TextMutedBrush}"
+                                           FontSize="10"/>
+                            </Border>
                         </Grid>
                     </Border>
                 </Popup>
@@ -566,7 +784,7 @@
                         <Grid Width="16" Height="16" VerticalAlignment="Center">
                             <Ellipse Width="8" Height="8" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.3"/>
                             <Ellipse Width="2.5" Height="2.5" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"/>
-                            <Path Data="M8,0 L8,3 M8,13 L8,16 M0,8 L3,8 M13,8 L16,8 M2.3,2.3 L4.4,4.4 M11.6,11.6 L13.7,13.7 M13.7,2.3 L11.6,4.4 M4.4,11.6 L2.3,13.7"
+                            <Path x:Name="PathTabGeneral" Data="M8,0 L8,3 M8,13 L8,16 M0,8 L3,8 M13,8 L16,8 M2.3,2.3 L4.4,4.4 M11.6,11.6 L13.7,13.7 M13.7,2.3 L11.6,4.4 M4.4,11.6 L2.3,13.7"
                                   Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.2"/>
                         </Grid>
                         <TextBlock Text="{DynamicResource Settings_TabGeneral}" Margin="6,0,0,0" VerticalAlignment="Center"/>
@@ -574,56 +792,56 @@
                 </RadioButton>
                 <RadioButton x:Name="TabView" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabView}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M1,3 L15,3 M4,1.5 L4,4.5 M1,8 L15,8 M11,6.5 L11,9.5 M1,13 L15,13 M6,11.5 L6,14.5"
+                        <Path x:Name="PathTabView" Data="M1,3 L15,3 M4,1.5 L4,4.5 M1,8 L15,8 M11,6.5 L11,9.5 M1,13 L15,13 M6,11.5 L6,14.5"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.25" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabView}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="TabOverlay" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabOverlay}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M1,2 L15,2 L15,14 L1,14 Z M9,8 L14,8 L14,13 L9,13 Z"
+                        <Path x:Name="PathTabOverlay" Data="M1,2 L15,2 L15,14 L1,14 Z M9,8 L14,8 L14,13 L9,13 Z"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.1" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabOverlay}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="TabCpu" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabCpu}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M5,4 L11,4 L11,10 L5,10 Z M7,6 L9,6 L9,8 L7,8 Z M7,2 L7,4 M9,2 L9,4 M7,10 L7,12 M9,10 L9,12 M3,6 L5,6 M3,8 L5,8 M11,6 L13,6 M11,8 L13,8"
+                        <Path x:Name="PathTabCpu" Data="M5,4 L11,4 L11,10 L5,10 Z M7,6 L9,6 L9,8 L7,8 Z M7,2 L7,4 M9,2 L9,4 M7,10 L7,12 M9,10 L9,12 M3,6 L5,6 M3,8 L5,8 M11,6 L13,6 M11,8 L13,8"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.15" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabCpu}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="TabMemory" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabMemory}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M2,5 L14,5 L14,11 L2,11 Z M4,11 L4,13.5 M6.5,11 L6.5,13.5 M9.5,11 L9.5,13.5 M12,11 L12,13.5 M4.5,7 L6.5,7 L6.5,9 L4.5,9 Z M9.5,7 L11.5,7 L11.5,9 L9.5,9 Z"
+                        <Path x:Name="PathTabMemory" Data="M2,5 L14,5 L14,11 L2,11 Z M4,11 L4,13.5 M6.5,11 L6.5,13.5 M9.5,11 L9.5,13.5 M12,11 L12,13.5 M4.5,7 L6.5,7 L6.5,9 L4.5,9 Z M9.5,7 L11.5,7 L11.5,9 L9.5,9 Z"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.1" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabMemory}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="TabDisk" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabDisk}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M2,4 L14,4 L14,12 L2,12 Z M4,7 L12,7 L12,10 L4,10 Z M4,5 L6,5 M4,8 L6,8"
+                        <Path x:Name="PathTabDisk" Data="M2,4 L14,4 L14,12 L2,12 Z M4,7 L12,7 L12,10 L4,10 Z M4,5 L6,5 M4,8 L6,8"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.15" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabDisk}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="TabGpu" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabGpu}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M2,4 L14,4 L14,11 L2,11 Z M4,13 L12,13 L12,14 L4,14 Z M5.5,7.5 A1.5,1.5 0 1,0 8.5,7.5 A1.5,1.5 0 1,0 5.5,7.5 Z M9.5,7.5 A1.5,1.5 0 1,0 12.5,7.5 A1.5,1.5 0 1,0 9.5,7.5 Z"
+                        <Path x:Name="PathTabGpu" Data="M2,4 L14,4 L14,11 L2,11 Z M4,13 L12,13 L12,14 L4,14 Z M5.5,7.5 A1.5,1.5 0 1,0 8.5,7.5 A1.5,1.5 0 1,0 5.5,7.5 Z M9.5,7.5 A1.5,1.5 0 1,0 12.5,7.5 A1.5,1.5 0 1,0 9.5,7.5 Z"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.1" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabGpu}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="TabAutopilot" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabAutopilot}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M9,1 L3,9 L7,9 L6,15 L13,6 L9,6 Z"
+                        <Path x:Name="PathTabAutopilot" Data="M9,1 L3,9 L7,9 L6,15 L13,6 L9,6 Z"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.15" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabAutopilot}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="TabAbout" Style="{StaticResource TabButtonStyle}" Checked="Tab_Checked" AutomationProperties.Name="{DynamicResource Settings_TabAbout}">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="M8,1.5 A6.5,6.5 0 1,0 8,14.5 A6.5,6.5 0 1,0 8,1.5 M8,7 L8,11 M8,4.4 L8,4.5"
+                        <Path x:Name="PathTabAbout" Data="M8,1.5 A6.5,6.5 0 1,0 8,14.5 A6.5,6.5 0 1,0 8,1.5 M8,7 L8,11 M8,4.4 L8,4.5"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" StrokeThickness="1.2" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center"/>
                         <TextBlock Text="{DynamicResource Settings_TabAbout}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
@@ -669,6 +887,9 @@
 
         <!-- Content Area -->
         <ScrollViewer x:Name="SettingsContentScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+            <ScrollViewer.Resources>
+                <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource SettingsSearchScrollBarStyle}"/>
+            </ScrollViewer.Resources>
             <StackPanel>
                 <!-- GENERAL TAB -->
                 <StackPanel x:Name="PanelGeneral">
@@ -738,6 +959,78 @@
                     <CheckBox x:Name="ChkPinToTaskbar" Content="{DynamicResource Settings_PinToTaskbar}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkAlwaysOnTop" Content="{DynamicResource Settings_AlwaysOnTop}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkHideOnFocusLoss" Content="{DynamicResource Settings_HideOnFocusLoss}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,14,0,16"/>
+
+                    <Border Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="14,12">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Settings_KeepAwakeTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{DynamicResource Settings_KeepAwakeDesc}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,5,0,10"/>
+
+                            <TextBlock Text="{DynamicResource Settings_KeepAwakeMode}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="11.5"
+                                       Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbKeepAwake"
+                                      SelectionChanged="CmbKeepAwake_SelectionChanged"
+                                      AutomationProperties.Name="{DynamicResource Settings_KeepAwakeMode}">
+                                <ComboBoxItem Content="{DynamicResource Settings_KeepAwakeOff}" Tag="Off" IsSelected="True"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_KeepAwake15}" Tag="15"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_KeepAwake30}" Tag="30"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_KeepAwake1h}" Tag="60"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_KeepAwake2h}" Tag="120"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_KeepAwakeCustom}" Tag="Custom"/>
+                                <ComboBoxItem Content="{DynamicResource Settings_KeepAwakeIndefinite}" Tag="Indefinite"/>
+                            </ComboBox>
+
+                            <CheckBox x:Name="ChkKeepAwakeAllowDisplayOff"
+                                      Content="{DynamicResource Settings_KeepAwakeAllowDisplayOff}"
+                                      Checked="SettingChanged"
+                                      Unchecked="SettingChanged"
+                                      Margin="0,10,0,4"/>
+
+                            <Border Background="{DynamicResource PanelAltBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="9,7"
+                                    Margin="0,4,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="TxtKeepAwakeStatus"
+                                               Text="{DynamicResource Settings_KeepAwakeStatusOff}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="11.5"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <Button x:Name="BtnStopKeepAwake"
+                                            Grid.Column="1"
+                                            Content="{DynamicResource Common_Stop}"
+                                            Click="BtnStopKeepAwake_Click"
+                                            Style="{StaticResource SettingsFooterButton}"
+                                            Padding="9,4"
+                                            Visibility="Collapsed"
+                                            AutomationProperties.Name="{DynamicResource Common_Stop}"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
 
                     <!-- Hotkey combo -->
                     <CheckBox x:Name="ChkUseHotkey" Content="{DynamicResource Settings_UseHotkey}" Checked="ChkUseHotkey_Changed" Unchecked="ChkUseHotkey_Changed" Margin="0,12,0,6"/>
@@ -1097,6 +1390,34 @@
 
                 <!-- MEMORY TAB -->
                 <StackPanel x:Name="PanelMemory" Visibility="Collapsed">
+                    <TextBlock Text="{DynamicResource Settings_MemoryOverview}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,6"/>
+                    <Border Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="12,9"
+                            Margin="0,0,0,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource Settings_MemoryInUse}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10.5"/>
+                                <TextBlock x:Name="TxtMemInUse" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" FontWeight="SemiBold" Margin="0,3,0,0" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="{DynamicResource Settings_MemoryStandby}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10.5"/>
+                                <TextBlock x:Name="TxtMemStandby" Text="--" Foreground="{DynamicResource AccentTextBrush}" FontSize="13" FontWeight="SemiBold" Margin="0,3,0,0" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="{DynamicResource Settings_MemoryFree}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10.5"/>
+                                <TextBlock x:Name="TxtMemFree" Text="--" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" FontWeight="SemiBold" Margin="0,3,0,0" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
                     <TextBlock Text="{DynamicResource Settings_MemoryTrayBadge}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkShowRamBadge" Content="{DynamicResource Settings_ShowRamBadge}" Checked="ChkTrayBadge_Changed" Unchecked="ChkTrayBadge_Changed" Margin="0,4,0,6"/>
                     <StackPanel x:Name="PnlRamBadgeOptions" Margin="28,0,0,0" IsEnabled="False">
@@ -1174,6 +1495,116 @@
                         <ComboBoxItem Content="{DynamicResource Settings_RamInterval4h}" Tag="4"/>
                         <ComboBoxItem Content="{DynamicResource Settings_RamInterval6h}" Tag="6"/>
                     </ComboBox>
+
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,18,0,16"/>
+
+                    <Border Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="14,12"
+                            Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Settings_AutoPurgeTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{DynamicResource Settings_AutoPurgeDesc}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,5,0,0"/>
+
+                            <ToggleButton x:Name="ChkAutoStandbyPurge"
+                                          Style="{StaticResource AutopilotToggleStyle}"
+                                          Content="{DynamicResource Settings_AutoPurgeEnable}"
+                                          Checked="ChkAutoStandbyPurge_Changed"
+                                          Unchecked="ChkAutoStandbyPurge_Changed"
+                                          Margin="0,12,0,8"/>
+
+                            <StackPanel x:Name="PnlAutoPurgeOptions" IsEnabled="False">
+                                <CheckBox x:Name="ChkAutoPurgeDuringGames"
+                                          Content="{DynamicResource Settings_AutoPurgeDuringGames}"
+                                          Checked="SettingChanged"
+                                          Unchecked="SettingChanged"
+                                          Margin="0,2,0,8"/>
+
+                                <TextBlock Text="{DynamicResource Settings_AutoPurgeFreeThreshold}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           FontSize="11.5"
+                                           Margin="0,0,0,4"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="58"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Slider x:Name="SldAutoPurgeFree"
+                                            Minimum="512"
+                                            Maximum="8192"
+                                            Value="1024"
+                                            TickFrequency="256"
+                                            IsSnapToTickEnabled="True"
+                                            ValueChanged="SldAutoPurgeThreshold_ValueChanged"
+                                            AutomationProperties.Name="{DynamicResource Settings_AutoPurgeFreeThreshold}"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtAutoPurgeFree" Text="1024 MB" Foreground="{DynamicResource AccentTextBrush}" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11.5" FlowDirection="LeftToRight"/>
+                                </Grid>
+
+                                <TextBlock Text="{DynamicResource Settings_AutoPurgeStandbyThreshold}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           FontSize="11.5"
+                                           Margin="0,0,0,4"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="58"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Slider x:Name="SldAutoPurgeStandby"
+                                            Minimum="1024"
+                                            Maximum="32768"
+                                            Value="4096"
+                                            TickFrequency="1024"
+                                            IsSnapToTickEnabled="True"
+                                            ValueChanged="SldAutoPurgeThreshold_ValueChanged"
+                                            AutomationProperties.Name="{DynamicResource Settings_AutoPurgeStandbyThreshold}"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtAutoPurgeStandby" Text="4096 MB" Foreground="{DynamicResource AccentTextBrush}" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11.5" FlowDirection="LeftToRight"/>
+                                </Grid>
+
+                                <TextBlock Text="{DynamicResource Settings_AutoPurgeCooldown}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           FontSize="11.5"
+                                           Margin="0,0,0,4"/>
+                                <Grid Margin="0,0,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="58"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Slider x:Name="SldAutoPurgeCooldown"
+                                            Minimum="1"
+                                            Maximum="60"
+                                            Value="5"
+                                            TickFrequency="1"
+                                            IsSnapToTickEnabled="True"
+                                            ValueChanged="SldAutoPurgeThreshold_ValueChanged"
+                                            AutomationProperties.Name="{DynamicResource Settings_AutoPurgeCooldown}"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtAutoPurgeCooldown" Text="5 min" Foreground="{DynamicResource AccentTextBrush}" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11.5" FlowDirection="LeftToRight"/>
+                                </Grid>
+                            </StackPanel>
+
+                            <Border Background="{DynamicResource PanelAltBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="9,7"
+                                    Margin="0,8,0,0">
+                                <TextBlock x:Name="TxtAutoPurgeStatus"
+                                           Text="{DynamicResource Settings_AutoPurgeStatusDisabled}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"/>
+                            </Border>
+                        </StackPanel>
+                    </Border>
 
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,18,0,16"/>
 
@@ -1549,6 +1980,105 @@
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="6"
+                            Padding="14,12"
+                            Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Settings_TimerTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{DynamicResource Settings_TimerDesc}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,5,0,10"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="126"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource Settings_TimerMode}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="11.5"
+                                               Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbTimerMode"
+                                              SelectionChanged="TimerResolutionOption_Changed"
+                                              AutomationProperties.Name="{DynamicResource Settings_TimerMode}">
+                                        <ComboBoxItem Content="{DynamicResource Settings_TimerModeOff}" Tag="Off" IsSelected="True"/>
+                                        <ComboBoxItem Content="{DynamicResource Settings_TimerModeAutopilot}" Tag="AutopilotOnly"/>
+                                        <ComboBoxItem Content="{DynamicResource Settings_TimerModeAlwaysOn}" Tag="AlwaysOn"/>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{DynamicResource Settings_TimerTarget}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="11.5"
+                                               Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbTimerTarget"
+                                              SelectionChanged="TimerResolutionOption_Changed"
+                                              AutomationProperties.Name="{DynamicResource Settings_TimerTarget}">
+                                        <ComboBoxItem Content="1.0 ms" Tag="10000" IsSelected="True"/>
+                                        <ComboBoxItem Content="0.5 ms" Tag="5000"/>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+
+                            <CheckBox x:Name="ChkTimerPauseOnBattery"
+                                      Content="{DynamicResource Settings_TimerBatteryGuard}"
+                                      Checked="SettingChanged"
+                                      Unchecked="SettingChanged"
+                                      Margin="0,4,0,6"/>
+
+                            <Border x:Name="BdrTimerPaused"
+                                    Background="{DynamicResource PanelAltBackgroundBrush}"
+                                    BorderBrush="{DynamicResource WarningTextBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="8,5"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                                <TextBlock Text="{DynamicResource Settings_TimerPausedBattery}"
+                                           Foreground="{DynamicResource WarningTextBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"/>
+                            </Border>
+
+                            <Border Background="{DynamicResource PanelAltBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="9,7">
+                                <TextBlock x:Name="TxtTimerStatus"
+                                           Text="{DynamicResource Settings_TimerQueryUnavailable}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"/>
+                            </Border>
+
+                            <StackPanel x:Name="PnlTimerGlobalNotice" Visibility="Collapsed" Margin="0,10,0,0">
+                                <TextBlock x:Name="TxtTimerGlobalNotice"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           FontSize="10.5"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,6"/>
+                                <Button x:Name="BtnTimerGlobalToggle"
+                                        Content="{DynamicResource Settings_TimerGlobalEnableButton}"
+                                        Click="BtnTimerGlobalToggle_Click"
+                                        Style="{StaticResource SettingsFooterButton}"
+                                        HorizontalAlignment="Left"
+                                        Padding="9,4"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
                             Padding="14,12">
                         <StackPanel>
                             <TextBlock Text="{DynamicResource Settings_DownloadTimerTitle}"
@@ -1797,8 +2327,8 @@
                                 Content="{DynamicResource Settings_RollbackVerifyButton}"
                                 Click="BtnVerifyRollback_Click"
                                 Style="{StaticResource SettingsFooterButton}"
-                                FontSize="11.5"
-                                Padding="9,4"
+                                FontSize="10.5"
+                                Padding="8,2"
                                 HorizontalAlignment="Left"
                                 Margin="8,0,0,0"
                                 Visibility="Collapsed"
@@ -1814,45 +2344,70 @@
 
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,20,0,18"/>
 
-                    <TextBlock Text="{DynamicResource Settings_ActivityTitle}"
-                               Foreground="{DynamicResource TextPrimaryBrush}"
-                               FontWeight="SemiBold"
-                               FontSize="13"/>
-                    <TextBlock Text="{DynamicResource Settings_ActivityDesc}"
-                               Foreground="{DynamicResource TextTertiaryBrush}"
-                               FontSize="11"
-                               TextWrapping="Wrap"
-                               Margin="0,4,0,8"/>
-                    <Border Background="{DynamicResource InputBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="6"
-                            Padding="10,4"
-                            Margin="0,0,0,8">
+                    <ToggleButton x:Name="ActivityToggle"
+                                  Style="{StaticResource SettingsDisclosureToggleStyle}"
+                                  IsChecked="False"
+                                  Checked="ActivityToggle_Changed"
+                                  Unchecked="ActivityToggle_Changed"
+                                  AutomationProperties.Name="{DynamicResource Settings_ActivityTitle}">
                         <Grid>
-                            <TextBlock x:Name="TxtActivityEmpty"
-                                       Text="{DynamicResource Settings_ActivityEmpty}"
-                                       Foreground="{DynamicResource TextTertiaryBrush}"
-                                       FontSize="11.5"
-                                       TextWrapping="Wrap"
-                                       Margin="0,6"/>
-                            <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="PnlActivity"/>
-                            </ScrollViewer>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TxtActivityChevron"
+                                       Grid.Column="0"
+                                       Text="›"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{DynamicResource Settings_ActivityTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
                         </Grid>
-                    </Border>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Button x:Name="BtnSaveSupportBundle"
-                                Content="{DynamicResource Settings_ActivitySaveBundle}"
-                                Click="BtnSaveSupportBundle_Click"
-                                Style="{StaticResource SettingsFooterButton}"
-                                HorizontalAlignment="Left"/>
-                        <TextBlock x:Name="TxtSupportBundleStatus"
+                    </ToggleButton>
+                    <StackPanel x:Name="PnlActivityContent" Visibility="Collapsed" Margin="0,4,0,0">
+                        <TextBlock Text="{DynamicResource Settings_ActivityDesc}"
                                    Foreground="{DynamicResource TextTertiaryBrush}"
                                    FontSize="11"
                                    TextWrapping="Wrap"
-                                   VerticalAlignment="Center"
-                                   Margin="10,0,0,0"/>
+                                   Margin="0,0,0,8"/>
+                        <Border Background="{DynamicResource InputBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="10,4"
+                                Margin="0,0,0,8">
+                            <Grid>
+                                <TextBlock x:Name="TxtActivityEmpty"
+                                           Text="{DynamicResource Settings_ActivityEmpty}"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Margin="0,6"/>
+                                <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="PnlActivity"/>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Button x:Name="BtnSaveSupportBundle"
+                                    Content="{DynamicResource Settings_ActivitySaveBundle}"
+                                    Click="BtnSaveSupportBundle_Click"
+                                    Style="{StaticResource SettingsFooterButton}"
+                                    HorizontalAlignment="Left"/>
+                            <TextBlock x:Name="TxtSupportBundleStatus"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"
+                                       Margin="10,0,0,0"/>
+                        </StackPanel>
                     </StackPanel>
 
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,20,0,18"/>

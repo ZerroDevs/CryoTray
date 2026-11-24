@@ -112,6 +112,7 @@ namespace CryoTray.Tests
             allPassed &= TestGdiLeakPrevention();
             allPassed &= TestLocalization();
             allPassed &= TestWindowsXamlInstantiation();
+            allPassed &= TestHealthCheckAndSessionReport();
             allPassed &= TestTemperatureAlerts();
             allPassed &= TestFanHealthWatch();
             allPassed &= TestStorageHealthWatch();
@@ -793,11 +794,19 @@ namespace CryoTray.Tests
                     var stw = new Views.StressTestWindow();
                     var ow = new Views.OverlayWindow();
                     var scw = new Views.StorageCleanupWindow();
+                    var kac = new Views.KeepAwakeConfirmWindow(true);
+                    var kad = new Views.KeepAwakeDurationWindow();
+                    var hcw = new Views.HealthCheckWindow(false, false);
+                    var srw = new Views.SessionReportWindow();
                     mw.Close();
                     sw.Close();
                     siw.Close();
                     stw.Close();
                     scw.Close();
+                    kac.Close();
+                    kad.Close();
+                    hcw.Close();
+                    srw.Close();
                     _ = ow;
                 }
                 catch (Exception ex)
@@ -820,8 +829,87 @@ namespace CryoTray.Tests
                 return false;
             }
 
-            Console.WriteLine("PASSED (All 6 Windows instantiated cleanly)");
+            Console.WriteLine("PASSED (All 10 Windows instantiated cleanly)");
             return true;
+        }
+
+        private static bool TestHealthCheckAndSessionReport()
+        {
+            Console.Write("[TEST] Health check & session report services... ");
+            try
+            {
+                HealthCheckReport health = HealthCheckService.Run(postUpdate: false);
+                if (health.Items.Count != 7)
+                {
+                    throw new Exception($"Expected 7 health checks, got {health.Items.Count}");
+                }
+
+                if (health.Items.Select(item => item.Id).Distinct().Count() != 7)
+                {
+                    throw new Exception("Health check IDs are not unique.");
+                }
+
+                foreach (HealthCheckItem item in health.Items.Where(item =>
+                    item.Level == HealthCheckLevel.Warning ||
+                    item.Level == HealthCheckLevel.ActionRequired))
+                {
+                    if (item.Action == HealthCheckActionKind.None)
+                    {
+                        throw new Exception($"Issue {item.Id} has no fix action.");
+                    }
+                }
+
+                DateTime now = DateTime.Now;
+                var samples = new List<TelemetrySample>
+                {
+                    new()
+                    {
+                        Timestamp = now,
+                        CoolingModeActive = true,
+                        PowerProfileKey = PowerProfiles.CoolingKey,
+                        CpuTemp = 40,
+                        GpuTemp = 35
+                    },
+                    new()
+                    {
+                        Timestamp = now.AddSeconds(1),
+                        CoolingModeActive = false,
+                        PowerProfileKey = PowerProfiles.BalancedKey,
+                        CpuTemp = 45,
+                        GpuTemp = 40
+                    },
+                    new()
+                    {
+                        Timestamp = now.AddSeconds(2),
+                        CoolingModeActive = false,
+                        PowerProfileKey = PowerProfiles.GamingHighKey,
+                        CpuTemp = 50,
+                        GpuTemp = 45
+                    }
+                };
+                IReadOnlyList<SessionChartEvent> markers =
+                    SessionReportService.GetChartEvents(samples);
+                if (!markers.Any(item => item.Kind == "cooling") ||
+                    !markers.Any(item => item.Kind == "profile"))
+                {
+                    throw new Exception("Chart events did not include cooling and profile changes.");
+                }
+
+                string reportText = SessionReportService.BuildText(SessionReportService.Build());
+                if (string.IsNullOrWhiteSpace(reportText) ||
+                    !reportText.Contains(LocalizationService.Get("Session_Title"), StringComparison.Ordinal))
+                {
+                    throw new Exception("Session report text was empty or missing its title.");
+                }
+
+                Console.WriteLine("PASSED (7 checks, cooling/profile markers, report text)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
         }
 
         private static bool TestPerCoreTemperaturePolling()
@@ -3067,7 +3155,7 @@ namespace CryoTray.Tests
                                     }
                                 }
 
-                                if (itemCount != 4 || sepCount != 1 || ramMenu.Items.Count != 5)
+                                if (itemCount != 6 || sepCount != 1 || ramMenu.Items.Count != 5)
                                 {
                                     throw new Exception($"Unexpected menu structure: toolsItems={itemCount}, toolsSep={sepCount}, ramItems={ramMenu.Items.Count}");
                                 }

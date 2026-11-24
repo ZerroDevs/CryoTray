@@ -161,7 +161,8 @@
                             Foreground="{DynamicResource AccentTextBrush}"
                             Cursor="Hand"
                             Padding="4"
-                            Margin="0,0,12,0">
+                            Margin="0,0,12,0"
+                            AutomationProperties.Name="{DynamicResource System_SaveTo}">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="M4,2 L11,2 L14,5 L14,14 L2,14 L2,2 Z M5,2 L5,6 L11,6 L11,2 M5,9 L11,9 L11,13 L5,13 Z"
                                   Stroke="{DynamicResource AccentTextBrush}"

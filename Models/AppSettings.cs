@@ -13,6 +13,7 @@ namespace CryoTray.Models
         public bool ShowComputerName { get; set; } = true;
         public bool LaunchOnStartup { get; set; } = false;
         public bool LaunchInBackground { get; set; } = false;
+        public bool HasCompletedFirstRunHealthCheck { get; set; } = false;
         public bool EnableCoolingOnLaunch { get; set; } = false;
         public bool EnableCoolingOnBattery { get; set; } = false;
         public bool DisableCoolingModeOnExit { get; set; } = true;
@@ -102,6 +103,21 @@ namespace CryoTray.Models
         public bool AutopilotForegroundOnly { get; set; } = false;
         public List<string> AutopilotWhitelist { get; set; } = new();
         public Dictionary<string, string> AutopilotAppProfiles { get; set; } = new();
+
+        // Opt-in Windows timer resolution management (off for fresh installs and upgrades)
+        public string TimerResolutionMode { get; set; } = "Off"; // Off, AutopilotOnly, AlwaysOn
+        public int TimerResolutionHundredNs { get; set; } = 10000; // 5000 = 0.5 ms, 10000 = 1.0 ms
+        public bool TimerResolutionPauseOnBattery { get; set; } = true;
+
+        // Opt-in automatic standby-list cleanup (off for fresh installs and upgrades)
+        public bool AutoStandbyPurgeEnabled { get; set; } = false;
+        public bool AllowAutoPurgeDuringGames { get; set; } = false;
+        public int AutoPurgeFreeRamThresholdMb { get; set; } = 1024;
+        public int AutoPurgeStandbyThresholdMb { get; set; } = 4096;
+        public int AutoPurgeCooldownMinutes { get; set; } = 5;
+
+        // Keep Awake is runtime-only; only the harmless display preference persists.
+        public bool KeepAwakeAllowDisplayOff { get; set; } = true;
 
         // Overlay
         public bool OverlayEnabled { get; set; } = false;

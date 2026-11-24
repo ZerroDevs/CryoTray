@@ -9,10 +9,13 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Ellipse = System.Windows.Shapes.Ellipse;
+using ShapePath = System.Windows.Shapes.Path;
 using CryoTray.Models;
 using CryoTray.Services;
 using Microsoft.Win32;
@@ -24,7 +27,9 @@ namespace CryoTray.Views
     {
         private bool _isBinding = true;
         private bool _isClosed;
+        private bool _isUpdatingKeepAwakeCombo;
         private bool _updateBusy;
+        private bool _rollbackVerifyBusy;
         private ReleaseInfo? _availableUpdate;
         private CancellationTokenSource? _updateCancellation;
         private string _updateStatusKey = "Settings_UpdateDefault";
@@ -43,6 +48,7 @@ namespace CryoTray.Views
         private readonly DispatcherTimer _gpuSliderApplyTimer;
         private readonly List<SettingsSearchItem> _settingsSearchIndex = new();
         private IReadOnlyList<SettingsSearchItem> _settingsSearchResults = Array.Empty<SettingsSearchItem>();
+        private bool _settingsSearchPopupOpenPending;
         private IDisposable? _telemetryLease;
 
         private sealed class DiskDriveControlRow
@@ -99,17 +105,22 @@ namespace CryoTray.Views
             LocalizationService.Instance.ApplyWindow(this);
             Loaded += SettingsWindow_Loaded;
             Activated += SettingsWindow_Activated;
+            PreviewKeyDown += SettingsWindow_PreviewKeyDown;
             Closed += SettingsWindow_Closed;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
             UpdateStatusService.Instance.Changed += OnUpdateStatusChanged;
             ActivityLogService.Instance.Changed += OnActivityChanged;
+            KeepAwakeService.Instance.StatusChanged += OnKeepAwakeStatusChanged;
+            TimerResolutionService.Instance.StatusChanged += OnTimerResolutionStatusChanged;
+            StandbyPurgeService.Instance.StatusChanged += OnStandbyPurgeStatusChanged;
         }
 
         private void SettingsWindow_Closed(object? sender, EventArgs e)
         {
             _isClosed = true;
             Activated -= SettingsWindow_Activated;
+            PreviewKeyDown -= SettingsWindow_PreviewKeyDown;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnSettingsTelemetryUpdated;
             SettingsService.Instance.SettingsChanged -= OnExternalSettingsChanged;
             GpuPowerControlService.Instance.StateChanged -= OnGpuPowerStateChanged;
@@ -118,6 +129,9 @@ namespace CryoTray.Views
             ThemeService.ThemeChanged -= OnThemeChanged;
             UpdateStatusService.Instance.Changed -= OnUpdateStatusChanged;
             ActivityLogService.Instance.Changed -= OnActivityChanged;
+            KeepAwakeService.Instance.StatusChanged -= OnKeepAwakeStatusChanged;
+            TimerResolutionService.Instance.StatusChanged -= OnTimerResolutionStatusChanged;
+            StandbyPurgeService.Instance.StatusChanged -= OnStandbyPurgeStatusChanged;
             _gpuSliderApplyTimer.Stop();
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
@@ -161,6 +175,11 @@ namespace CryoTray.Views
             DownloadTimerService.Instance.StatusChanged += OnDownloadTimerStatusChanged;
             UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
             UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
+            SyncKeepAwakeComboFromService();
+            RefreshKeepAwakeUi();
+            RefreshTimerResolutionUi();
+            UpdateMemoryOverview();
+            RefreshAutoPurgeStatus();
             _ = GpuPowerControlService.Instance.RefreshAsync();
             _isBinding = false;
 
@@ -199,6 +218,22 @@ namespace CryoTray.Views
                     (PanelMemory != null && PanelMemory.Visibility == Visibility.Visible))
                 {
                     UpdateTrayBadgeSampleTexts();
+                }
+
+                if (PanelMemory != null && PanelMemory.Visibility == Visibility.Visible)
+                {
+                    UpdateMemoryOverview();
+                    RefreshAutoPurgeStatus();
+                }
+
+                if (PanelAutopilot != null && PanelAutopilot.Visibility == Visibility.Visible)
+                {
+                    RefreshTimerResolutionUi();
+                }
+
+                if (PanelGeneral != null && PanelGeneral.Visibility == Visibility.Visible)
+                {
+                    RefreshKeepAwakeUi();
                 }
 
                 if (PanelGpu != null && PanelGpu.Visibility == Visibility.Visible)
@@ -253,6 +288,54 @@ namespace CryoTray.Views
                         (ChkDownloadTimerEnabled.IsChecked == true) != s.DownloadTimerEnabled)
                     {
                         ChkDownloadTimerEnabled.IsChecked = s.DownloadTimerEnabled;
+                    }
+                    if (ChkKeepAwakeAllowDisplayOff != null &&
+                        ChkKeepAwakeAllowDisplayOff.IsChecked != s.KeepAwakeAllowDisplayOff)
+                    {
+                        ChkKeepAwakeAllowDisplayOff.IsChecked = s.KeepAwakeAllowDisplayOff;
+                    }
+                    if (ChkAutoStandbyPurge != null &&
+                        (ChkAutoStandbyPurge.IsChecked == true) != s.AutoStandbyPurgeEnabled)
+                    {
+                        ChkAutoStandbyPurge.IsChecked = s.AutoStandbyPurgeEnabled;
+                    }
+                    if (CmbTimerMode != null)
+                    {
+                        SelectComboByTag(CmbTimerMode, TimerResolutionService.ParseMode(s.TimerResolutionMode) switch
+                        {
+                            TimerResolutionMode.AutopilotOnly => "AutopilotOnly",
+                            TimerResolutionMode.AlwaysOn => "AlwaysOn",
+                            _ => "Off"
+                        });
+                    }
+                    if (CmbTimerTarget != null)
+                    {
+                        SelectComboByTag(
+                            CmbTimerTarget,
+                            TimerResolutionService.NormalizeTarget(s.TimerResolutionHundredNs)
+                                .ToString(CultureInfo.InvariantCulture));
+                    }
+                    if (ChkTimerPauseOnBattery != null &&
+                        ChkTimerPauseOnBattery.IsChecked != s.TimerResolutionPauseOnBattery)
+                    {
+                        ChkTimerPauseOnBattery.IsChecked = s.TimerResolutionPauseOnBattery;
+                    }
+                    if (ChkAutoPurgeDuringGames != null &&
+                        ChkAutoPurgeDuringGames.IsChecked != s.AllowAutoPurgeDuringGames)
+                    {
+                        ChkAutoPurgeDuringGames.IsChecked = s.AllowAutoPurgeDuringGames;
+                    }
+                    if (SldAutoPurgeFree != null)
+                    {
+                        SldAutoPurgeFree.Value = Math.Clamp(s.AutoPurgeFreeRamThresholdMb, 512, 8192);
+                    }
+                    if (SldAutoPurgeStandby != null)
+                    {
+                        SldAutoPurgeStandby.Value = Math.Clamp(s.AutoPurgeStandbyThresholdMb, 1024, 32768);
+                    }
+                    if (SldAutoPurgeCooldown != null)
+                    {
+                        SldAutoPurgeCooldown.Value = Math.Clamp(s.AutoPurgeCooldownMinutes, 1, 60);
                     }
                 }
                 finally
@@ -332,6 +415,7 @@ namespace CryoTray.Views
             ChkPinToTaskbar.IsChecked = s.PinToTaskbar;
             ChkAlwaysOnTop.IsChecked = s.AlwaysOnTop;
             ChkHideOnFocusLoss.IsChecked = s.HideOnFocusLoss;
+            ChkKeepAwakeAllowDisplayOff.IsChecked = s.KeepAwakeAllowDisplayOff;
 
             ChkUseHotkey.IsChecked = s.UseHotkey;
             _hotkeyKey = string.IsNullOrWhiteSpace(s.HotkeyKey) ? "C" : s.HotkeyKey.Trim();
@@ -423,6 +507,13 @@ namespace CryoTray.Views
             SelectAutoRamInterval(s.AutoRamIntervalHours);
             UpdateMemoryRuleControlStates();
 
+            ChkAutoStandbyPurge.IsChecked = s.AutoStandbyPurgeEnabled;
+            ChkAutoPurgeDuringGames.IsChecked = s.AllowAutoPurgeDuringGames;
+            SldAutoPurgeFree.Value = Math.Clamp(s.AutoPurgeFreeRamThresholdMb, 512, 8192);
+            SldAutoPurgeStandby.Value = Math.Clamp(s.AutoPurgeStandbyThresholdMb, 1024, 32768);
+            SldAutoPurgeCooldown.Value = Math.Clamp(s.AutoPurgeCooldownMinutes, 1, 60);
+            UpdateAutoPurgeControls();
+
             ChkUseRamHotkey.IsChecked = s.UseRamHotkey;
             _ramHotkeyKey = string.IsNullOrWhiteSpace(s.RamHotkeyKey) ? "M" : s.RamHotkeyKey.Trim();
             _ramHotkeyModifiers = string.IsNullOrWhiteSpace(s.RamHotkeyKey) ? "Ctrl+Alt" : (s.RamHotkeyModifiers ?? "");
@@ -432,6 +523,17 @@ namespace CryoTray.Views
             ChkAutopilotEnabled.IsChecked = s.AutopilotEnabled;
             ChkAutopilotFullscreen.IsChecked = s.AutopilotPauseOnFullscreen;
             ChkAutopilotForegroundOnly.IsChecked = s.AutopilotForegroundOnly;
+            SelectComboByTag(CmbTimerMode, TimerResolutionService.ParseMode(s.TimerResolutionMode) switch
+            {
+                TimerResolutionMode.AutopilotOnly => "AutopilotOnly",
+                TimerResolutionMode.AlwaysOn => "AlwaysOn",
+                _ => "Off"
+            });
+            SelectComboByTag(
+                CmbTimerTarget,
+                TimerResolutionService.NormalizeTarget(s.TimerResolutionHundredNs)
+                    .ToString(CultureInfo.InvariantCulture));
+            ChkTimerPauseOnBattery.IsChecked = s.TimerResolutionPauseOnBattery;
             RefreshAutopilotWhitelist();
 
             ChkGpuPowerEnabled.IsChecked = s.GpuPowerControlEnabled;
@@ -489,6 +591,7 @@ namespace CryoTray.Views
             UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
             UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
             RebuildSettingsSearchIndex();
+            UpdateSettingsSearchResults();
         }
 
         private void RebuildSettingsSearchIndex()
@@ -528,6 +631,7 @@ namespace CryoTray.Views
                          !string.IsNullOrWhiteSpace(label))
                 {
                     AddSearchItem(label, content, tabKey, content.Name);
+                    continue;
                 }
 
                 AddSearchItems(child, tabKey);
@@ -580,8 +684,27 @@ namespace CryoTray.Views
             return string.Join(" ", words);
         }
 
+        private void SettingsWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.F || Keyboard.Modifiers != ModifierKeys.Control)
+            {
+                return;
+            }
+
+            if (Keyboard.FocusedElement is TextBox
+                { Name: "TxtHotkeyShortcut" or "TxtRamHotkeyShortcut" })
+            {
+                return;
+            }
+
+            TxtSettingsSearch.Focus();
+            TxtSettingsSearch.SelectAll();
+            e.Handled = true;
+        }
+
         private void TxtSettingsSearch_TextChanged(object sender, TextChangedEventArgs e)
         {
+            bool hasText = !string.IsNullOrEmpty(TxtSettingsSearch.Text);
             if (TxtSettingsSearchPlaceholder != null)
             {
                 TxtSettingsSearchPlaceholder.Visibility =
@@ -590,78 +713,432 @@ namespace CryoTray.Views
                         : Visibility.Collapsed;
             }
 
+            if (BtnClearSettingsSearch != null)
+            {
+                BtnClearSettingsSearch.Visibility = hasText
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
             UpdateSettingsSearchResults();
         }
 
-        private void TxtSettingsSearch_KeyDown(object sender, KeyEventArgs e)
+        private void BtnClearSettingsSearch_Click(object sender, RoutedEventArgs e)
         {
-            if (e.Key == Key.Escape)
+            TxtSettingsSearch.Text = "";
+            TxtSettingsSearch.Focus();
+        }
+
+        private void TxtSettingsSearch_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            switch (e.Key)
             {
-                TxtSettingsSearch.Text = "";
-                SettingsSearchPopup.IsOpen = false;
-                e.Handled = true;
+                case Key.Escape:
+                    if (!string.IsNullOrEmpty(TxtSettingsSearch.Text))
+                    {
+                        TxtSettingsSearch.Text = "";
+                    }
+                    else
+                    {
+                        SettingsSearchPopup.IsOpen = false;
+                    }
+
+                    e.Handled = true;
+                    break;
+                case Key.Down:
+                    MoveSettingsSearchSelection(1);
+                    e.Handled = true;
+                    break;
+                case Key.Up:
+                    MoveSettingsSearchSelection(-1);
+                    e.Handled = true;
+                    break;
+                case Key.Enter:
+                    OpenSelectedSettingsSearchResult();
+                    e.Handled = true;
+                    break;
             }
-            else if (e.Key == Key.Enter && _settingsSearchResults.Count > 0)
+        }
+
+        private void SyncSettingsSearchPopupDirection()
+        {
+            FlowDirection direction = FlowDirection;
+            if (SettingsSearchPopup.Child is FrameworkElement popupContent)
             {
-                NavigateToSetting(_settingsSearchResults[0]);
-                e.Handled = true;
+                popupContent.FlowDirection = direction;
+            }
+
+            TextAlignment alignment = direction == FlowDirection.RightToLeft
+                ? TextAlignment.Right
+                : TextAlignment.Left;
+            if (TxtSettingsSearchSummary != null)
+            {
+                TxtSettingsSearchSummary.TextAlignment = alignment;
+            }
+
+            if (TxtSettingsSearchKeyboardHint != null)
+            {
+                TxtSettingsSearchKeyboardHint.TextAlignment = alignment;
+            }
+
+        }
+
+        private void MoveSettingsSearchSelection(int direction)
+        {
+            int count = LstSettingsSearchResults.Items.Count;
+            if (count == 0)
+            {
+                return;
+            }
+
+            bool wasOpen = SettingsSearchPopup.IsOpen;
+            if (!wasOpen)
+            {
+                ScheduleSettingsSearchPopupOpen();
+            }
+
+            int current = LstSettingsSearchResults.SelectedIndex;
+            int next = wasOpen && current >= 0
+                ? Math.Clamp(current + direction, 0, count - 1)
+                : 0;
+            LstSettingsSearchResults.SelectedIndex = next;
+            LstSettingsSearchResults.ScrollIntoView(LstSettingsSearchResults.Items[next]);
+        }
+
+        private void OpenSelectedSettingsSearchResult()
+        {
+            int count = LstSettingsSearchResults.Items.Count;
+            if (count == 0)
+            {
+                return;
+            }
+
+            int index = Math.Clamp(LstSettingsSearchResults.SelectedIndex, 0, count - 1);
+            if (LstSettingsSearchResults.Items[index] is ListBoxItem
+                { Tag: SettingsSearchItem item })
+            {
+                NavigateToSetting(item);
             }
         }
 
         private void UpdateSettingsSearchResults()
         {
-            if (PnlSettingsSearchResults == null || SettingsSearchPopup == null)
+            if (TxtSettingsSearch == null ||
+                LstSettingsSearchResults == null ||
+                TxtSettingsSearchSummary == null ||
+                TxtSettingsSearchKeyboardHint == null ||
+                PnlSettingsSearchEmpty == null ||
+                SettingsSearchPopup == null)
             {
                 return;
             }
 
+            bool wasOpen = SettingsSearchPopup.IsOpen;
+            SyncSettingsSearchPopupDirection();
+            string query = TxtSettingsSearch.Text.Trim();
+            bool hasQuery = query.Length > 0;
+            LstSettingsSearchResults.Items.Clear();
             _settingsSearchResults = SettingsSearchMatcher.Rank(
-                _settingsSearchIndex, TxtSettingsSearch.Text);
-            PnlSettingsSearchResults.Children.Clear();
-            TxtSettingsSearchEmpty.Visibility = _settingsSearchResults.Count == 0
+                _settingsSearchIndex, query);
+
+            bool hasResults = _settingsSearchResults.Count > 0;
+            TxtSettingsSearchSummary.Visibility = hasResults
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            LstSettingsSearchResults.Visibility = hasResults
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            PnlSettingsSearchEmpty.Visibility = hasQuery && !hasResults
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
-            foreach (SettingsSearchItem item in _settingsSearchResults)
+            if (hasResults)
             {
-                var content = new StackPanel();
-                content.Children.Add(new TextBlock
-                {
-                    Text = item.Title,
-                    Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap
-                });
-                content.Children.Add(new TextBlock
-                {
-                    Text = LocalizationService.Get(item.TabKey),
-                    Foreground = ThemeService.GetBrush("TextMutedBrush"),
-                    FontSize = 10.5,
-                    Margin = new Thickness(0, 1, 0, 0)
-                });
+                TxtSettingsSearchSummary.Text = _settingsSearchResults.Count == 1
+                    ? LocalizationService.Get("Settings_SearchResultOne")
+                    : LocalizationService.Format(
+                        "Settings_SearchResultMany", _settingsSearchResults.Count);
 
-                var button = new Button
+                for (int i = 0; i < _settingsSearchResults.Count; i++)
                 {
-                    Content = content,
-                    Tag = item,
-                    Style = (Style)FindResource("SettingsFooterButton"),
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Left,
-                    Margin = new Thickness(0, 1, 0, 1)
-                };
-                AutomationProperties.SetName(button, item.Title);
-                button.Click += SettingsSearchResult_Click;
-                PnlSettingsSearchResults.Children.Add(button);
+                    SettingsSearchItem item = _settingsSearchResults[i];
+                    var row = new ListBoxItem
+                    {
+                        Content = CreateSettingsSearchResultContent(item, query),
+                        Tag = item,
+                        HorizontalContentAlignment = HorizontalAlignment.Stretch
+                    };
+                    AutomationProperties.SetName(
+                        row,
+                        LocalizationService.Format(
+                            "Settings_SearchResultAutomation",
+                            item.Title,
+                            LocalizationService.Get(item.TabKey)));
+
+                    int index = i;
+                    row.MouseEnter += (_, _) =>
+                    {
+                        if (LstSettingsSearchResults.SelectedIndex != index)
+                        {
+                            LstSettingsSearchResults.SelectedIndex = index;
+                        }
+                    };
+                    row.PreviewMouseLeftButtonUp += SettingsSearchResult_PreviewMouseLeftButtonUp;
+                    LstSettingsSearchResults.Items.Add(row);
+                }
+
+                LstSettingsSearchResults.SelectedIndex = 0;
+                LstSettingsSearchResults.ScrollIntoView(LstSettingsSearchResults.Items[0]);
             }
 
-            SettingsSearchPopup.IsOpen = !string.IsNullOrWhiteSpace(TxtSettingsSearch.Text);
+            if (!hasQuery)
+            {
+                SettingsSearchPopup.IsOpen = false;
+                return;
+            }
+
+            if (wasOpen)
+            {
+                SettingsSearchPopup.IsOpen = true;
+            }
+            else
+            {
+                ScheduleSettingsSearchPopupOpen();
+            }
         }
 
-        private void SettingsSearchResult_Click(object sender, RoutedEventArgs e)
+        private void ScheduleSettingsSearchPopupOpen()
         {
-            if (sender is Button { Tag: SettingsSearchItem item })
+            if (_settingsSearchPopupOpenPending)
+            {
+                return;
+            }
+
+            _settingsSearchPopupOpenPending = true;
+            Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    _settingsSearchPopupOpenPending = false;
+                    if (SettingsSearchPopup == null ||
+                        SettingsSearchPopup.IsOpen ||
+                        string.IsNullOrWhiteSpace(TxtSettingsSearch.Text) ||
+                        !TxtSettingsSearch.IsKeyboardFocusWithin)
+                    {
+                        return;
+                    }
+
+                    // Measure the popup content once with its final height before
+                    // showing it so the opening frame already contains the result
+                    // rows instead of a summary-only surface.
+                    if (SettingsSearchPopup.Child is FrameworkElement content)
+                    {
+                        double width = double.IsNaN(content.Width) || content.Width <= 0
+                            ? 300
+                            : content.Width;
+                        double maxHeight = double.IsNaN(content.MaxHeight) || content.MaxHeight <= 0
+                            ? 380
+                            : content.MaxHeight;
+                        content.Measure(new Size(width, maxHeight));
+                    }
+
+                    SettingsSearchPopup.IsOpen = true;
+                }),
+                DispatcherPriority.Loaded);
+        }
+
+        private FrameworkElement CreateSettingsSearchResultContent(
+            SettingsSearchItem item,
+            string query)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var iconHost = new Border
+            {
+                Width = 30,
+                Height = 30,
+                Background = ThemeService.GetBrush("PanelAltBackgroundBrush"),
+                CornerRadius = new CornerRadius(4),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = CreateSettingsSectionIcon(item.TabKey)
+            };
+            Grid.SetColumn(iconHost, 0);
+            grid.Children.Add(iconHost);
+
+            TextBlock title = CreateSettingsSearchTitle(item.Title, query);
+            title.Margin = new Thickness(10, 0, 8, 0);
+            title.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(title, 1);
+            grid.Children.Add(title);
+
+            var section = new TextBlock
+            {
+                Text = LocalizationService.Get(item.TabKey),
+                Foreground = ThemeService.GetBrush("TextTertiaryBrush"),
+                FontSize = 10.5,
+                MaxWidth = 68,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(section, 2);
+            grid.Children.Add(section);
+
+            return grid;
+        }
+
+        private UIElement CreateSettingsSectionIcon(string tabKey)
+        {
+            var icon = new Grid { Width = 16, Height = 16 };
+            Brush brush = ThemeService.GetBrush("AccentTextBrush");
+            if (tabKey == "Settings_TabGeneral")
+            {
+                icon.Children.Add(new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Stroke = brush,
+                    StrokeThickness = 1.3,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                icon.Children.Add(new Ellipse
+                {
+                    Width = 2.5,
+                    Height = 2.5,
+                    Fill = brush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            }
+
+            Geometry? data = GetSettingsSectionIcon(tabKey);
+            if (data != null)
+            {
+                icon.Children.Add(new ShapePath
+                {
+                    Data = data,
+                    Stroke = brush,
+                    StrokeThickness = 1.15,
+                    Width = 16,
+                    Height = 16,
+                    Stretch = Stretch.Uniform
+                });
+            }
+
+            return icon;
+        }
+
+        private Geometry? GetSettingsSectionIcon(string tabKey)
+        {
+            return tabKey switch
+            {
+                "Settings_TabGeneral" => PathTabGeneral.Data,
+                "Settings_TabView" => PathTabView.Data,
+                "Settings_TabOverlay" => PathTabOverlay.Data,
+                "Settings_TabCpu" => PathTabCpu.Data,
+                "Settings_TabMemory" => PathTabMemory.Data,
+                "Settings_TabDisk" => PathTabDisk.Data,
+                "Settings_TabGpu" => PathTabGpu.Data,
+                "Settings_TabAutopilot" => PathTabAutopilot.Data,
+                "Settings_TabAbout" => PathTabAbout.Data,
+                _ => null
+            };
+        }
+
+        private static TextBlock CreateSettingsSearchTitle(string title, string query)
+        {
+            var block = new TextBlock
+            {
+                Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            List<(int Start, int Length)> ranges = GetSettingsSearchMatchRanges(title, query);
+            if (ranges.Count == 0)
+            {
+                block.Text = title;
+                return block;
+            }
+
+            Brush highlight = ThemeService.GetBrush("SearchMatchBrush");
+            int cursor = 0;
+            foreach ((int start, int length) in ranges)
+            {
+                if (start > cursor)
+                {
+                    block.Inlines.Add(new Run(title[cursor..start]));
+                }
+
+                block.Inlines.Add(new Run(title.Substring(start, length))
+                {
+                    Foreground = highlight
+                });
+                cursor = start + length;
+            }
+
+            if (cursor < title.Length)
+            {
+                block.Inlines.Add(new Run(title[cursor..]));
+            }
+
+            return block;
+        }
+
+        private static List<(int Start, int Length)> GetSettingsSearchMatchRanges(
+            string title,
+            string query)
+        {
+            var ranges = new List<(int Start, int Length)>();
+            foreach (string token in query.Split(
+                ' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                int index = 0;
+                while (index < title.Length &&
+                       (index = title.IndexOf(token, index, StringComparison.OrdinalIgnoreCase)) >= 0)
+                {
+                    ranges.Add((index, token.Length));
+                    index += Math.Max(1, token.Length);
+                }
+            }
+
+            if (ranges.Count == 0)
+            {
+                return ranges;
+            }
+
+            ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+            var merged = new List<(int Start, int Length)>();
+            foreach ((int start, int length) in ranges)
+            {
+                if (merged.Count > 0 &&
+                    start <= merged[^1].Start + merged[^1].Length)
+                {
+                    (int previousStart, int previousLength) = merged[^1];
+                    int end = Math.Max(previousStart + previousLength, start + length);
+                    merged[^1] = (previousStart, end - previousStart);
+                }
+                else
+                {
+                    merged.Add((start, length));
+                }
+            }
+
+            return merged;
+        }
+
+        private void SettingsSearchResult_PreviewMouseLeftButtonUp(
+            object sender,
+            MouseButtonEventArgs e)
+        {
+            if (sender is ListBoxItem { Tag: SettingsSearchItem item })
             {
                 NavigateToSetting(item);
+                e.Handled = true;
             }
         }
 
@@ -1237,6 +1714,422 @@ namespace CryoTray.Views
             UpdateNotificationControlStates();
         }
 
+        private void TimerResolutionOption_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            SaveUiIntoSettings();
+            RefreshTimerResolutionUi();
+        }
+
+        private void ChkAutoStandbyPurge_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateAutoPurgeControls();
+            if (!_isBinding)
+            {
+                SaveUiIntoSettings();
+            }
+        }
+
+        private void SldAutoPurgeThreshold_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            UpdateAutoPurgeValueLabels();
+            if (!_isBinding && !_isClosed)
+            {
+                SaveUiIntoSettings();
+            }
+        }
+
+        private void UpdateAutoPurgeControls()
+        {
+            if (PnlAutoPurgeOptions != null)
+            {
+                PnlAutoPurgeOptions.IsEnabled = ChkAutoStandbyPurge.IsChecked == true;
+            }
+
+            UpdateAutoPurgeValueLabels();
+        }
+
+        private void UpdateAutoPurgeValueLabels()
+        {
+            if (TxtAutoPurgeFree == null ||
+                TxtAutoPurgeStandby == null ||
+                TxtAutoPurgeCooldown == null ||
+                SldAutoPurgeFree == null ||
+                SldAutoPurgeStandby == null ||
+                SldAutoPurgeCooldown == null)
+            {
+                return;
+            }
+
+            TxtAutoPurgeFree.Text = $"{(int)Math.Round(SldAutoPurgeFree.Value)} MB";
+            TxtAutoPurgeStandby.Text = $"{(int)Math.Round(SldAutoPurgeStandby.Value)} MB";
+            TxtAutoPurgeCooldown.Text = LocalizationService.Format(
+                "Settings_AutoPurgeMinShort",
+                (int)Math.Round(SldAutoPurgeCooldown.Value));
+        }
+
+        private void UpdateMemoryOverview()
+        {
+            if (TxtMemInUse == null || TxtMemStandby == null || TxtMemFree == null)
+            {
+                return;
+            }
+
+            if (!MemoryTelemetryService.TryReadBreakdown(out var memory))
+            {
+                string unavailable = LocalizationService.Get("Settings_MemoryUnavailable");
+                TxtMemInUse.Text = unavailable;
+                TxtMemStandby.Text = unavailable;
+                TxtMemFree.Text = unavailable;
+                return;
+            }
+
+            TxtMemInUse.Text = MemoryTelemetryService.FormatBytes(memory.InUseBytes);
+            if (memory.HasPageListBreakdown)
+            {
+                TxtMemStandby.Text = MemoryTelemetryService.FormatBytes(memory.StandbyBytes);
+                TxtMemFree.Text = MemoryTelemetryService.FormatBytes(memory.FreeBytes);
+            }
+            else
+            {
+                string unavailable = LocalizationService.Get("Settings_MemoryUnavailable");
+                TxtMemStandby.Text = unavailable;
+                TxtMemFree.Text = unavailable;
+            }
+        }
+
+        private void RefreshAutoPurgeStatus()
+        {
+            if (TxtAutoPurgeStatus == null)
+            {
+                return;
+            }
+
+            var status = StandbyPurgeService.Instance.GetStatus();
+            if (!status.Enabled)
+            {
+                TxtAutoPurgeStatus.Text = LocalizationService.Get("Settings_AutoPurgeStatusDisabled");
+                return;
+            }
+
+            if (!status.LastAttemptUtc.HasValue)
+            {
+                if (MemoryTelemetryService.TryReadBreakdown(out var memory) && memory.HasPageListBreakdown)
+                {
+                    TxtAutoPurgeStatus.Text = LocalizationService.Format(
+                        "Settings_AutoPurgeStatusWatching",
+                        MemoryTelemetryService.FormatBytes(memory.FreeBytes),
+                        MemoryTelemetryService.FormatBytes(memory.StandbyBytes));
+                }
+                else
+                {
+                    TxtAutoPurgeStatus.Text = LocalizationService.Get("Settings_AutoPurgeStatusWatchingUnavailable");
+                }
+                return;
+            }
+
+            if (!status.LastSucceeded)
+            {
+                TxtAutoPurgeStatus.Text = LocalizationService.Get("Settings_AutoPurgeStatusFailed");
+                return;
+            }
+
+            int minutes = Math.Max(0, (int)(DateTime.UtcNow - status.LastAttemptUtc.Value).TotalMinutes);
+            TxtAutoPurgeStatus.Text = minutes < 1
+                ? LocalizationService.Format(
+                    "Settings_AutoPurgeStatusJustNow",
+                    MemoryTelemetryService.FormatBytes(status.LastFreedBytes))
+                : LocalizationService.Format(
+                    "Settings_AutoPurgeStatusLast",
+                    minutes,
+                    MemoryTelemetryService.FormatBytes(status.LastFreedBytes));
+        }
+
+        private void RefreshTimerResolutionUi()
+        {
+            if (TxtTimerStatus == null)
+            {
+                return;
+            }
+
+            var status = TimerResolutionService.Instance.GetStatus();
+            string current = FormatTimerResolution(status.CurrentMs);
+            string requested = status.IsHolding && status.RequestedMs.HasValue
+                ? LocalizationService.Format(
+                    "Settings_TimerRequestedActive",
+                    FormatTimerResolution(status.RequestedMs.Value))
+                : LocalizationService.Get("Settings_TimerRequestedOff");
+            TxtTimerStatus.Text = LocalizationService.Format(
+                "Settings_TimerStatus",
+                current,
+                requested);
+
+            if (BdrTimerPaused != null)
+            {
+                BdrTimerPaused.Visibility = status.IsPausedOnBattery
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (PnlTimerGlobalNotice != null && BtnTimerGlobalToggle != null && TxtTimerGlobalNotice != null)
+            {
+                PnlTimerGlobalNotice.Visibility = status.IsWindows11
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                if (status.IsWindows11)
+                {
+                    TxtTimerGlobalNotice.Text = LocalizationService.Get(
+                        status.GlobalRequestsEnabled
+                            ? "Settings_TimerGlobalEnabled"
+                            : "Settings_TimerGlobalNotice");
+                    BtnTimerGlobalToggle.Content = LocalizationService.Get(
+                        status.GlobalRequestsEnabled
+                            ? "Settings_TimerGlobalRevertButton"
+                            : "Settings_TimerGlobalEnableButton");
+                }
+            }
+        }
+
+        private static string FormatTimerResolution(double milliseconds)
+        {
+            return double.IsNaN(milliseconds) || double.IsInfinity(milliseconds)
+                ? LocalizationService.Get("Settings_TimerQueryUnavailable")
+                : $"{milliseconds.ToString("0.000", CultureInfo.InvariantCulture)} ms";
+        }
+
+        private void BtnTimerGlobalToggle_Click(object sender, RoutedEventArgs e)
+        {
+            bool enable = !TimerResolutionService.IsGlobalRequestsEnabled();
+            string question = LocalizationService.Get(
+                enable
+                    ? "Settings_TimerGlobalConfirmEnable"
+                    : "Settings_TimerGlobalConfirmRevert");
+            if (MessageBox.Show(
+                    this,
+                    question,
+                    LocalizationService.Get("Settings_TimerTitle"),
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            if (!TimerResolutionService.TrySetGlobalRequestsEnabled(enable, out string error))
+            {
+                MessageBox.Show(
+                    this,
+                    LocalizationService.Format("Settings_TimerGlobalFailed", error),
+                    LocalizationService.Get("Settings_TimerTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return;
+            }
+
+            RefreshTimerResolutionUi();
+            MessageBox.Show(
+                this,
+                LocalizationService.Get("Settings_TimerGlobalReboot"),
+                LocalizationService.Get("Settings_TimerTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+
+        private void CmbKeepAwake_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isBinding || _isUpdatingKeepAwakeCombo)
+            {
+                return;
+            }
+
+            string tag = ReadComboTag(CmbKeepAwake, "Off");
+            if (tag == "Off")
+            {
+                KeepAwakeService.Instance.Stop();
+                RefreshKeepAwakeUi();
+                return;
+            }
+
+            var app = System.Windows.Application.Current as App;
+            if (tag == "Custom")
+            {
+                TimeSpan? duration = app?.PromptKeepAwakeDuration();
+                if (!duration.HasValue)
+                {
+                    SyncKeepAwakeComboFromService();
+                    return;
+                }
+
+                if (!KeepAwakeService.Instance.StartTimed(duration.Value))
+                {
+                    MessageBox.Show(
+                        this,
+                        LocalizationService.Get("KeepAwake_StartFailed"),
+                        LocalizationService.Get("Settings_KeepAwakeTitle"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+
+                SyncKeepAwakeComboFromService();
+                RefreshKeepAwakeUi();
+                return;
+            }
+
+            if (tag == "Indefinite")
+            {
+                if (app?.ConfirmKeepAwakeIndefinite() != true)
+                {
+                    SyncKeepAwakeComboFromService();
+                    return;
+                }
+
+                KeepAwakeService.Instance.StartIndefinite();
+                SyncKeepAwakeComboFromService();
+                RefreshKeepAwakeUi();
+                return;
+            }
+
+            if (int.TryParse(tag, NumberStyles.Integer, CultureInfo.InvariantCulture, out int minutes) &&
+                minutes > 0)
+            {
+                if (!KeepAwakeService.Instance.StartTimed(TimeSpan.FromMinutes(minutes)))
+                {
+                    MessageBox.Show(
+                        this,
+                        LocalizationService.Get("KeepAwake_StartFailed"),
+                        LocalizationService.Get("Settings_KeepAwakeTitle"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            }
+
+            SyncKeepAwakeComboFromService();
+            RefreshKeepAwakeUi();
+        }
+
+        private void BtnStopKeepAwake_Click(object sender, RoutedEventArgs e)
+        {
+            KeepAwakeService.Instance.Stop();
+            SyncKeepAwakeComboFromService();
+            RefreshKeepAwakeUi();
+        }
+
+        private void SyncKeepAwakeComboFromService()
+        {
+            if (CmbKeepAwake == null)
+            {
+                return;
+            }
+
+            var status = KeepAwakeService.Instance.GetStatus();
+            string tag = status.Mode switch
+            {
+                KeepAwakeMode.Indefinite => "Indefinite",
+                KeepAwakeMode.Timed when status.Duration.HasValue =>
+                    (int)Math.Round(status.Duration.Value.TotalMinutes) switch
+                    {
+                        15 => "15",
+                        30 => "30",
+                        60 => "60",
+                        120 => "120",
+                        _ => "Custom"
+                    },
+                _ => "Off"
+            };
+
+            _isUpdatingKeepAwakeCombo = true;
+            try
+            {
+                SelectComboByTag(CmbKeepAwake, tag);
+            }
+            finally
+            {
+                _isUpdatingKeepAwakeCombo = false;
+            }
+        }
+
+        private void RefreshKeepAwakeUi()
+        {
+            if (TxtKeepAwakeStatus == null || BtnStopKeepAwake == null)
+            {
+                return;
+            }
+
+            SyncKeepAwakeComboFromService();
+            var status = KeepAwakeService.Instance.GetStatus();
+            if (!status.IsActive)
+            {
+                TxtKeepAwakeStatus.Text = LocalizationService.Get("Settings_KeepAwakeStatusOff");
+                BtnStopKeepAwake.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            if (status.Mode == KeepAwakeMode.Indefinite)
+            {
+                TxtKeepAwakeStatus.Text = LocalizationService.Get("Settings_KeepAwakeActiveIndefinite");
+            }
+            else
+            {
+                TimeSpan remaining = status.Remaining ?? TimeSpan.Zero;
+                TxtKeepAwakeStatus.Text = LocalizationService.Format(
+                    "Settings_KeepAwakeActiveRemaining",
+                    KeepAwakeService.FormatRemaining(remaining));
+            }
+
+            BtnStopKeepAwake.Visibility = Visibility.Visible;
+        }
+
+        private void OnKeepAwakeStatusChanged()
+        {
+            if (_isClosed || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosed)
+                {
+                    RefreshKeepAwakeUi();
+                }
+            }));
+        }
+
+        private void OnTimerResolutionStatusChanged()
+        {
+            if (_isClosed || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosed && PanelAutopilot.Visibility == Visibility.Visible)
+                {
+                    RefreshTimerResolutionUi();
+                }
+            }));
+        }
+
+        private void OnStandbyPurgeStatusChanged()
+        {
+            if (_isClosed || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosed && PanelMemory.Visibility == Visibility.Visible)
+                {
+                    RefreshAutoPurgeStatus();
+                }
+            }));
+        }
+
         private void SaveUiIntoSettings()
         {
             var s = SettingsService.Instance.Current;
@@ -1254,6 +2147,7 @@ namespace CryoTray.Views
             s.PinToTaskbar = ChkPinToTaskbar.IsChecked == true;
             s.AlwaysOnTop = ChkAlwaysOnTop.IsChecked == true;
             s.HideOnFocusLoss = ChkHideOnFocusLoss.IsChecked == true;
+            s.KeepAwakeAllowDisplayOff = ChkKeepAwakeAllowDisplayOff.IsChecked == true;
 
             s.UseHotkey = ChkUseHotkey.IsChecked == true;
             s.HotkeyModifiers = _hotkeyModifiers;
@@ -1337,6 +2231,21 @@ namespace CryoTray.Views
             s.AutopilotEnabled = ChkAutopilotEnabled.IsChecked == true;
             s.AutopilotPauseOnFullscreen = ChkAutopilotFullscreen.IsChecked == true;
             s.AutopilotForegroundOnly = ChkAutopilotForegroundOnly.IsChecked == true;
+            s.TimerResolutionMode = ReadComboTag(CmbTimerMode, "Off") switch
+            {
+                "AutopilotOnly" => "AutopilotOnly",
+                "AlwaysOn" => "AlwaysOn",
+                _ => "Off"
+            };
+            s.TimerResolutionHundredNs =
+                ReadComboInt(CmbTimerTarget, 10000) == 5000 ? 5000 : 10000;
+            s.TimerResolutionPauseOnBattery = ChkTimerPauseOnBattery.IsChecked == true;
+
+            s.AutoStandbyPurgeEnabled = ChkAutoStandbyPurge.IsChecked == true;
+            s.AllowAutoPurgeDuringGames = ChkAutoPurgeDuringGames.IsChecked == true;
+            s.AutoPurgeFreeRamThresholdMb = Math.Clamp((int)Math.Round(SldAutoPurgeFree.Value), 512, 8192);
+            s.AutoPurgeStandbyThresholdMb = Math.Clamp((int)Math.Round(SldAutoPurgeStandby.Value), 1024, 32768);
+            s.AutoPurgeCooldownMinutes = Math.Clamp((int)Math.Round(SldAutoPurgeCooldown.Value), 1, 60);
 
             s.HighTempThresholdCpu = (int)SldCpuThreshold.Value;
             s.ShowDiskTemp = ChkShowDiskTemp.IsChecked == true;
@@ -1407,6 +2316,7 @@ namespace CryoTray.Views
                 RefreshDiskDriveListSafely();
                 RefreshHotkeyFeedback();
                 RefreshRamHotkeyFeedback();
+                UpdateSettingsSearchResults();
             }));
         }
 
@@ -1448,6 +2358,22 @@ namespace CryoTray.Views
             if (TxtFanNamesChevron != null)
             {
                 TxtFanNamesChevron.Text = expanded ? "▾" : "›";
+            }
+        }
+
+        private void ActivityToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            bool expanded = ActivityToggle.IsChecked == true;
+            if (PnlActivityContent != null)
+            {
+                PnlActivityContent.Visibility = expanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (TxtActivityChevron != null)
+            {
+                TxtActivityChevron.Text = expanded ? "▾" : "›";
             }
         }
 
@@ -3496,50 +4422,98 @@ namespace CryoTray.Views
                 "Settings_RollbackAvailable", backup.Version, createdText, sizeText);
             TxtRollbackStatus.Visibility = Visibility.Visible;
             BtnRollback.Visibility = Visibility.Visible;
-            BtnRollback.IsEnabled = !_updateBusy;
+            BtnRollback.IsEnabled = !_updateBusy && !_rollbackVerifyBusy;
             BtnDeleteRollback.Visibility = Visibility.Visible;
-            BtnDeleteRollback.IsEnabled = !_updateBusy;
+            BtnDeleteRollback.IsEnabled = !_updateBusy && !_rollbackVerifyBusy;
             BtnVerifyRollback.Visibility = Visibility.Visible;
-            BtnVerifyRollback.IsEnabled = !_updateBusy;
+            BtnVerifyRollback.IsEnabled = !_updateBusy && !_rollbackVerifyBusy;
         }
 
-        private void BtnVerifyRollback_Click(object sender, RoutedEventArgs e)
+        private async void BtnVerifyRollback_Click(object sender, RoutedEventArgs e)
         {
-            if (_updateBusy)
+            if (_updateBusy || _rollbackVerifyBusy)
             {
                 return;
             }
 
-            RollbackReadinessResult result = RollbackReadinessService.Verify();
+            _rollbackVerifyBusy = true;
+            BtnRollback.IsEnabled = false;
+            BtnDeleteRollback.IsEnabled = false;
+            BtnVerifyRollback.IsEnabled = false;
+            TxtRollbackReadiness.Text = LocalizationService.Get(
+                "Settings_RollbackVerifyChecking");
             TxtRollbackReadiness.Visibility = Visibility.Visible;
-            if (result.Ready)
+
+            try
             {
-                TxtRollbackReadiness.Text = LocalizationService.Format(
-                    "Settings_ReadinessReady",
-                    result.FileCount,
-                    FormatByteSize(result.SizeBytes));
-                ActivityLogService.Instance.Record(
-                    ActivitySeverity.Info,
-                    "update",
-                    "Activity_RollbackVerified",
-                    result.FileCount,
-                    FormatByteSize(result.SizeBytes));
+                RollbackReadinessResult result = await Task.Run(
+                    RollbackReadinessService.Verify);
+                if (_isClosed || Dispatcher.HasShutdownStarted)
+                {
+                    return;
+                }
+
+                TxtRollbackReadiness.Visibility = Visibility.Visible;
+                if (result.Ready)
+                {
+                    string readyKey = result.ApplicationLocationSafe
+                        ? "Settings_ReadinessReady"
+                        : "Settings_ReadinessVerifiedDevelopment";
+                    string activityKey = result.ApplicationLocationSafe
+                        ? "Activity_RollbackVerified"
+                        : "Activity_RollbackVerifiedDevelopment";
+                    TxtRollbackReadiness.Text = LocalizationService.Format(
+                        readyKey,
+                        result.FileCount,
+                        FormatByteSize(result.SizeBytes));
+                    ActivityLogService.Instance.Record(
+                        ActivitySeverity.Info,
+                        "update",
+                        activityKey,
+                        result.FileCount,
+                        FormatByteSize(result.SizeBytes));
+                }
+                else
+                {
+                    TxtRollbackReadiness.Text = LocalizationService.Get(
+                        result.ErrorKey ?? "Settings_ReadinessCorrupt");
+                    ActivityLogService.Instance.Record(
+                        ActivitySeverity.Warning,
+                        "update",
+                        "Activity_RollbackVerifyFailed",
+                        TxtRollbackReadiness.Text);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                TxtRollbackReadiness.Text = LocalizationService.Get(
-                    result.ErrorKey ?? "Settings_ReadinessCorrupt");
-                ActivityLogService.Instance.Record(
-                    ActivitySeverity.Warning,
-                    "update",
-                    "Activity_RollbackVerifyFailed",
-                    TxtRollbackReadiness.Text);
+                Debug.WriteLine($"Rollback readiness error: {ex.Message}");
+                if (!_isClosed && !Dispatcher.HasShutdownStarted)
+                {
+                    TxtRollbackReadiness.Text = LocalizationService.Get(
+                        "Settings_ReadinessCorrupt");
+                    TxtRollbackReadiness.Visibility = Visibility.Visible;
+                    ActivityLogService.Instance.Record(
+                        ActivitySeverity.Warning,
+                        "update",
+                        "Activity_RollbackVerifyFailed",
+                        TxtRollbackReadiness.Text);
+                }
+            }
+            finally
+            {
+                _rollbackVerifyBusy = false;
+                if (!_isClosed && !Dispatcher.HasShutdownStarted)
+                {
+                    BtnRollback.IsEnabled = !_updateBusy;
+                    BtnDeleteRollback.IsEnabled = !_updateBusy;
+                    BtnVerifyRollback.IsEnabled = !_updateBusy;
+                }
             }
         }
 
         private void BtnDeleteRollback_Click(object sender, RoutedEventArgs e)
         {
-            if (_updateBusy)
+            if (_updateBusy || _rollbackVerifyBusy)
             {
                 return;
             }
@@ -3590,7 +4564,7 @@ namespace CryoTray.Views
 
         private void BtnRollback_Click(object sender, RoutedEventArgs e)
         {
-            if (_updateBusy)
+            if (_updateBusy || _rollbackVerifyBusy)
             {
                 return;
             }
@@ -3646,6 +4620,14 @@ namespace CryoTray.Views
             if (BtnClearDownloads != null)
             {
                 BtnClearDownloads.IsEnabled = false;
+            }
+            if (BtnDeleteRollback != null)
+            {
+                BtnDeleteRollback.IsEnabled = false;
+            }
+            if (BtnVerifyRollback != null)
+            {
+                BtnVerifyRollback.IsEnabled = false;
             }
             if (BtnCancelUpdate != null)
             {

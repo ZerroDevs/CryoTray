@@ -812,6 +812,38 @@ namespace CryoTray.Services
                 : "--";
             sb.AppendLine($"RAM: {ramUsed} / {ramTotal} GB ({FormatPercent(snapshot.RamUsagePercent)})");
 
+            try
+            {
+                var timer = TimerResolutionService.Instance.GetStatus();
+                string currentTimer = double.IsFinite(timer.CurrentMs)
+                    ? $"{timer.CurrentMs.ToString("0.000", CultureInfo.InvariantCulture)} ms"
+                    : "--";
+                string requestedTimer = timer.RequestedMs.HasValue
+                    ? $"{timer.RequestedMs.Value.ToString("0.000", CultureInfo.InvariantCulture)} ms"
+                    : "Off";
+                sb.AppendLine(
+                    $"Timer resolution: Mode={timer.Mode} | Current={currentTimer} | Requested={requestedTimer} | Holding={timer.IsHolding} | BatteryPaused={timer.IsPausedOnBattery} | Windows11GlobalRequests={timer.GlobalRequestsEnabled}");
+
+                var purge = StandbyPurgeService.Instance.GetStatus();
+                string lastPurge = purge.LastAttemptUtc.HasValue
+                    ? $"{purge.LastAttemptUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss} ({(purge.LastSucceeded ? "ok" : "failed")}, freed {MemoryTelemetryService.FormatBytes(purge.LastFreedBytes)})"
+                    : "never";
+                var purgeSettings = SettingsService.Instance.Current;
+                sb.AppendLine(
+                    $"Standby auto-purge: Enabled={purge.Enabled} | Free<{purgeSettings.AutoPurgeFreeRamThresholdMb} MB | Standby>{purgeSettings.AutoPurgeStandbyThresholdMb} MB | Cooldown={purgeSettings.AutoPurgeCooldownMinutes} min | DuringGames={purgeSettings.AllowAutoPurgeDuringGames} | Last={lastPurge}");
+
+                var keepAwake = KeepAwakeService.Instance.GetStatus();
+                string keepAwakeRemaining = keepAwake.Remaining.HasValue
+                    ? $" | Remaining={KeepAwakeService.FormatRemaining(keepAwake.Remaining.Value)}"
+                    : string.Empty;
+                sb.AppendLine(
+                    $"Keep Awake: {keepAwake.Mode}{keepAwakeRemaining} | DisplayMayTurnOff={keepAwake.AllowDisplayOff}");
+            }
+            catch
+            {
+                sb.AppendLine("Power utilities: unavailable");
+            }
+
             sb.AppendLine("Fans:");
             if (fanStatuses == null || fanStatuses.Count == 0)
             {

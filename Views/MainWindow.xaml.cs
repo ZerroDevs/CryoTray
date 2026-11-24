@@ -49,6 +49,8 @@ namespace CryoTray.Views
 
         private List<TelemetrySample> _cpuChartSamples = new();
         private List<TelemetrySample> _gpuChartSamples = new();
+        private List<SessionChartEvent> _cpuChartEvents = new();
+        private List<SessionChartEvent> _gpuChartEvents = new();
         private double _gpuChartMinimum = 30;
         private double _gpuChartMaximum = 90;
         private string _gpuChartMetric = "Temperature";
@@ -282,6 +284,13 @@ namespace CryoTray.Views
             UpdateStatusService.Instance.Changed += OnUpdateStatusChanged;
             RefreshUpdateBanner();
             RefreshSuccessBanner();
+            if (System.Windows.Application.Current is App startupApp &&
+                startupApp.TryConsumeStartupHealthCheck(out bool postUpdate, out bool firstRun))
+            {
+                Dispatcher.BeginInvoke(
+                    new Action(() => ShowHealthCheckDialog(postUpdate, firstRun)),
+                    DispatcherPriority.Background);
+            }
             SettingsService.Instance.SettingsChanged += ApplySettings;
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
@@ -611,6 +620,8 @@ namespace CryoTray.Views
         private SystemInfoWindow? _systemInfoWindow;
         private StorageCleanupWindow? _storageCleanupWindow;
         private StressTestWindow? _stressTestWindow;
+        private HealthCheckWindow? _healthCheckWindow;
+        private SessionReportWindow? _sessionReportWindow;
         private bool _isChildDialogOpen;
 
         private void Window_Deactivated(object? sender, EventArgs e)
@@ -1873,6 +1884,7 @@ namespace CryoTray.Views
                 CpuChartHoverCanvas.Children.Clear();
                 CpuSmallChartCanvas.Children.Clear();
                 CpuSmallChartHoverCanvas.Children.Clear();
+                _cpuChartEvents.Clear();
                 CpuChartTooltip.IsOpen = false;
                 return;
             }
@@ -1942,6 +1954,7 @@ namespace CryoTray.Views
             _cpuChartSamples = samples;
             if (samples.Count < 2)
             {
+                _cpuChartEvents.Clear();
                 CpuChartTooltip.IsOpen = false;
                 var current = HardwareMonitorService.Instance.CurrentSnapshot;
                 bool cpuUnavailable = !(double.IsFinite(current.CpuTemp) && current.CpuTemp > 0);
@@ -1982,6 +1995,9 @@ namespace CryoTray.Views
                 DrawCpuSegment(plotCanvas, samples, indices, segmentProfile, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
                 start = end + 1;
             }
+
+            _cpuChartEvents = SessionReportService.GetChartEvents(samples).ToList();
+            DrawChartEventMarkers(plotCanvas, samples, _cpuChartEvents, stepX, plotH, isSmall);
 
             if (_cpuHoverActive && _cpuHoverSmall == isSmall)
             {
@@ -2028,8 +2044,12 @@ namespace CryoTray.Views
                 return;
             }
 
-            Color lineColor = ParseColor(profile.Palette.ChartLine);
-            Color areaTop = ParseColor(profile.Palette.ChartArea);
+            Color lineColor = SystemParameters.HighContrast
+                ? ThemeService.GetColor("ChartLineBrush")
+                : ParseColor(profile.Palette.ChartLine);
+            Color areaTop = SystemParameters.HighContrast
+                ? ThemeService.GetColor("ChartBackgroundBrush")
+                : ParseColor(profile.Palette.ChartArea);
 
             var areaBrush = new LinearGradientBrush
             {
@@ -2159,6 +2179,11 @@ namespace CryoTray.Views
 
         private static Color ResolveGpuChartColor(string metric)
         {
+            if (SystemParameters.HighContrast)
+            {
+                return ThemeService.GetColor("ChartLineBrush");
+            }
+
             return metric switch
             {
                 "Power" => ThemeService.GetColor("CoolingOffTextBrush"),
@@ -2206,6 +2231,7 @@ namespace CryoTray.Views
             _gpuChartGpuIdentifier = activeGpuId;
             if (samples.Count < 2)
             {
+                _gpuChartEvents.Clear();
                 GpuChartTooltip.IsOpen = false;
                 bool gpuUnavailable = !IsGpuChartMetricAvailable(current, metric);
                 TxtGpuChartUnavailable.Visibility = gpuUnavailable
@@ -2299,6 +2325,9 @@ namespace CryoTray.Views
                 StrokeThickness = 1.5
             };
             GpuChartCanvas.Children.Add(line);
+
+            _gpuChartEvents = SessionReportService.GetChartEvents(samples).ToList();
+            DrawChartEventMarkers(GpuChartCanvas, samples, _gpuChartEvents, stepX, h, compact: true);
 
             if (_gpuHoverActive)
             {
@@ -2456,6 +2485,7 @@ namespace CryoTray.Views
             TxtCpuChartTooltipValue.Text = LocalizationService.Format(
                 "Main_CpuChartValue", Math.Round(displayTemp), unit);
             TxtCpuChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
+            UpdateChartEventTooltip(TxtCpuChartTooltipEvent, _cpuChartEvents, sample.Timestamp);
 
             PowerProfileDefinition hoverProfile = GetCpuSampleProfile(sample);
             DrawChartHoverMarker(hoverCanvas, x, y, plotH, ParseColor(hoverProfile.Palette.ChartLine));
@@ -2495,6 +2525,7 @@ namespace CryoTray.Views
 
             TxtGpuChartTooltipValue.Text = FormatGpuChartValue(value, _gpuChartMetric);
             TxtGpuChartTooltipTime.Text = sample.Timestamp.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
+            UpdateChartEventTooltip(TxtGpuChartTooltipEvent, _gpuChartEvents, sample.Timestamp);
 
             DrawChartHoverMarker(
                 GpuChartHoverCanvas,
@@ -2531,6 +2562,126 @@ namespace CryoTray.Views
             Canvas.SetLeft(dot, x - 3.5);
             Canvas.SetTop(dot, y - 3.5);
             overlay.Children.Add(dot);
+        }
+
+        private static void DrawChartEventMarkers(
+            Canvas canvas,
+            IReadOnlyList<TelemetrySample> samples,
+            IReadOnlyList<SessionChartEvent> events,
+            double stepX,
+            double height,
+            bool compact)
+        {
+            if (events.Count == 0 || samples.Count == 0)
+            {
+                return;
+            }
+
+            double width = canvas.ActualWidth;
+            foreach (SessionChartEvent item in events)
+            {
+                int index = FindNearestSampleIndex(samples, item.TimestampLocal);
+                if (index < 0)
+                {
+                    continue;
+                }
+
+                double x = index * stepX;
+                if (x < 2 || x > width - 2)
+                {
+                    continue;
+                }
+
+                Color color = ResolveChartEventColor(item);
+                if (!compact)
+                {
+                    canvas.Children.Add(new Line
+                    {
+                        X1 = x,
+                        X2 = x,
+                        Y1 = 0,
+                        Y2 = height,
+                        Stroke = new SolidColorBrush(color),
+                        StrokeThickness = 1,
+                        Opacity = 0.18,
+                        IsHitTestVisible = false
+                    });
+                }
+
+                canvas.Children.Add(new Polygon
+                {
+                    Points = new PointCollection
+                    {
+                        new Point(x - 3, 0),
+                        new Point(x + 3, 0),
+                        new Point(x, compact ? 4 : 5)
+                    },
+                    Fill = new SolidColorBrush(color),
+                    IsHitTestVisible = false
+                });
+            }
+        }
+
+        private static Color ResolveChartEventColor(SessionChartEvent item)
+        {
+            string key = item.Kind switch
+            {
+                "alert" => "DangerTextBrush",
+                "fan" => "WarningTextBrush",
+                "update" => "SuccessTextBrush",
+                "profile" => "AccentBrush",
+                "cooling" => "CoolingOnTextBrush",
+                _ => "TextSecondaryBrush"
+            };
+            Brush brush = ThemeService.GetBrush(key);
+            return brush is SolidColorBrush solid ? solid.Color : Colors.Gray;
+        }
+
+        private static int FindNearestSampleIndex(
+            IReadOnlyList<TelemetrySample> samples,
+            DateTime timestamp)
+        {
+            int bestIndex = -1;
+            long bestTicks = long.MaxValue;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                long ticks = Math.Abs((samples[i].Timestamp - timestamp).Ticks);
+                if (ticks < bestTicks)
+                {
+                    bestTicks = ticks;
+                    bestIndex = i;
+                }
+            }
+
+            return bestIndex;
+        }
+
+        private static void UpdateChartEventTooltip(
+            TextBlock target,
+            IReadOnlyList<SessionChartEvent> events,
+            DateTime timestamp)
+        {
+            SessionChartEvent? nearest = null;
+            long bestTicks = TimeSpan.FromSeconds(30).Ticks;
+            foreach (SessionChartEvent item in events)
+            {
+                long ticks = Math.Abs((item.TimestampLocal - timestamp).Ticks);
+                if (ticks <= bestTicks)
+                {
+                    bestTicks = ticks;
+                    nearest = item;
+                }
+            }
+
+            if (nearest == null)
+            {
+                target.Text = "";
+                target.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            target.Text = LocalizationService.Format("Main_ChartEventTooltip", nearest.Text);
+            target.Visibility = Visibility.Visible;
         }
 
         private static void ShowChartTooltip(Popup popup, Canvas target, double x, double y, double chartWidth)
@@ -2623,6 +2774,16 @@ namespace CryoTray.Views
         private void MenuToolsRecordCsv_Click(object sender, RoutedEventArgs e)
         {
             ToggleLiveCsvLogging();
+        }
+
+        private void MenuToolsHealthCheck_Click(object sender, RoutedEventArgs e)
+        {
+            ShowHealthCheckDialog();
+        }
+
+        private void MenuToolsSessionReport_Click(object sender, RoutedEventArgs e)
+        {
+            ShowSessionReportDialog();
         }
 
         private void MenuToolsAbout_Click(object sender, RoutedEventArgs e)
@@ -3031,12 +3192,71 @@ namespace CryoTray.Views
             OpenSystemInfoDialog();
         }
 
+        public void ShowHealthCheckDialog(bool postUpdate = false, bool firstRun = false)
+        {
+            if (_healthCheckWindow != null)
+            {
+                if (!_healthCheckWindow.IsVisible)
+                {
+                    _healthCheckWindow.Show();
+                }
+                _healthCheckWindow.Activate();
+                return;
+            }
+
+            var win = new HealthCheckWindow(postUpdate, firstRun) { Owner = this };
+            win.OpenSettingsRequested += () => OpenSettingsDialog(false);
+            win.OpenSystemInformationRequested += () => OpenSystemInfoDialog();
+            _healthCheckWindow = win;
+            win.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_healthCheckWindow, win))
+                {
+                    _healthCheckWindow = null;
+                }
+                UpdateChildDialogState();
+            };
+            UpdateChildDialogState();
+            win.Show();
+            win.Activate();
+        }
+
+        public void ShowSessionReportDialog()
+        {
+            if (_sessionReportWindow != null)
+            {
+                if (!_sessionReportWindow.IsVisible)
+                {
+                    _sessionReportWindow.Show();
+                }
+                _sessionReportWindow.Activate();
+                return;
+            }
+
+            var win = new SessionReportWindow { Owner = this };
+            DockSideBySide(win);
+            _sessionReportWindow = win;
+            win.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_sessionReportWindow, win))
+                {
+                    _sessionReportWindow = null;
+                }
+                UpdateChildDialogState();
+            };
+            UpdateChildDialogState();
+            win.Show();
+            win.Activate();
+        }
+
         private void UntrackChildWindow(Window window)
         {
             if (ReferenceEquals(window, _settingsWindow)) _settingsWindow = null;
             if (ReferenceEquals(window, _systemInfoWindow)) _systemInfoWindow = null;
             if (ReferenceEquals(window, _storageCleanupWindow)) _storageCleanupWindow = null;
             if (ReferenceEquals(window, _stressTestWindow)) _stressTestWindow = null;
+            if (ReferenceEquals(window, _healthCheckWindow)) _healthCheckWindow = null;
+            if (ReferenceEquals(window, _sessionReportWindow)) _sessionReportWindow = null;
 
             UpdateChildDialogState();
             UpdateTitleIconStates();
@@ -3047,7 +3267,9 @@ namespace CryoTray.Views
             _isChildDialogOpen = _settingsWindow != null ||
                 _systemInfoWindow != null ||
                 _storageCleanupWindow != null ||
-                _stressTestWindow != null;
+                _stressTestWindow != null ||
+                _healthCheckWindow != null ||
+                _sessionReportWindow != null;
         }
 
         private void UpdateTitleIconStates()

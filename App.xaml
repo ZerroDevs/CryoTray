@@ -50,6 +50,7 @@
             <SolidColorBrush x:Key="AccentPressedBrush" Color="#1E6FAE"/>
             <SolidColorBrush x:Key="AccentSoftBrush" Color="#1E5C91"/>
             <SolidColorBrush x:Key="AccentTextBrush" Color="#2B88D8"/>
+            <SolidColorBrush x:Key="SearchMatchBrush" Color="#6FB8F2"/>
             <SolidColorBrush x:Key="CpuAccentBrush" Color="#4FC3F7"/>
             <SolidColorBrush x:Key="GpuAccentBrush" Color="#7CB342"/>
             <SolidColorBrush x:Key="RamAccentBrush" Color="#62B0E8"/>

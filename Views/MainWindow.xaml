@@ -579,6 +579,12 @@
                                 <MenuItem x:Name="MenuToolsRecordCsv"
                                           Header="{DynamicResource Main_ToolsStartCsvLog}"
                                           Click="MenuToolsRecordCsv_Click"/>
+                                <MenuItem x:Name="MenuToolsHealthCheck"
+                                          Header="{DynamicResource Main_ToolsHealthCheck}"
+                                          Click="MenuToolsHealthCheck_Click"/>
+                                <MenuItem x:Name="MenuToolsSessionReport"
+                                          Header="{DynamicResource Main_ToolsSessionReport}"
+                                          Click="MenuToolsSessionReport_Click"/>
                                 <Separator Style="{StaticResource DarkMenuSeparatorStyle}"/>
                                 <MenuItem x:Name="MenuToolsAbout"
                                           Header="{DynamicResource Main_AboutTitle}"
@@ -2192,6 +2198,14 @@
                                            FontSize="11.5"
                                            FlowDirection="LeftToRight"
                                            Margin="0,1,0,0"/>
+                                <TextBlock x:Name="TxtCpuChartTooltipEvent"
+                                           Text=""
+                                           Foreground="#555555"
+                                           FontSize="10.5"
+                                           TextWrapping="Wrap"
+                                           MaxWidth="230"
+                                           Margin="0,3,0,0"
+                                           Visibility="Collapsed"/>
                             </StackPanel>
                         </Border>
                         <Polygon Points="0,0 6,6 12,0"
@@ -2232,6 +2246,14 @@
                                            FontSize="11.5"
                                            FlowDirection="LeftToRight"
                                            Margin="0,1,0,0"/>
+                                <TextBlock x:Name="TxtGpuChartTooltipEvent"
+                                           Text=""
+                                           Foreground="#555555"
+                                           FontSize="10.5"
+                                           TextWrapping="Wrap"
+                                           MaxWidth="210"
+                                           Margin="0,3,0,0"
+                                           Visibility="Collapsed"/>
                             </StackPanel>
                         </Border>
                         <Polygon Points="0,0 6,6 12,0"

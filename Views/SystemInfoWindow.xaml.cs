@@ -18,6 +18,7 @@ namespace CryoTray.Views
     public partial class SystemInfoWindow : Window
     {
         private SystemInfoData _data = new();
+        private GpuDiagnosticsInfo? _gpuDiagnostics;
         private readonly DispatcherTimer _uptimeTimer;
         private TextBlock? _uptimeTextBlock;
         private StackPanel? _fanHealthRowsPanel;
@@ -124,6 +125,7 @@ namespace CryoTray.Views
         private void SystemInfoWindow_Loaded(object sender, RoutedEventArgs e)
         {
             _data = SystemInfoQueryService.Instance.QuerySystemInfo();
+            _gpuDiagnostics = GpuDiagnosticsService.Query();
             _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
                 "SystemInfoWindow", TelemetryDemand.SystemInfo);
             RenderRows();
@@ -148,6 +150,7 @@ namespace CryoTray.Views
             _copyFeedbackTimer?.Stop();
             TxtCopyDiagnostics.Text = LocalizationService.Get("System_Copy");
             _data = SystemInfoQueryService.Instance.QuerySystemInfo();
+            _gpuDiagnostics = GpuDiagnosticsService.Query();
             RenderRows();
         }
 
@@ -246,10 +249,136 @@ namespace CryoTray.Views
                 rowIndex++;
             }
 
+            void AddSectionHeader(string key)
+            {
+                var border = new Border
+                {
+                    Background = ThemeService.GetBrush("PanelAltBackgroundBrush"),
+                    BorderBrush = ThemeService.GetBrush("BorderSubtleBrush"),
+                    BorderThickness = new Thickness(0, 0, 0, 1),
+                    Padding = new Thickness(12, 7, 12, 7),
+                    Margin = new Thickness(0, 6, 0, 0)
+                };
+                border.Child = new TextBlock
+                {
+                    Text = LocalizationService.Get(key),
+                    Foreground = ThemeService.GetBrush("TextTitleBrush"),
+                    FontSize = 11.5,
+                    FontWeight = FontWeights.SemiBold
+                };
+                InfoContainer.Children.Add(border);
+                rowIndex++;
+            }
+
+            void AddGpuDiagnosticsRows()
+            {
+                var diag = _gpuDiagnostics;
+                if (diag == null)
+                {
+                    return;
+                }
+
+                bool isFahrenheit = string.Equals(
+                    SettingsService.Instance.Current.TemperatureUnit,
+                    "Fahrenheit",
+                    StringComparison.OrdinalIgnoreCase);
+                string unit = isFahrenheit ? "°F" : "°C";
+                double DisplayTemp(double celsius) =>
+                    isFahrenheit ? (celsius * 9 / 5) + 32 : celsius;
+                double DisplayDelta(double celsius) =>
+                    isFahrenheit ? celsius * 9 / 5 : celsius;
+
+                AddSectionHeader("System_GpuDiagnostics");
+                if (!diag.Available)
+                {
+                    AddRow(
+                        LocalizationService.Get("System_GpuDiagnostics"),
+                        LocalizationService.Get("System_GpuDiagnosticsUnavailable"));
+                    return;
+                }
+
+                AddRow(
+                    LocalizationService.Get("System_GpuDriver"),
+                    string.IsNullOrWhiteSpace(diag.DriverVersion)
+                        ? LocalizationService.Get("Common_NotReported")
+                        : diag.DriverVersion,
+                    string.IsNullOrWhiteSpace(diag.DriverDateText)
+                        ? null
+                        : LocalizationService.Format("System_GpuDriverDate", diag.DriverDateText));
+                AddRow(
+                    LocalizationService.Get("System_GpuBios"),
+                    string.IsNullOrWhiteSpace(diag.VideoBios)
+                        ? LocalizationService.Get("Common_NotReported")
+                        : diag.VideoBios);
+                AddRow(
+                    LocalizationService.Get("System_GpuPciIds"),
+                    string.IsNullOrWhiteSpace(diag.PciIds)
+                        ? LocalizationService.Get("Common_NotReported")
+                        : diag.PciIds,
+                    string.IsNullOrWhiteSpace(diag.PnpDeviceId) ? null : diag.PnpDeviceId);
+                AddRow(
+                    LocalizationService.Get("System_GpuTdr"),
+                    diag.TdrCount.HasValue
+                        ? LocalizationService.Format("System_GpuTdrValue", diag.TdrCount.Value)
+                        : LocalizationService.Get("System_GpuTdrUnavailable"));
+
+                string hotspotValue = diag.HotspotEdgeCurrent.HasValue
+                    ? LocalizationService.Format(
+                        "System_GpuHotspotEdgeValue",
+                        Math.Round(DisplayDelta(diag.HotspotEdgeCurrent.Value)),
+                        unit)
+                    : LocalizationService.Get("Common_NotReported");
+                string? hotspotDetail = null;
+                if (diag.HotspotEdgeCurrent.HasValue)
+                {
+                    var parts = new List<string>();
+                    if (diag.HotspotEdgeAverage.HasValue && diag.HotspotEdgeMax.HasValue)
+                    {
+                        parts.Add(LocalizationService.Format(
+                            "System_GpuHotspotEdgeAverage",
+                            Math.Round(DisplayDelta(diag.HotspotEdgeAverage.Value)),
+                            Math.Round(DisplayDelta(diag.HotspotEdgeMax.Value)),
+                            unit));
+                    }
+                    if (diag.HotspotEdgeTrend.HasValue)
+                    {
+                        parts.Add(LocalizationService.Format(
+                            "System_GpuHotspotEdgeTrend",
+                            LocalizationService.Get(diag.HotspotEdgeTrendKey),
+                            FormatSigned(DisplayDelta(diag.HotspotEdgeTrend.Value)),
+                            unit));
+                    }
+                    hotspotDetail = string.Join(" · ", parts);
+                }
+                AddRow(
+                    LocalizationService.Get("System_GpuHotspotEdge"),
+                    hotspotValue,
+                    detail: hotspotDetail);
+
+                if (diag.ThermalHeadroom.HasValue)
+                {
+                    double margin = Math.Round(DisplayDelta(diag.ThermalHeadroom.Value));
+                    int limit = (int)Math.Round(DisplayTemp(diag.ThermalLimit));
+                    string headroom = margin >= 0
+                        ? LocalizationService.Format(
+                            "System_GpuHeadroomValue", margin, unit, limit)
+                        : LocalizationService.Format(
+                            "System_GpuHeadroomOver", limit, unit, Math.Abs(margin));
+                    AddRow(LocalizationService.Get("System_GpuThermalHeadroom"), headroom);
+                }
+                else
+                {
+                    AddRow(
+                        LocalizationService.Get("System_GpuThermalHeadroom"),
+                        LocalizationService.Get("Common_NotReported"));
+                }
+            }
+
             AddRow(LocalizationService.Get("System_Pc"), _data.PcName);
             AddRow(LocalizationService.Get("System_Processor"), _data.ProcessorName, _data.ProcessorCores);
             AddRow(LocalizationService.Get("System_Memory"), _data.Memory);
             AddRow(LocalizationService.Get("System_GraphicsCard"), _data.GraphicsCard);
+            AddGpuDiagnosticsRows();
 
             foreach (var d in _data.StorageDevices)
             {
@@ -281,6 +410,9 @@ namespace CryoTray.Views
             AddRow(LocalizationService.Get("System_Network"), _data.Network);
             AddRow(LocalizationService.Get("System_SystemErrors"), _data.SystemErrors);
         }
+
+        private static string FormatSigned(double value) =>
+            value.ToString("+0.0;-0.0;0.0", System.Globalization.CultureInfo.InvariantCulture);
 
         private void AddFanHealthSection()
         {

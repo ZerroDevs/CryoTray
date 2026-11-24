@@ -44,6 +44,9 @@ namespace CryoTray
         private bool _isExiting;
         private bool _isPrimaryInstance;
         private bool _mutexReleased;
+        private bool _startupHealthCheckPending;
+        private bool _startupHealthCheckPostUpdate;
+        private bool _startupHealthCheckFirstRun;
 
         public DateTime? CoolingPausedUntilUtc { get; private set; }
         public bool IsCoolingPausedByTimer =>
@@ -125,6 +128,8 @@ namespace CryoTray
             {
                 try
                 {
+                    TimerResolutionService.Instance.ReleaseForExit();
+                    KeepAwakeService.Instance.ReleaseForExit();
                     GpuPowerControlService.Instance.RestoreForExit();
                     DownloadTimerService.Instance.Stop();
                 }
@@ -149,6 +154,8 @@ namespace CryoTray
             {
                 try
                 {
+                    TimerResolutionService.Instance.ReleaseForExit();
+                    KeepAwakeService.Instance.ReleaseForExit();
                     GpuPowerControlService.Instance.RestoreForExit();
                     DownloadTimerService.Instance.Stop();
                 }
@@ -205,6 +212,11 @@ namespace CryoTray
             ThemeService.Initialize(settings.Theme);
             UpdateStatusService.Instance.Restore(settings);
             PendingUpdateSuccess = UpdateCompletionService.ReadPending(UpdateService.CurrentVersion);
+            _startupHealthCheckPostUpdate = PendingUpdateSuccess != null;
+            _startupHealthCheckFirstRun =
+                !settings.HasCompletedFirstRunHealthCheck && PendingUpdateSuccess == null;
+            _startupHealthCheckPending =
+                _startupHealthCheckPostUpdate || _startupHealthCheckFirstRun;
             ActivityLogService.Instance.Record(
                 ActivitySeverity.Info, "app", "Activity_AppStarted", UpdateService.CurrentVersion);
             if (PendingUpdateSuccess != null)
@@ -231,6 +243,15 @@ namespace CryoTray
             _trayManager.OnPauseCoolingRequested += PauseCoolingFor;
             _trayManager.OnCancelCoolingPauseRequested += () => CancelCoolingPause(resumeCooling: true, forceResume: true);
             _trayManager.OnToggleDownloadTimerRequested += ToggleDownloadTimerFromTray;
+            _trayManager.OnKeepAwakeTimedRequested += StartKeepAwakeTimed;
+            _trayManager.OnKeepAwakeIndefiniteRequested += StartKeepAwakeIndefiniteFromTray;
+            _trayManager.OnKeepAwakeCustomRequested += StartKeepAwakeCustomFromTray;
+            _trayManager.OnKeepAwakeStopRequested += () => KeepAwakeService.Instance.Stop();
+            _trayManager.OnKeepAwakeDisplayOffChanged += allowDisplayOff =>
+            {
+                SettingsService.Instance.Current.KeepAwakeAllowDisplayOff = allowDisplayOff;
+                SettingsService.Instance.Save();
+            };
             _trayManager.OnOpenStressTestRequested += OpenStressTestFromTray;
             _trayManager.OnToggleOverlayClickThroughRequested += ToggleOverlayClickThrough;
             _trayManager.OnOpenSettingsRequested += OpenSettingsFromTray;
@@ -264,6 +285,9 @@ namespace CryoTray
             AutopilotService.Instance.Start();
             MemoryOptimizerService.Instance.OptimizationCompleted += OnMemoryOptimizationCompleted;
             MemoryOptimizerService.Instance.Start();
+            TimerResolutionService.Instance.Start();
+            StandbyPurgeService.Instance.Start();
+            KeepAwakeService.Instance.Start();
 
             if (settings.EnableCoolingOnLaunch)
             {
@@ -298,6 +322,26 @@ namespace CryoTray
             _startupTrimTimer.Start();
 
             ScheduleAutomaticUpdateCheck(checkNow: true);
+        }
+
+        public bool TryConsumeStartupHealthCheck(out bool postUpdate, out bool firstRun)
+        {
+            postUpdate = _startupHealthCheckPostUpdate;
+            firstRun = _startupHealthCheckFirstRun;
+            if (!_startupHealthCheckPending)
+            {
+                return false;
+            }
+
+            _startupHealthCheckPending = false;
+            var settings = SettingsService.Instance.Current;
+            if (!settings.HasCompletedFirstRunHealthCheck)
+            {
+                settings.HasCompletedFirstRunHealthCheck = true;
+                SettingsService.Instance.Save();
+            }
+
+            return true;
         }
 
         internal static bool TrySignalExistingInstance(string eventName)
@@ -400,11 +444,68 @@ namespace CryoTray
         {
             try
             {
+                TimerResolutionService.Instance.ReleaseForExit();
+                KeepAwakeService.Instance.ReleaseForExit();
                 DownloadTimerService.Instance.CancelAndDisarm();
                 GpuPowerControlService.Instance.RestoreForExit();
             }
             catch
             {
+            }
+        }
+
+        public bool ConfirmKeepAwakeIndefinite()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                return Dispatcher.Invoke(ConfirmKeepAwakeIndefinite);
+            }
+
+            var dialog = new KeepAwakeConfirmWindow(
+                SettingsService.Instance.Current.KeepAwakeAllowDisplayOff);
+            if (_mainWindow != null && _mainWindow.IsVisible)
+            {
+                dialog.Owner = _mainWindow;
+            }
+
+            return dialog.ShowDialog() == true;
+        }
+
+        public TimeSpan? PromptKeepAwakeDuration()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                return Dispatcher.Invoke(PromptKeepAwakeDuration);
+            }
+
+            var dialog = new KeepAwakeDurationWindow();
+            if (_mainWindow != null && _mainWindow.IsVisible)
+            {
+                dialog.Owner = _mainWindow;
+            }
+
+            return dialog.ShowDialog() == true ? dialog.Duration : null;
+        }
+
+        private void StartKeepAwakeTimed(TimeSpan duration)
+        {
+            KeepAwakeService.Instance.StartTimed(duration);
+        }
+
+        private void StartKeepAwakeIndefiniteFromTray()
+        {
+            if (ConfirmKeepAwakeIndefinite())
+            {
+                KeepAwakeService.Instance.StartIndefinite();
+            }
+        }
+
+        private void StartKeepAwakeCustomFromTray()
+        {
+            TimeSpan? duration = PromptKeepAwakeDuration();
+            if (duration.HasValue)
+            {
+                KeepAwakeService.Instance.StartTimed(duration.Value);
             }
         }
 
@@ -1493,6 +1594,9 @@ namespace CryoTray
             DownloadTimerService.Instance.WarningStarted -= OnDownloadTimerWarningStarted;
             DownloadTimerService.Instance.StatusChanged -= OnDownloadTimerStatusChanged;
             DownloadTimerService.Instance.WarningEnded -= OnDownloadTimerWarningEnded;
+            TimerResolutionService.Instance.Dispose();
+            KeepAwakeService.Instance.Dispose();
+            StandbyPurgeService.Instance.Dispose();
             DownloadTimerService.Instance.Dispose();
             GpuPowerControlService.Instance.Dispose();
             CloseDownloadTimerWarning();

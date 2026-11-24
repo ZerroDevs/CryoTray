@@ -547,7 +547,7 @@ CryoTray does not include analytics, advertising, accounts, or remote telemetry.
 Local files:
 
 - `%APPDATA%\CryoTray\settings.json`: all application settings, including window positions and the Autopilot whitelist.
-- `%APPDATA%\CryoTray\activity.jsonl`: the bounded local activity timeline, capped near 256 KB.
+- `%APPDATA%\CryoTray\activity.jsonl`: the bounded local activity timeline, capped at the latest 50 events.
 - `%APPDATA%\CryoTray\crash.log`: unhandled exception details, when one is captured.
 
 Update checks contact the GitHub Releases API:

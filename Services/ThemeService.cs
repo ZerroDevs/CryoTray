@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
 using Microsoft.Win32;
@@ -13,6 +14,7 @@ namespace CryoTray.Services
 
         private static readonly Dictionary<string, string> DarkPalette = new()
         {
+            ["WindowBorderBrush"] = "#C26A47",
             ["WindowBackgroundBrush"] = "#141414",
             ["TitleBarBackgroundBrush"] = "#141414",
             ["HeaderBackgroundBrush"] = "#1B1B1B",
@@ -51,6 +53,7 @@ namespace CryoTray.Services
             ["AccentPressedBrush"] = "#1E6FAE",
             ["AccentSoftBrush"] = "#1E5C91",
             ["AccentTextBrush"] = "#2B88D8",
+            ["SearchMatchBrush"] = "#6FB8F2",
             ["CpuAccentBrush"] = "#4FC3F7",
             ["GpuAccentBrush"] = "#7CB342",
             ["RamAccentBrush"] = "#62B0E8",
@@ -90,6 +93,7 @@ namespace CryoTray.Services
 
         private static readonly Dictionary<string, string> LightPalette = new()
         {
+            ["WindowBorderBrush"] = "#C26A47",
             ["WindowBackgroundBrush"] = "#F5F3EF",
             ["TitleBarBackgroundBrush"] = "#F5F3EF",
             ["HeaderBackgroundBrush"] = "#EDEAE4",
@@ -128,6 +132,7 @@ namespace CryoTray.Services
             ["AccentPressedBrush"] = "#0F5C95",
             ["AccentSoftBrush"] = "#DCEAF6",
             ["AccentTextBrush"] = "#1B6CB3",
+            ["SearchMatchBrush"] = "#155A94",
             ["CpuAccentBrush"] = "#0B6E99",
             ["GpuAccentBrush"] = "#4C7A22",
             ["RamAccentBrush"] = "#1D6FA5",
@@ -166,6 +171,8 @@ namespace CryoTray.Services
         };
 
         private static bool _systemEventsHooked;
+        private static bool _systemParametersHooked;
+        private static bool _isHighContrast;
         private static string _configuredMode = "Dark";
         private static string _effectiveMode = "Dark";
 
@@ -183,6 +190,12 @@ namespace CryoTray.Services
                 _systemEventsHooked = true;
             }
 
+            if (!_systemParametersHooked)
+            {
+                SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
+                _systemParametersHooked = true;
+            }
+
             Apply(mode, force: true);
         }
 
@@ -193,23 +206,29 @@ namespace CryoTray.Services
                 ? (IsSystemLight() ? "Light" : "Dark")
                 : normalized;
 
+            bool highContrast = SystemParameters.HighContrast;
             _configuredMode = normalized;
-            if (!force && string.Equals(effective, _effectiveMode, StringComparison.Ordinal))
+            if (!force &&
+                string.Equals(effective, _effectiveMode, StringComparison.Ordinal) &&
+                highContrast == _isHighContrast)
             {
                 return;
             }
 
             _effectiveMode = effective;
-            var palette = effective == "Light" ? LightPalette : DarkPalette;
+            _isHighContrast = highContrast;
             var resources = Application.Current?.Resources;
             if (resources != null)
             {
-                foreach (var entry in palette)
+                if (highContrast)
                 {
-                    var brush = new SolidColorBrush(
-                        (Color)ColorConverter.ConvertFromString(entry.Value));
-                    brush.Freeze();
-                    resources[entry.Key] = brush;
+                    ApplyHighContrastPalette(resources);
+                }
+                else
+                {
+                    ApplyPalette(
+                        resources,
+                        effective == "Light" ? LightPalette : DarkPalette);
                 }
             }
 
@@ -249,15 +268,131 @@ namespace CryoTray.Services
             return Brushes.Transparent;
         }
 
+        private static void ApplyPalette(
+            ResourceDictionary resources,
+            IReadOnlyDictionary<string, string> palette)
+        {
+            foreach (var entry in palette)
+            {
+                var brush = new SolidColorBrush(
+                    (Color)ColorConverter.ConvertFromString(entry.Value));
+                brush.Freeze();
+                resources[entry.Key] = brush;
+            }
+        }
+
+        private static void ApplyHighContrastPalette(ResourceDictionary resources)
+        {
+            var window = FrozenBrush(SystemColors.WindowColor);
+            var windowText = FrozenBrush(SystemColors.WindowTextColor);
+            var grayText = FrozenBrush(SystemColors.GrayTextColor);
+            var control = FrozenBrush(SystemColors.ControlColor);
+            var controlText = FrozenBrush(SystemColors.ControlTextColor);
+            var controlDark = FrozenBrush(SystemColors.ControlDarkColor);
+            var highlight = FrozenBrush(SystemColors.HighlightColor);
+            var highlightText = FrozenBrush(SystemColors.HighlightTextColor);
+            var hotTrack = FrozenBrush(SystemColors.HotTrackColor);
+
+            foreach (string key in DarkPalette.Keys)
+            {
+                resources[key] = window;
+            }
+
+            string[] surfaceKeys =
+            {
+                "WindowBackgroundBrush", "TitleBarBackgroundBrush", "HeaderBackgroundBrush",
+                "PanelBackgroundBrush", "PanelAltBackgroundBrush", "CardBackgroundBrush",
+                "CardAltBackgroundBrush", "InsetBackgroundBrush", "ChartBackgroundBrush",
+                "MenuBackgroundBrush", "TooltipBackgroundBrush", "CheckboxBackgroundBrush",
+                "InputBackgroundBrush", "DangerSoftBackgroundBrush", "PawnIoBackgroundBrush",
+                "PawnIoButtonBackgroundBrush", "PawnIoButtonHoverBrush", "PawnIoButtonPressedBrush",
+                "ToggleOffTrackBrush", "OverlayBackgroundBrush", "AlternateRowBrush",
+                "HighlightRowBrush"
+            };
+            foreach (string key in surfaceKeys)
+            {
+                resources[key] = key.Contains("Hover", StringComparison.Ordinal) ||
+                    key.Contains("Pressed", StringComparison.Ordinal)
+                    ? control
+                    : window;
+            }
+
+            string[] textKeys =
+            {
+                "TextPrimaryBrush", "TextTitleBrush", "TextSecondaryBrush", "TextTertiaryBrush",
+                "TextMutedBrush", "TextDimBrush", "IconBrush", "OverlayLabelBrush",
+                "OverlaySecondaryBrush", "OverlayMutedBrush", "OverlayIconBrush",
+                "CpuAccentBrush", "GpuAccentBrush", "RamAccentBrush", "BatteryAccentBrush",
+                "CoolingOnTextBrush", "CoolingOffTextBrush", "SuccessTextBrush",
+                "WarningTextBrush", "DangerTextBrush", "PawnIoTextBrush", "ToggleOffTextBrush",
+                "ToggleOffThumbBrush", "RamFooterMutedBrush", "RamFooterTextBrush",
+                "ChartLineBrush", "ChartHoverLineBrush"
+            };
+            foreach (string key in textKeys)
+            {
+                resources[key] = windowText;
+            }
+
+            resources["TextDisabledBrush"] = grayText;
+            resources["ControlTextBrush"] = controlText;
+            resources["BorderBrush"] = controlDark;
+            resources["BorderStrongBrush"] = windowText;
+            resources["BorderSubtleBrush"] = controlDark;
+            resources["DividerBrush"] = controlDark;
+            resources["InputBorderBrush"] = windowText;
+            resources["MenuBorderBrush"] = controlDark;
+            resources["MenuHoverBrush"] = control;
+            resources["MenuHoverBorderBrush"] = windowText;
+            resources["TooltipBorderBrush"] = windowText;
+            resources["CheckboxBorderBrush"] = windowText;
+            resources["WindowBorderBrush"] = windowText;
+            resources["HoverBackgroundBrush"] = control;
+            resources["ActiveBackgroundBrush"] = control;
+            resources["DangerSoftHoverBrush"] = control;
+            resources["AccentBrush"] = highlight;
+            resources["AccentHoverBrush"] = highlight;
+            resources["AccentPressedBrush"] = highlight;
+            resources["AccentSoftBrush"] = highlight;
+            resources["AccentTextBrush"] = hotTrack;
+            resources["SearchMatchBrush"] = hotTrack;
+            resources["SelectionBrush"] = highlight;
+            resources["SelectionTextBrush"] = highlightText;
+            resources["HighlightRowBorderBrush"] = windowText;
+            resources["ChartGridBrush"] = controlDark;
+        }
+
+        private static SolidColorBrush FrozenBrush(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return brush;
+        }
+
         public static void Shutdown()
         {
-            if (!_systemEventsHooked)
+            if (_systemEventsHooked)
+            {
+                SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+                _systemEventsHooked = false;
+            }
+
+            if (_systemParametersHooked)
+            {
+                SystemParameters.StaticPropertyChanged -= OnSystemParametersChanged;
+                _systemParametersHooked = false;
+            }
+        }
+
+        private static void OnSystemParametersChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (!string.IsNullOrEmpty(e.PropertyName) &&
+                !string.Equals(e.PropertyName, nameof(SystemParameters.HighContrast), StringComparison.Ordinal))
             {
                 return;
             }
 
-            SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
-            _systemEventsHooked = false;
+            Application.Current?.Dispatcher.BeginInvoke(
+                new Action(() => Apply(_configuredMode, force: true)));
         }
 
         private static bool IsSystemLight()
@@ -278,20 +413,21 @@ namespace CryoTray.Services
             object sender,
             UserPreferenceChangedEventArgs e)
         {
-            if (_configuredMode != "System")
+            bool accessibility = e.Category == UserPreferenceCategory.Accessibility;
+            if (!accessibility && _configuredMode != "System")
             {
                 return;
             }
 
-            if (e.Category != UserPreferenceCategory.General &&
-                e.Category != UserPreferenceCategory.VisualStyle &&
-                e.Category != UserPreferenceCategory.Accessibility)
+            if (!accessibility &&
+                e.Category != UserPreferenceCategory.General &&
+                e.Category != UserPreferenceCategory.VisualStyle)
             {
                 return;
             }
 
             Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
-                Apply(_configuredMode)));
+                Apply(_configuredMode, force: accessibility)));
         }
     }
 }

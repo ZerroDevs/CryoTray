@@ -8,7 +8,8 @@ namespace CryoTray.Services
         bool Ready,
         int FileCount,
         long SizeBytes,
-        string? ErrorKey);
+        string? ErrorKey,
+        bool ApplicationLocationSafe = true);
 
     /// <summary>
     /// Read-only verification of the saved rollback copy. It never writes to the app directory.
@@ -17,7 +18,16 @@ namespace CryoTray.Services
     {
         public static RollbackReadinessResult Verify()
         {
-            return VerifyCore(verifyApplicationLocation: true);
+            return VerifyCore(verifyApplicationLocation: ShouldVerifyApplicationLocation());
+        }
+
+        private static bool ShouldVerifyApplicationLocation()
+        {
+#if DEBUG
+            return false;
+#else
+            return !UpdateStorage.IsDeveloperModeEnabled;
+#endif
         }
 
         internal static RollbackReadinessResult VerifyForTest()
@@ -49,10 +59,11 @@ namespace CryoTray.Services
                 return Fail("Settings_ReadinessIncomplete");
             }
 
-            if (verifyApplicationLocation &&
-                !UpdateStorage.IsSafeApplicationLocation(AppContext.BaseDirectory))
+            bool applicationLocationSafe =
+                UpdateStorage.IsSafeApplicationLocation(AppContext.BaseDirectory);
+            if (verifyApplicationLocation && !applicationLocationSafe)
             {
-                return Fail("Settings_ReadinessAppLocation");
+                return Fail("Settings_ReadinessAppLocation", applicationLocationSafe);
             }
 
             long size = UpdateBackupService.GetSizeBytes(backup);
@@ -61,12 +72,15 @@ namespace CryoTray.Services
                 return Fail("Settings_ReadinessIncomplete");
             }
 
-            return new RollbackReadinessResult(true, backup.Files.Count, size, null);
+            return new RollbackReadinessResult(
+                true, backup.Files.Count, size, null, applicationLocationSafe);
         }
 
-        private static RollbackReadinessResult Fail(string key)
+        private static RollbackReadinessResult Fail(
+            string key, bool applicationLocationSafe = true)
         {
-            return new RollbackReadinessResult(false, 0, 0, key);
+            return new RollbackReadinessResult(
+                false, 0, 0, key, applicationLocationSafe);
         }
     }
 }

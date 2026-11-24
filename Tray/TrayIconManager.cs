@@ -34,6 +34,16 @@ namespace CryoTray.Tray
         private readonly ToolStripMenuItem _itemPause30m = null!;
         private readonly ToolStripMenuItem _itemPause60m = null!;
         private readonly ToolStripMenuItem _itemResumeNow = null!;
+        private readonly ToolStripMenuItem _itemKeepAwake = null!;
+        private readonly ToolStripMenuItem _itemKeepAwakeOff = null!;
+        private readonly ToolStripMenuItem _itemKeepAwake15 = null!;
+        private readonly ToolStripMenuItem _itemKeepAwake30 = null!;
+        private readonly ToolStripMenuItem _itemKeepAwake60 = null!;
+        private readonly ToolStripMenuItem _itemKeepAwake120 = null!;
+        private readonly ToolStripMenuItem _itemKeepAwakeCustom = null!;
+        private readonly ToolStripMenuItem _itemKeepAwakeIndefinite = null!;
+        private readonly ToolStripMenuItem _itemKeepAwakeStop = null!;
+        private readonly ToolStripMenuItem _itemKeepAwakeDisplayOff = null!;
         private readonly ToolStripMenuItem _itemDownloadTimer = null!;
         private readonly ToolStripMenuItem _itemStress = null!;
         private readonly ToolStripMenuItem _itemOverlayClickThrough = null!;
@@ -79,6 +89,11 @@ namespace CryoTray.Tray
         public event Action<TimeSpan>? OnPauseCoolingRequested;
         public event Action? OnCancelCoolingPauseRequested;
         public event Action? OnToggleDownloadTimerRequested;
+        public event Action<TimeSpan>? OnKeepAwakeTimedRequested;
+        public event Action? OnKeepAwakeIndefiniteRequested;
+        public event Action? OnKeepAwakeCustomRequested;
+        public event Action? OnKeepAwakeStopRequested;
+        public event Action<bool>? OnKeepAwakeDisplayOffChanged;
         public event Action? OnOpenStressTestRequested;
         public event Action? OnToggleOverlayClickThroughRequested;
         public event Action? OnOpenSettingsRequested;
@@ -110,6 +125,16 @@ namespace CryoTray.Tray
             _itemPause30m = menuItems.Pause30m;
             _itemPause60m = menuItems.Pause60m;
             _itemResumeNow = menuItems.ResumeNow;
+            _itemKeepAwake = menuItems.KeepAwake;
+            _itemKeepAwakeOff = menuItems.KeepAwakeOff;
+            _itemKeepAwake15 = menuItems.KeepAwake15;
+            _itemKeepAwake30 = menuItems.KeepAwake30;
+            _itemKeepAwake60 = menuItems.KeepAwake60;
+            _itemKeepAwake120 = menuItems.KeepAwake120;
+            _itemKeepAwakeCustom = menuItems.KeepAwakeCustom;
+            _itemKeepAwakeIndefinite = menuItems.KeepAwakeIndefinite;
+            _itemKeepAwakeStop = menuItems.KeepAwakeStop;
+            _itemKeepAwakeDisplayOff = menuItems.KeepAwakeDisplayOff;
             _itemDownloadTimer = menuItems.DownloadTimer;
             _itemStress = menuItems.Stress;
             _itemOverlayClickThrough = menuItems.OverlayClickThrough;
@@ -128,6 +153,7 @@ namespace CryoTray.Tray
                 _itemDownloadTimer.Checked = SettingsService.Instance.Current.DownloadTimerEnabled;
                 RefreshPowerProfileChecks();
                 RefreshPauseMenuText();
+                RefreshKeepAwakeMenuText();
             };
 
             _iconBitmap = new Bitmap(IconSize, IconSize);
@@ -184,6 +210,7 @@ namespace CryoTray.Tray
             _ramIcon.BalloonTipClicked += OnBalloonTipClicked;
 
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
+            KeepAwakeService.Instance.StatusChanged += OnKeepAwakeStatusChanged;
 
             ApplyLanguage();
             UpdateBadges(double.NaN, double.NaN, PowerPlanService.Instance.IsCoolingModeActive, true);
@@ -211,6 +238,12 @@ namespace CryoTray.Tray
 
             UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true,
                 _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
+            RefreshKeepAwakeMenuText();
+        }
+
+        private void OnKeepAwakeStatusChanged()
+        {
+            RefreshKeepAwakeMenuText();
         }
 
         public void RefreshDownloadTimerCheck()
@@ -226,6 +259,7 @@ namespace CryoTray.Tray
             _contextMenu.RightToLeft = rtl;
             _itemPauseCooling.DropDown.RightToLeft = rtl;
             _itemPowerProfiles.DropDown.RightToLeft = rtl;
+            _itemKeepAwake.DropDown.RightToLeft = rtl;
 
             _itemOpen.Text = LocalizationService.Get("Tray_OpenDashboard");
             _itemCooling.Text = LocalizationService.Get("Tray_ToggleCooling");
@@ -248,12 +282,22 @@ namespace CryoTray.Tray
             _itemStress.Text = LocalizationService.Get("Tray_CpuTest");
             _itemOverlayClickThrough.Text = LocalizationService.Get("Tray_OverlayClickThrough");
             _itemOverlayClickThrough.Checked = SettingsService.Instance.Current.OverlayClickThrough;
+            _itemKeepAwakeOff.Text = LocalizationService.Get("Tray_KeepAwakeOff");
+            _itemKeepAwake15.Text = LocalizationService.Get("Tray_KeepAwake15");
+            _itemKeepAwake30.Text = LocalizationService.Get("Tray_KeepAwake30");
+            _itemKeepAwake60.Text = LocalizationService.Get("Tray_KeepAwake1h");
+            _itemKeepAwake120.Text = LocalizationService.Get("Tray_KeepAwake2h");
+            _itemKeepAwakeCustom.Text = LocalizationService.Get("Tray_KeepAwakeCustom");
+            _itemKeepAwakeIndefinite.Text = LocalizationService.Get("Tray_KeepAwakeIndefinite");
+            _itemKeepAwakeStop.Text = LocalizationService.Get("Tray_KeepAwakeStop");
+            RefreshKeepAwakeMenuText();
             _itemSettings.Text = LocalizationService.Get("Tray_Settings");
             _itemExit.Text = LocalizationService.Get("Tray_Exit");
 
             UpdateDropDownSizes(_contextMenu, MainMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateDropDownSizes(_itemPauseCooling.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateDropDownSizes(_itemPowerProfiles.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
+            UpdateDropDownSizes(_itemKeepAwake.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true,
                 _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
         }
@@ -264,6 +308,7 @@ namespace CryoTray.Tray
             ApplyMenuTheme(_contextMenu);
             ApplyMenuTheme(_itemPauseCooling.DropDown);
             ApplyMenuTheme(_itemPowerProfiles.DropDown);
+            ApplyMenuTheme(_itemKeepAwake.DropDown);
             _contextMenu.Invalidate(true);
         }
 
@@ -325,6 +370,56 @@ namespace CryoTray.Tray
                 pair.Value.Checked = active != null &&
                     string.Equals(active.Key, pair.Key, StringComparison.OrdinalIgnoreCase);
             }
+        }
+
+        private void RefreshKeepAwakeMenuText()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_contextMenu.InvokeRequired)
+            {
+                try
+                {
+                    _contextMenu.BeginInvoke(new Action(RefreshKeepAwakeMenuText));
+                }
+                catch
+                {
+                }
+                return;
+            }
+
+            var status = KeepAwakeService.Instance.GetStatus();
+            _itemKeepAwake.Text = status.Mode switch
+            {
+                KeepAwakeMode.Timed => LocalizationService.Format(
+                    "Tray_KeepAwakeActive",
+                    KeepAwakeService.FormatRemaining(status.Remaining ?? TimeSpan.Zero)),
+                KeepAwakeMode.Indefinite => LocalizationService.Get("Tray_KeepAwakeIndefiniteActive"),
+                _ => LocalizationService.Get("Tray_KeepAwake")
+            };
+
+            _itemKeepAwakeOff.Checked = status.Mode == KeepAwakeMode.Off;
+            _itemKeepAwake15.Checked = IsTimedDuration(status, 15);
+            _itemKeepAwake30.Checked = IsTimedDuration(status, 30);
+            _itemKeepAwake60.Checked = IsTimedDuration(status, 60);
+            _itemKeepAwake120.Checked = IsTimedDuration(status, 120);
+            _itemKeepAwakeIndefinite.Checked = status.Mode == KeepAwakeMode.Indefinite;
+            _itemKeepAwakeStop.Enabled = status.IsActive;
+            _itemKeepAwakeDisplayOff.Checked = SettingsService.Instance.Current.KeepAwakeAllowDisplayOff;
+            _itemKeepAwakeDisplayOff.Text = LocalizationService.Get("Tray_KeepAwakeDisplayOff");
+
+            UpdateDropDownSizes(_contextMenu, MainMenuFloorWidth, MenuTextHorizontalReserve);
+            UpdateDropDownSizes(_itemKeepAwake.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
+        }
+
+        private static bool IsTimedDuration(KeepAwakeStatus status, int minutes)
+        {
+            return status.Mode == KeepAwakeMode.Timed &&
+                status.Duration.HasValue &&
+                (int)Math.Round(status.Duration.Value.TotalMinutes) == minutes;
         }
 
         private void RefreshPauseMenuText()
@@ -401,6 +496,16 @@ namespace CryoTray.Tray
             ToolStripMenuItem Pause30m,
             ToolStripMenuItem Pause60m,
             ToolStripMenuItem ResumeNow,
+            ToolStripMenuItem KeepAwake,
+            ToolStripMenuItem KeepAwakeOff,
+            ToolStripMenuItem KeepAwake15,
+            ToolStripMenuItem KeepAwake30,
+            ToolStripMenuItem KeepAwake60,
+            ToolStripMenuItem KeepAwake120,
+            ToolStripMenuItem KeepAwakeCustom,
+            ToolStripMenuItem KeepAwakeIndefinite,
+            ToolStripMenuItem KeepAwakeStop,
+            ToolStripMenuItem KeepAwakeDisplayOff,
             ToolStripMenuItem DownloadTimer,
             ToolStripMenuItem Stress,
             ToolStripMenuItem OverlayClickThrough,
@@ -457,6 +562,43 @@ namespace CryoTray.Tray
                 itemResumeNow
             });
 
+            var itemKeepAwake = new ToolStripMenuItem("Keep Awake")
+            {
+                Padding = new Padding(0, 5, 0, 5)
+            };
+            if (itemKeepAwake.DropDown is ToolStripDropDownMenu keepAwakeDropDown)
+            {
+                ConfigureDarkDropDown(keepAwakeDropDown, renderer);
+            }
+
+            var itemKeepAwakeOff = CreateMenuItem("Off", () => OnKeepAwakeStopRequested?.Invoke(), tag: CheckableMenuItemTag);
+            var itemKeepAwake15 = CreateMenuItem("15 minutes", () => OnKeepAwakeTimedRequested?.Invoke(TimeSpan.FromMinutes(15)), tag: CheckableMenuItemTag);
+            var itemKeepAwake30 = CreateMenuItem("30 minutes", () => OnKeepAwakeTimedRequested?.Invoke(TimeSpan.FromMinutes(30)), tag: CheckableMenuItemTag);
+            var itemKeepAwake60 = CreateMenuItem("1 hour", () => OnKeepAwakeTimedRequested?.Invoke(TimeSpan.FromHours(1)), tag: CheckableMenuItemTag);
+            var itemKeepAwake120 = CreateMenuItem("2 hours", () => OnKeepAwakeTimedRequested?.Invoke(TimeSpan.FromHours(2)), tag: CheckableMenuItemTag);
+            var itemKeepAwakeCustom = CreateMenuItem("Custom...", () => OnKeepAwakeCustomRequested?.Invoke());
+            var itemKeepAwakeIndefinite = CreateMenuItem("Until I change it", () => OnKeepAwakeIndefiniteRequested?.Invoke(), tag: CheckableMenuItemTag);
+            var itemKeepAwakeStop = CreateMenuItem("Stop Keep Awake", () => OnKeepAwakeStopRequested?.Invoke());
+            itemKeepAwakeStop.Enabled = false;
+            ToolStripMenuItem itemKeepAwakeDisplayOff = null!;
+            itemKeepAwakeDisplayOff = CreateMenuItem(
+                "Keep PC awake, but allow the display to turn off",
+                () => OnKeepAwakeDisplayOffChanged?.Invoke(!itemKeepAwakeDisplayOff.Checked),
+                tag: CheckableMenuItemTag);
+            itemKeepAwake.DropDownItems.AddRange(new ToolStripItem[]
+            {
+                itemKeepAwakeOff,
+                itemKeepAwake15,
+                itemKeepAwake30,
+                itemKeepAwake60,
+                itemKeepAwake120,
+                itemKeepAwakeCustom,
+                itemKeepAwakeIndefinite,
+                CreateSeparator(),
+                itemKeepAwakeStop,
+                itemKeepAwakeDisplayOff
+            });
+
             var itemDownloadTimer = CreateMenuItem("Smart Download Timer", () => OnToggleDownloadTimerRequested?.Invoke(), tag: CheckableMenuItemTag);
             var itemStress = CreateMenuItem("CPU Temperature Test", () => OnOpenStressTestRequested?.Invoke());
             var itemOverlayClickThrough = CreateMenuItem("Click-Through Overlay", () => OnToggleOverlayClickThroughRequested?.Invoke(), tag: CheckableMenuItemTag);
@@ -470,6 +612,7 @@ namespace CryoTray.Tray
                 itemCooling,
                 itemPowerProfiles,
                 itemPauseCooling,
+                itemKeepAwake,
                 itemDownloadTimer,
                 itemStress,
                 itemOverlayClickThrough,
@@ -488,6 +631,16 @@ namespace CryoTray.Tray
                 itemPause30,
                 itemPause60,
                 itemResumeNow,
+                itemKeepAwake,
+                itemKeepAwakeOff,
+                itemKeepAwake15,
+                itemKeepAwake30,
+                itemKeepAwake60,
+                itemKeepAwake120,
+                itemKeepAwakeCustom,
+                itemKeepAwakeIndefinite,
+                itemKeepAwakeStop,
+                itemKeepAwakeDisplayOff,
                 itemDownloadTimer,
                 itemStress,
                 itemOverlayClickThrough,
@@ -574,6 +727,7 @@ namespace CryoTray.Tray
             UpdateDropDownSizes(_contextMenu, MainMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateDropDownSizes(_itemPauseCooling.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateDropDownSizes(_itemPowerProfiles.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
+            UpdateDropDownSizes(_itemKeepAwake.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
 
             Bitmap mainBmp = RenderMenuToBitmap(_contextMenu, selectFirstItem ? _itemOpen : null);
             Bitmap subBmp = RenderMenuToBitmap(_itemPauseCooling.DropDown, selectFirstItem ? _itemPause15m : null);
@@ -1094,6 +1248,7 @@ namespace CryoTray.Tray
 
                 _disposed = true;
                 SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
+                KeepAwakeService.Instance.StatusChanged -= OnKeepAwakeStatusChanged;
 
                 _gpuIcon.Visible = false;
                 _cpuIcon.Visible = false;

@@ -21,6 +21,7 @@ namespace CryoTray.Tests
             allPassed &= TestSupportBundle();
             allPassed &= TestSettingsSearch();
             allPassed &= TestAutopilotTargetResolution();
+            allPassed &= TestPowerUtilitySafety();
             return allPassed;
         }
 
@@ -167,15 +168,29 @@ namespace CryoTray.Tests
                         i);
                 }
 
-                Assert(log.Snapshot().Count == 300);
+                Assert(log.Snapshot().Count == 50);
+                Assert(log.Snapshot()[0].Detail.Contains("test-255.txt"));
                 Assert(log.Snapshot()[^1].Detail.Contains("%USERPROFILE%"));
                 Assert(!log.Snapshot()[^1].Detail.Contains(userProfile));
                 Assert(log.SerializeForBundle().Split(
                     Environment.NewLine,
-                    StringSplitOptions.RemoveEmptyEntries).Length <= 300);
+                    StringSplitOptions.RemoveEmptyEntries).Length == 50);
+
+                string logPath = Path.Combine(folder, "activity.jsonl");
+                Assert(File.ReadAllLines(logPath).Length == 50);
+
+                string lastDetail = log.Snapshot()[^1].Detail;
+                log.RecordDetail(
+                    ActivitySeverity.Info,
+                    "test",
+                    "Activity_AppStarted",
+                    lastDetail,
+                    304);
+                Assert(log.Snapshot().Count == 50);
+                Assert(File.ReadAllLines(logPath).Length == 50);
 
                 var reloaded = new ActivityLogService(folder);
-                Assert(reloaded.Snapshot().Count > 0);
+                Assert(reloaded.Snapshot().Count == 50);
                 reloaded.Clear();
                 Assert(reloaded.Snapshot().Count == 0);
 
@@ -247,6 +262,9 @@ namespace CryoTray.Tests
                     new() { Title = "Release channel", Keywords = "update stable preview", TabKey = "Settings_TabAbout" },
                     new() { Title = "Verify rollback readiness", Keywords = "restore backup", TabKey = "Settings_TabAbout" },
                     new() { Title = "Game Mode", Keywords = "autopilot profile", TabKey = "Settings_TabAutopilot" },
+                    new() { Title = "CPU clock speed", Keywords = "cpu frequency", TabKey = "Settings_TabCpu" },
+                    new() { Title = "CPU temperature", Keywords = "cpu temp thermal", TabKey = "Settings_TabOverlay" },
+                    new() { Title = "Show CPU clock speed", Keywords = "clock cpu readout", TabKey = "Settings_TabCpu" },
                     new() { Title = "قناة الإصدار", Keywords = "تحديث معاينة", TabKey = "Settings_TabAbout" }
                 };
 
@@ -264,6 +282,19 @@ namespace CryoTray.Tests
 
                 var gameMode = SettingsSearchMatcher.Rank(items, "game");
                 Assert(gameMode.Count == 1 && gameMode[0].Title == "Game Mode");
+
+                var cpu = SettingsSearchMatcher.Rank(items, "  cpu   ");
+                Assert(cpu.Count >= 2 && cpu[0].Title == "CPU clock speed");
+
+                var reversedTokens = SettingsSearchMatcher.Rank(items, "temp cpu");
+                Assert(reversedTokens.Count == 1 &&
+                       reversedTokens[0].Title == "CPU temperature");
+
+                var extraToken = SettingsSearchMatcher.Rank(items, "cpu printer");
+                Assert(extraToken.Count == 0);
+
+                var clock = SettingsSearchMatcher.Rank(items, "clock cpu");
+                Assert(clock.Any(item => item.Title == "Show CPU clock speed"));
 
                 Console.WriteLine("PASSED");
                 return true;
@@ -492,6 +523,79 @@ namespace CryoTray.Tests
             {
                 UpdateStorage.RootPathOverride = previousRoot;
                 try { if (Directory.Exists(testRoot)) Directory.Delete(testRoot, true); } catch { }
+            }
+        }
+
+        private static bool TestPowerUtilitySafety()
+        {
+            Console.Write("[TEST] Opt-in power utility defaults & guardrails... ");
+            try
+            {
+                var defaults = new AppSettings();
+                Assert(defaults.TimerResolutionMode == "Off", "timer default");
+                Assert(defaults.TimerResolutionHundredNs == 10000, "timer target default");
+                Assert(defaults.TimerResolutionPauseOnBattery, "battery guard default");
+                Assert(!defaults.AutoStandbyPurgeEnabled, "auto-purge default");
+                Assert(!defaults.AllowAutoPurgeDuringGames, "game purge default");
+                Assert(defaults.AutoPurgeFreeRamThresholdMb == 1024, "free threshold default");
+                Assert(defaults.AutoPurgeStandbyThresholdMb == 4096, "standby threshold default");
+                Assert(defaults.AutoPurgeCooldownMinutes == 5, "cooldown default");
+                Assert(defaults.KeepAwakeAllowDisplayOff, "display-off default");
+
+                string json = JsonSerializer.Serialize(defaults);
+                Assert(!json.Contains("KeepAwakeMode", StringComparison.Ordinal), "runtime wake state persisted");
+                Assert(!json.Contains("KeepAwakeEnds", StringComparison.Ordinal), "wake deadline persisted");
+                Assert(json.Contains("KeepAwakeAllowDisplayOff", StringComparison.Ordinal), "display preference missing");
+                AppSettings? roundTrip = JsonSerializer.Deserialize<AppSettings>(json);
+                Assert(roundTrip != null && roundTrip.TimerResolutionMode == "Off");
+
+                Assert(TimerResolutionService.NormalizeTarget(5000) == 5000);
+                Assert(TimerResolutionService.NormalizeTarget(10000) == 10000);
+                Assert(TimerResolutionService.NormalizeTarget(4242) == 10000);
+                Assert(TimerResolutionService.ClampToHardware(4000, 5000, 156250) == 5000);
+                Assert(TimerResolutionService.ClampToHardware(200000, 5000, 156250) == 156250);
+                Assert(TimerResolutionService.ClampToHardware(10000, 156250, 5000) == 10000);
+                Assert(Math.Abs(TimerResolutionService.ToMilliseconds(5000) - 0.5) < 0.0001);
+                Assert(TimerResolutionService.ParseMode(null) == TimerResolutionMode.Off);
+                Assert(TimerResolutionService.ParseMode("AutopilotOnly") == TimerResolutionMode.AutopilotOnly);
+
+                DateTime now = DateTime.UtcNow;
+                Assert(StandbyPurgeService.ShouldPurge(
+                    true, false, false, 900, 5000, 1024, 4096, now, null, 5));
+                Assert(!StandbyPurgeService.ShouldPurge(
+                    false, false, false, 900, 5000, 1024, 4096, now, null, 5));
+                Assert(!StandbyPurgeService.ShouldPurge(
+                    true, true, false, 900, 5000, 1024, 4096, now, null, 5));
+                Assert(StandbyPurgeService.ShouldPurge(
+                    true, true, true, 900, 5000, 1024, 4096, now, null, 5));
+                Assert(!StandbyPurgeService.ShouldPurge(
+                    true, false, false, 1024, 5000, 1024, 4096, now, null, 5));
+                Assert(!StandbyPurgeService.ShouldPurge(
+                    true, false, false, 900, 4096, 1024, 4096, now, null, 5));
+                Assert(!StandbyPurgeService.ShouldPurge(
+                    true, false, false, 900, 5000, 1024, 4096, now, now.AddMinutes(-4), 5));
+                Assert(StandbyPurgeService.ShouldPurge(
+                    true, false, false, 900, 5000, 1024, 4096, now, now.AddMinutes(-5), 5));
+
+                Assert(KeepAwakeService.TryParseCustomDuration("45", "Minutes", out TimeSpan fortyFive) &&
+                    fortyFive == TimeSpan.FromMinutes(45));
+                Assert(KeepAwakeService.TryParseCustomDuration("3", "Hours", out TimeSpan threeHours) &&
+                    threeHours == TimeSpan.FromHours(3));
+                Assert(KeepAwakeService.TryParseCustomDuration("4320", "Minutes", out _));
+                Assert(!KeepAwakeService.TryParseCustomDuration("4321", "Minutes", out _));
+                Assert(!KeepAwakeService.TryParseCustomDuration("73", "Hours", out _));
+                Assert(!KeepAwakeService.TryParseCustomDuration("0", "Minutes", out _));
+                Assert(!KeepAwakeService.TryParseCustomDuration("abc", "Minutes", out _));
+                Assert(KeepAwakeService.FormatRemaining(TimeSpan.FromMinutes(42) + TimeSpan.FromSeconds(18)) == "00:42:18");
+                Assert(KeepAwakeService.FormatRemaining(TimeSpan.FromHours(72)) == "72:00:00");
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
             }
         }
 

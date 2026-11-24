@@ -30,8 +30,9 @@ namespace CryoTray.Services
     /// </summary>
     public sealed class ActivityLogService
     {
-        private const int MaxEvents = 300;
+        private const int MaxEvents = 50;
         private const long MaxFileBytes = 256 * 1024;
+        private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(5);
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             WriteIndented = false
@@ -101,22 +102,19 @@ namespace CryoTray.Services
                 Detail = Sanitize(detail)
             };
 
-            bool persisted;
             lock (_lock)
             {
+                if (_events.Count > 0 && IsDuplicate(_events[^1], item))
+                {
+                    return;
+                }
+
                 _events.Add(item);
-                TrimMemory();
-                persisted = TryPersistLocked();
+                bool trimmed = TrimMemory();
+                TryPersistLocked(trimmed);
             }
 
-            if (persisted)
-            {
-                Changed?.Invoke();
-            }
-            else
-            {
-                Changed?.Invoke();
-            }
+            Changed?.Invoke();
         }
 
         public IReadOnlyList<ActivityEvent> Snapshot()
@@ -229,6 +227,7 @@ namespace CryoTray.Services
                         return;
                     }
 
+                    bool compacted = false;
                     foreach (string line in File.ReadLines(_filePath))
                     {
                         if (string.IsNullOrWhiteSpace(line))
@@ -239,10 +238,18 @@ namespace CryoTray.Services
                         try
                         {
                             ActivityEvent? item = JsonSerializer.Deserialize<ActivityEvent>(line);
-                            if (item != null && !string.IsNullOrWhiteSpace(item.MessageKey))
+                            if (item == null || string.IsNullOrWhiteSpace(item.MessageKey))
                             {
-                                _events.Add(item);
+                                continue;
                             }
+
+                            if (_events.Count > 0 && IsDuplicate(_events[^1], item))
+                            {
+                                compacted = true;
+                                continue;
+                            }
+
+                            _events.Add(item);
                         }
                         catch
                         {
@@ -250,7 +257,11 @@ namespace CryoTray.Services
                         }
                     }
 
-                    TrimMemory();
+                    compacted |= TrimMemory();
+                    if (compacted)
+                    {
+                        RewriteFileLocked();
+                    }
                 }
                 catch
                 {
@@ -258,40 +269,55 @@ namespace CryoTray.Services
             }
         }
 
-        private void TrimMemory()
+        private static bool IsDuplicate(ActivityEvent previous, ActivityEvent item)
         {
-            if (_events.Count > MaxEvents)
-            {
-                _events.RemoveRange(0, _events.Count - MaxEvents);
-            }
+            TimeSpan elapsed = item.TimestampUtc - previous.TimestampUtc;
+            return elapsed >= TimeSpan.Zero &&
+                   elapsed <= DuplicateWindow &&
+                   previous.Severity == item.Severity &&
+                   string.Equals(previous.Kind, item.Kind, StringComparison.Ordinal) &&
+                   string.Equals(previous.MessageKey, item.MessageKey, StringComparison.Ordinal) &&
+                   string.Equals(previous.Detail, item.Detail, StringComparison.Ordinal) &&
+                   previous.Args.SequenceEqual(item.Args, StringComparer.Ordinal);
         }
 
-        private bool TryPersistLocked()
+        private bool TrimMemory()
+        {
+            if (_events.Count <= MaxEvents)
+            {
+                return false;
+            }
+
+            _events.RemoveRange(0, _events.Count - MaxEvents);
+            return true;
+        }
+
+        private void TryPersistLocked(bool rewrite)
         {
             try
             {
                 Directory.CreateDirectory(_folder);
-                if (File.Exists(_filePath) && new FileInfo(_filePath).Length > MaxFileBytes)
+                if (rewrite ||
+                    _events.Count >= MaxEvents ||
+                    (File.Exists(_filePath) && new FileInfo(_filePath).Length > MaxFileBytes))
                 {
                     RewriteFileLocked();
-                    return true;
+                    return;
                 }
 
                 ActivityEvent? latest = _events.LastOrDefault();
                 if (latest == null)
                 {
-                    return false;
+                    return;
                 }
 
                 File.AppendAllText(
                     _filePath,
                     JsonSerializer.Serialize(latest, JsonOptions) + Environment.NewLine,
                     new UTF8Encoding(false));
-                return true;
             }
             catch
             {
-                return false;
             }
         }
 

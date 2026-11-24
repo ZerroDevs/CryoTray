@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CryoTray | Cooling control for the Windows tray</title>
-  <meta id="meta-description" name="description" content="CryoTray is a Windows tray utility for low-heat cooling, CPU and GPU telemetry, RAM cleanup, storage health, opt-in GPU power limits, a download-completion timer, and bilingual controls.">
+  <meta id="meta-description" name="description" content="CryoTray is a Windows tray utility for low-heat cooling, CPU and GPU telemetry, system health checks, session reports, GPU diagnostics, RAM cleanup, storage health, opt-in GPU power limits, a download-completion timer, and bilingual controls.">
   <meta name="theme-color" content="#0d0d0d">
   <link rel="icon" type="image/png" href="assets/cryotray-icon.png">
   <link rel="stylesheet" href="css/styles.css">
@@ -557,8 +557,8 @@
       <div class="container">
         <header class="section-head features-head">
           <div>
-            <h2 data-i18n="features.title">Eight jobs, one tray icon.</h2>
-            <p class="section-copy" data-i18n="features.body">Cooling, telemetry, cleanup, opt-in power limits, and health checks live in the same Windows app. No cloud account and no separate dashboard service.</p>
+            <h2 data-i18n="features.title">Nine jobs, one tray icon.</h2>
+            <p class="section-copy" data-i18n="features.body">Cooling, telemetry, cleanup, diagnostics, opt-in power limits, and health checks live in the same Windows app. No cloud account and no separate dashboard service.</p>
           </div>
         </header>
 
@@ -724,10 +724,46 @@
             </div>
           </article>
 
+          <article class="feature-card feature-wide">
+            <div class="feature-copy">
+              <h3 data-i18n="features.diagnosticsTitle">A health check that explains the readings</h3>
+              <p data-i18n="features.diagnosticsBody">On first launch and after updates, CryoTray checks PawnIO, sensors, the GPU backend, startup, power, and update staging, with one action per issue. A session report and GPU details explain temperature spikes without digging through raw data.</p>
+            </div>
+            <div class="feature-visual diagnostics-visual" aria-hidden="true">
+              <div class="diag-head">
+                <span data-i18n="features.diagnosticsLabel">System health check</span>
+                <span class="state-tag on" data-i18n="features.diagnosticsReady">Ready</span>
+              </div>
+              <div class="diag-check">
+                <span class="diag-glyph">✓</span>
+                <span data-i18n="features.diagnosticsSensors">Sensors and PawnIO</span>
+                <span class="diag-state" data-i18n="features.diagnosticsReady">Ready</span>
+              </div>
+              <div class="diag-check">
+                <span class="diag-glyph">✓</span>
+                <span data-i18n="features.diagnosticsGpu">GPU backend</span>
+                <span class="diag-state" data-i18n="features.diagnosticsReady">Ready</span>
+              </div>
+              <div class="diag-check">
+                <span class="diag-glyph">✓</span>
+                <span data-i18n="features.diagnosticsStartup">Startup and updates</span>
+                <span class="diag-state" data-i18n="features.diagnosticsReady">Ready</span>
+              </div>
+              <div class="diag-report">
+                <span data-i18n="features.diagnosticsReport">Session report</span>
+                <bdi dir="ltr" data-i18n="features.diagnosticsSessionValue">78 °C peak · 12 min above limit</bdi>
+              </div>
+              <div class="diag-report">
+                <span data-i18n="features.diagnosticsGpuDetails">GPU details</span>
+                <bdi dir="ltr" data-i18n="features.diagnosticsGpuValue">driver · vBIOS · TDR 0</bdi>
+              </div>
+            </div>
+          </article>
+
           <article class="feature-card feature-wide feature-wide-last">
             <div class="feature-copy">
               <h3 data-i18n="features.localTitle">Privacy-safe diagnostics, English and Arabic</h3>
-              <p data-i18n="features.localBody">Copy a support snapshot without serial numbers, PC names, or file paths. Switch the full dashboard between English and Arabic, and choose Dark, Light, or System appearance.</p>
+              <p data-i18n="features.localBody">Copy a support snapshot without serial numbers, PC names, or file paths. Switch the full dashboard between English and Arabic, choose Dark, Light, or System appearance, and use high-contrast keyboard-friendly dialogs.</p>
             </div>
             <div class="feature-visual language-visual" aria-hidden="true">
               <div class="language-row">
