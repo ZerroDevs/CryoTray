@@ -2,6 +2,7 @@
 
 Exhaustive catalog of CryoTray features. Check before planning or adding features to enforce zero duplication.
 
+- **Repository state (2026-11-24)**: `main` is synced with `origin/main` at `afcf7de`, which commits the health check, session report, GPU diagnostics, accessibility pass, opt-in timer/standby/keep-awake utilities, Settings search fix, English/Arabic copy, docs-site update, and tests listed below. These are current behavior; the remaining candidates in `HANDOFF.md` are still unimplemented.
 - **Documentation site (`docs/`)**: The static marketing site's nine-card feature grid mirrors the app's health check, session report, GPU diagnostics, and accessibility capabilities. It is explanatory content only and changes no app behavior; keep English/Arabic keys and HTML fallbacks aligned.
 
 ## Health, reporting, diagnostics, and accessibility

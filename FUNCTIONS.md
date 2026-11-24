@@ -3,6 +3,7 @@
 Reuse these before adding a duplicate helper. Update this file when adding shared code.
 
 - Remaining candidates without contracts: chart peak/threshold insights, quiet hours, battery health/runtime, native tray hosting, and tray layout self-check.
+- Repository state: `main` is synced with `origin/main` at `afcf7de`; the health check, session report, GPU diagnostics, opt-in utilities, Settings search, and accessibility contracts below are committed. No new shared function was added by the docs-only follow-up.
 - The docs-site refresh added no application functions or shared contracts. Its static card uses only `docs/index.html`, `docs/css/features.css`, and `docs/js/i18n.js`; keep the nine-card English/Arabic copy and HTML fallbacks aligned there.
 
 ## Health, session report, GPU diagnostics, and accessibility contracts

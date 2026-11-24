@@ -1,5 +1,10 @@
 # CONTEXT
 
+## Repository state (2026-11-24)
+
+- `main` is synced with `origin/main` at `afcf7de` (`feat: add health diagnostics, session reports, and opt-in utilities`). The commit adds the application services and windows described in the health/accessibility and opt-in utility sections below, plus the Settings search fix, localization, docs copy, and tests. No new architecture or dependency was introduced by the commit itself.
+- The docs site is static and previews at `127.0.0.1:4173`. Release build and 59/59 unit tests passed before the commit; live update/rollback, Windows high-contrast/large text, and the docs light theme remain unverified.
+
 ## Docs website feature copy (2026-11-24)
 
 - `docs/` is the static marketing/documentation site, not part of the WPF build. `docs/index.html` now contains nine feature cards; the new wide `.diagnostics-visual` card covers the health check, session report, and GPU details. `docs/css/features.css` owns its checklist/report presentation and uses shared theme variables. `docs/js/i18n.js` holds all English/Arabic copy and is applied by `docs/js/ui.js` through `[data-i18n]`; keep the HTML fallbacks and both dictionaries in sync.

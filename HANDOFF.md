@@ -1,5 +1,12 @@
 # HANDOFF
 
+## Diagnostics release commit (2026-11-24)
+
+- Committed the diagnostics, accessibility, Settings search, and opt-in utility work as `afcf7de` (`feat: add health diagnostics, session reports, and opt-in utilities`) and pushed `main` to `origin/main` at `https://github.com/ZerroDevs/CryoTray.git`. The commit contains 42 files, 7,664 insertions, and 234 deletions.
+- The commit includes the health check, session report and chart annotations, read-only GPU diagnostics, high-contrast/accessibility behavior, the Settings search popup fix, timer resolution, standby purge, keep awake, English/Arabic strings, tests, README, docs-site copy, and continuity notes.
+- Verification recorded before the commit: Release build 0 warnings and 0 errors; `/test-unit` 59/59; `git diff --check` clean. Docs checks: 240 EN / 240 AR keys, 9 feature cards, and a clean browser console. The static docs preview remains on `127.0.0.1:4173`.
+- Next: no follow-up is required for this commit. Live update/rollback, Windows high-contrast/large text, and the docs light theme remain unverified.
+
 ## Docs website feature copy (2026-11-24)
 
 - Updated the static docs site for the app's new health/session/GPU/accessibility work. `docs/index.html` now has a ninth wide feature card for the first-run/post-update health check, session report, and GPU diagnostics, with the heading changed to **Nine jobs, one tray icon.** The privacy/localization card now mentions high-contrast, keyboard-friendly dialogs. `docs/css/features.css` adds the compact diagnostic checklist/report visual using the existing theme variables.
