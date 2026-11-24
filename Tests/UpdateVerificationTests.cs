@@ -680,10 +680,11 @@ namespace CryoTray.Tests
                     WellKnownSidType.BuiltinUsersSid, null);
 
                 var security = new DirectoryInfo(testDirectory).GetAccessControl();
-                Assert(security.AreAccessRulesProtected);
+                Assert(security.AreAccessRulesProtected, "ACL inheritance is not protected.");
                 var owner = security.GetOwner(typeof(SecurityIdentifier));
                 Assert(owner != null &&
-                       (owner.Equals(administrators) || owner.Equals(system)));
+                       (owner.Equals(administrators) || owner.Equals(system)),
+                    $"Unexpected owner: {owner?.Value ?? "null"}.");
 
                 var rules = security.GetAccessRules(
                         includeExplicit: true,
@@ -695,17 +696,29 @@ namespace CryoTray.Tests
 
                 Assert(rules.Any(rule =>
                     rule.IdentityReference.Equals(users) &&
-                    rule.FileSystemRights.HasFlag(FileSystemRights.ReadAndExecute)));
+                    rule.FileSystemRights.HasFlag(FileSystemRights.ReadAndExecute)),
+                    "Users read and execute rule is missing.");
                 Assert(!rules.Any(rule =>
                     rule.IdentityReference.Equals(users) &&
                     (rule.FileSystemRights & (FileSystemRights.Write |
                         FileSystemRights.Delete |
                         FileSystemRights.ChangePermissions |
-                        FileSystemRights.TakeOwnership)) != 0));
-                Assert(UpdateStorage.IsSafeApplicationLocation(testDirectory));
+                        FileSystemRights.TakeOwnership)) != 0),
+                    "Users still has write or ownership rights.");
+                Assert(UpdateStorage.IsSafeApplicationLocation(testDirectory),
+                    "Protected Program Files folder was rejected.");
 
                 Directory.CreateDirectory(unsafeDirectory);
-                Assert(!UpdateStorage.IsSafeApplicationLocation(unsafeDirectory));
+                var unsafeSecurity = new DirectorySecurity();
+                unsafeSecurity.AddAccessRule(new FileSystemAccessRule(
+                    users,
+                    FileSystemRights.Modify,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None,
+                    AccessControlType.Allow));
+                new DirectoryInfo(unsafeDirectory).SetAccessControl(unsafeSecurity);
+                Assert(!UpdateStorage.IsSafeApplicationLocation(unsafeDirectory),
+                    "User-writable temp folder was accepted.");
 
                 Console.WriteLine("PASSED");
                 return true;
@@ -777,6 +790,14 @@ namespace CryoTray.Tests
             if (!condition)
             {
                 throw new InvalidOperationException("Assertion failed.");
+            }
+        }
+
+        private static void Assert(bool condition, string message)
+        {
+            if (!condition)
+            {
+                throw new InvalidOperationException(message);
             }
         }
     }
