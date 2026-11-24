@@ -498,8 +498,60 @@
 
         <!-- Header -->
         <Grid Grid.Row="0" Margin="0,0,0,21">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
             <TextBlock Text="{DynamicResource Settings_Title}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button HorizontalAlignment="Right" Click="BtnClose_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="5" VerticalAlignment="Center" AutomationProperties.Name="{DynamicResource Settings_CloseAutomation}">
+            <Grid Grid.Column="1" Width="178" HorizontalAlignment="Right" Margin="12,0,10,0">
+                <TextBox x:Name="TxtSettingsSearch"
+                         Height="30"
+                         Padding="8,4,8,4"
+                         Background="{DynamicResource InputBackgroundBrush}"
+                         BorderBrush="{DynamicResource InputBorderBrush}"
+                         Foreground="{DynamicResource TextPrimaryBrush}"
+                         FontSize="12"
+                         TextChanged="TxtSettingsSearch_TextChanged"
+                         KeyDown="TxtSettingsSearch_KeyDown"
+                         AutomationProperties.Name="{DynamicResource Settings_SearchPlaceholder}"/>
+                <TextBlock x:Name="TxtSettingsSearchPlaceholder"
+                           Text="{DynamicResource Settings_SearchPlaceholder}"
+                           Foreground="{DynamicResource TextMutedBrush}"
+                           FontSize="12"
+                           Margin="10,0,0,0"
+                           VerticalAlignment="Center"
+                           IsHitTestVisible="False"/>
+                <Popup x:Name="SettingsSearchPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=TxtSettingsSearch}"
+                       StaysOpen="False"
+                       AllowsTransparency="True"
+                       PopupAnimation="None">
+                    <Border Background="{DynamicResource WindowBackgroundBrush}"
+                            BorderBrush="{DynamicResource MenuBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="6"
+                            Width="292"
+                            MaxHeight="270"
+                            Margin="0,4,0,0">
+                        <Grid>
+                            <TextBlock x:Name="TxtSettingsSearchEmpty"
+                                       Text="{DynamicResource Settings_SearchNoResults}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11.5"
+                                       TextWrapping="Wrap"
+                                       Margin="6,5"
+                                       Visibility="Collapsed"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="250">
+                                <StackPanel x:Name="PnlSettingsSearchResults"/>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Popup>
+            </Grid>
+            <Button Grid.Column="2" HorizontalAlignment="Right" Click="BtnClose_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="5" VerticalAlignment="Center" AutomationProperties.Name="{DynamicResource Settings_CloseAutomation}">
                 <Path Data="M1,1 L10,10 M10,1 L1,10"
                       Stroke="{DynamicResource TextTertiaryBrush}" StrokeThickness="1.3"
                       Width="11" Height="11" Stretch="Uniform"/>
@@ -1608,6 +1660,31 @@
 
                     <TextBlock Text="{DynamicResource Settings_Updates}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,6"/>
                     <TextBlock Text="{DynamicResource Settings_UpdatesDesc}" Foreground="{DynamicResource TextTertiaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="126"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="TxtUpdateChannelLabel"
+                                   Text="{DynamicResource Settings_UpdateChannel}"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   FontSize="13"
+                                   VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CmbUpdateChannel"
+                                  Grid.Column="1"
+                                  HorizontalAlignment="Left"
+                                  Width="126"
+                                  SelectionChanged="CmbUpdateChannel_SelectionChanged"
+                                  AutomationProperties.Name="{DynamicResource Settings_UpdateChannel}">
+                            <ComboBoxItem Content="{DynamicResource Settings_UpdateChannelStable}" Tag="Stable" IsSelected="True"/>
+                            <ComboBoxItem Content="{DynamicResource Settings_UpdateChannelPreview}" Tag="Preview"/>
+                        </ComboBox>
+                    </Grid>
+                    <TextBlock Text="{DynamicResource Settings_UpdateChannelDesc}"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"/>
                     <CheckBox x:Name="ChkAutomaticUpdates" Content="{DynamicResource Settings_AutomaticUpdates}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <TextBlock x:Name="TxtUpdateCadence"
                                Text="{DynamicResource Settings_UpdateCadence}"
@@ -1716,6 +1793,66 @@
                                 Visibility="Collapsed"
                                 ToolTip="{DynamicResource Settings_RollbackDeleteConfirmTitle}"
                                 AutomationProperties.Name="{DynamicResource Settings_RollbackDeleteButton}"/>
+                        <Button x:Name="BtnVerifyRollback"
+                                Content="{DynamicResource Settings_RollbackVerifyButton}"
+                                Click="BtnVerifyRollback_Click"
+                                Style="{StaticResource SettingsFooterButton}"
+                                FontSize="11.5"
+                                Padding="9,4"
+                                HorizontalAlignment="Left"
+                                Margin="8,0,0,0"
+                                Visibility="Collapsed"
+                                AutomationProperties.Name="{DynamicResource Settings_RollbackVerifyButton}"/>
+                    </StackPanel>
+                    <TextBlock x:Name="TxtRollbackReadiness"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               FontSize="11.5"
+                               TextWrapping="Wrap"
+                               Margin="0,6,0,0"
+                               Visibility="Collapsed"
+                               AutomationProperties.LiveSetting="Polite"/>
+
+                    <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,20,0,18"/>
+
+                    <TextBlock Text="{DynamicResource Settings_ActivityTitle}"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               FontWeight="SemiBold"
+                               FontSize="13"/>
+                    <TextBlock Text="{DynamicResource Settings_ActivityDesc}"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,8"/>
+                    <Border Background="{DynamicResource InputBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10,4"
+                            Margin="0,0,0,8">
+                        <Grid>
+                            <TextBlock x:Name="TxtActivityEmpty"
+                                       Text="{DynamicResource Settings_ActivityEmpty}"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       FontSize="11.5"
+                                       TextWrapping="Wrap"
+                                       Margin="0,6"/>
+                            <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="PnlActivity"/>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button x:Name="BtnSaveSupportBundle"
+                                Content="{DynamicResource Settings_ActivitySaveBundle}"
+                                Click="BtnSaveSupportBundle_Click"
+                                Style="{StaticResource SettingsFooterButton}"
+                                HorizontalAlignment="Left"/>
+                        <TextBlock x:Name="TxtSupportBundleStatus"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"
+                                   Margin="10,0,0,0"/>
                     </StackPanel>
 
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,20,0,18"/>

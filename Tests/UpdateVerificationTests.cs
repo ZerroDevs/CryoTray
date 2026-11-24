@@ -34,6 +34,7 @@ namespace CryoTray.Tests
             allPassed &= TestUntrustedRollbackRootIsRejected();
             allPassed &= TestApplicationDirectoryProtection();
             allPassed &= TestInstallationClassification();
+            allPassed &= FollowUpVerificationTests.RunUpdateFollowUpChecks();
 
             Console.WriteLine("==================================================");
             Console.WriteLine(allPassed
@@ -49,6 +50,7 @@ namespace CryoTray.Tests
             allPassed &= TestChecksumFileParsing();
             allPassed &= TestAssetSelectionAndUninstallerRejection();
             allPassed &= TestManifestAndRelativePathValidation();
+            allPassed &= FollowUpVerificationTests.RunUpdateFollowUpChecks();
             return allPassed;
         }
 

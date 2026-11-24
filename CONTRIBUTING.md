@@ -11,7 +11,7 @@ CryoTray is an ultra-lightweight, native Windows system tray hardware monitor an
 When proposing or implementing changes, keep these core design values in mind:
 
 1. **Ultra-Lightweight Footprint**: Idle memory usage should remain around ~20–25 MB. Never introduce bloated dependencies, runtimes, or unneeded background workers.
-2. **Zero GDI Leaks**: System tray badges update every second (1 Hz). Any dynamic Win32 icon handles (`HICON`) must be explicitly destroyed with `NativeMethods.DestroyIcon(handle)`.
+2. **Zero GDI Leaks**: System tray badges update on telemetry ticks (typically 1-2 seconds). Any dynamic Win32 icon handles (`HICON`) must be explicitly destroyed with `NativeMethods.DestroyIcon(handle)`.
 3. **No Paywalls, No Telemetry**: CryoTray is completely free, open-source, and private. Never add telemetry, analytics, ad frameworks, or locked features.
 4. **Dark, Pixel-Perfect UI**: Maintain the dark aesthetic, crisp vector artwork, smooth animations, and modeless docking behavior across all views.
 5. **Full Bilingual Support**: Every user-facing string must exist in both English (`Strings.en.xaml`) and Arabic (`Strings.ar.xaml`) with correct right-to-left (RTL) handling.
@@ -97,7 +97,7 @@ finally
 Never remove or bypass `DestroyIcon`.
 
 ### 3. One-Second Telemetry Budget
-Hardware polling runs on an asynchronous 1-second interval (`HardwareMonitorService.cs`).
+Hardware polling runs on an adaptive 1/2/3-second interval from `TelemetryPollPolicy`, driven by the leases in `TelemetryDemandTracker`.
 - Never perform blocking file I/O, heavy WMI queries, or network calls inside `PollingLoop`.
 - Static system inventory (WMI) is queried once on startup or when explicitly opening the System Information window.
 

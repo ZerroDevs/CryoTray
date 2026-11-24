@@ -41,6 +41,9 @@ namespace CryoTray.Views
         private readonly List<DiskDriveControlRow> _diskDriveRows = new();
         private readonly Dictionary<string, TextBox> _fanAliasBoxes = new(StringComparer.OrdinalIgnoreCase);
         private readonly DispatcherTimer _gpuSliderApplyTimer;
+        private readonly List<SettingsSearchItem> _settingsSearchIndex = new();
+        private IReadOnlyList<SettingsSearchItem> _settingsSearchResults = Array.Empty<SettingsSearchItem>();
+        private IDisposable? _telemetryLease;
 
         private sealed class DiskDriveControlRow
         {
@@ -100,6 +103,7 @@ namespace CryoTray.Views
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
             ThemeService.ThemeChanged += OnThemeChanged;
             UpdateStatusService.Instance.Changed += OnUpdateStatusChanged;
+            ActivityLogService.Instance.Changed += OnActivityChanged;
         }
 
         private void SettingsWindow_Closed(object? sender, EventArgs e)
@@ -113,10 +117,13 @@ namespace CryoTray.Views
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
             UpdateStatusService.Instance.Changed -= OnUpdateStatusChanged;
+            ActivityLogService.Instance.Changed -= OnActivityChanged;
             _gpuSliderApplyTimer.Stop();
             _updateCancellation?.Cancel();
             _updateCancellation?.Dispose();
             _updateCancellation = null;
+            _telemetryLease?.Dispose();
+            _telemetryLease = null;
             Content = null;
             DataContext = null;
         }
@@ -145,6 +152,9 @@ namespace CryoTray.Views
             ApplyLocalizedText();
             RefreshPawnIoBanner();
             RefreshRollbackUi();
+            RefreshActivityUi();
+            _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
+                "SettingsWindow", TelemetryDemand.Settings);
             HardwareMonitorService.Instance.TelemetryUpdated += OnSettingsTelemetryUpdated;
             SettingsService.Instance.SettingsChanged += OnExternalSettingsChanged;
             GpuPowerControlService.Instance.StateChanged += OnGpuPowerStateChanged;
@@ -340,6 +350,7 @@ namespace CryoTray.Views
                 : Visibility.Collapsed;
             ChkAutomaticUpdates.IsChecked = s.AutomaticUpdateChecks;
             ChkSaveRollbackOnUpdate.IsChecked = s.SaveRollbackOnUpdate;
+            SelectComboByTag(CmbUpdateChannel, s.UpdateChannel);
             UpdateNotificationControlStates();
 
             // View, Overlay, CPU, and GPU tabs
@@ -469,6 +480,7 @@ namespace CryoTray.Views
             ApplyUpdateState();
             RefreshLastCheckedText();
             RefreshDownloadCacheUi();
+            RefreshActivityUi();
             RefreshAutopilotWhitelist();
             RefreshDiskDriveListSafely();
             RefreshFanAliasListSafely();
@@ -476,12 +488,276 @@ namespace CryoTray.Views
             RefreshRamHotkeyFeedback();
             UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
             UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
+            RebuildSettingsSearchIndex();
+        }
+
+        private void RebuildSettingsSearchIndex()
+        {
+            _settingsSearchIndex.Clear();
+            AddSearchItems(PanelGeneral, "Settings_TabGeneral");
+            AddSearchItems(PanelView, "Settings_TabView");
+            AddSearchItems(PanelOverlay, "Settings_TabOverlay");
+            AddSearchItems(PanelCpu, "Settings_TabCpu");
+            AddSearchItems(PanelMemory, "Settings_TabMemory");
+            AddSearchItems(PanelDisk, "Settings_TabDisk");
+            AddSearchItems(PanelGpu, "Settings_TabGpu");
+            AddSearchItems(PanelAutopilot, "Settings_TabAutopilot");
+            AddSearchItems(PanelAbout, "Settings_TabAbout");
+        }
+
+        private void AddSearchItems(DependencyObject root, string tabKey)
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                if (child is FrameworkElement { Name: "PnlFanAliases" or "PnlDiskDrives" or
+                    "PnlAutopilotWhitelist" or "PnlActivity" or "PnlSettingsSearchResults" })
+                {
+                    continue;
+                }
+
+                if (child is TextBlock text &&
+                    !string.IsNullOrWhiteSpace(text.Text) &&
+                    text.Visibility == Visibility.Visible)
+                {
+                    AddSearchItem(text.Text, text, tabKey, text.Name);
+                }
+                else if (child is ContentControl content &&
+                         content.Content is string label &&
+                         !string.IsNullOrWhiteSpace(label))
+                {
+                    AddSearchItem(label, content, tabKey, content.Name);
+                }
+
+                AddSearchItems(child, tabKey);
+            }
+        }
+
+        private void AddSearchItem(string title, FrameworkElement target, string tabKey, string name)
+        {
+            string keywords = GetSearchKeywords(title, tabKey, name);
+            _settingsSearchIndex.Add(new SettingsSearchItem
+            {
+                Title = title.Trim(),
+                Keywords = keywords,
+                TabKey = tabKey,
+                Target = target
+            });
+        }
+
+        private static string GetSearchKeywords(string title, string tabKey, string name)
+        {
+            string lower = title.ToLowerInvariant();
+            var words = new List<string> { lower, tabKey.ToLowerInvariant() };
+
+            if (name.Contains("UpdateChannel", StringComparison.OrdinalIgnoreCase) ||
+                lower.Contains("channel"))
+            {
+                words.Add("channel release stable preview update");
+            }
+            if (name.Contains("Rollback", StringComparison.OrdinalIgnoreCase) ||
+                lower.Contains("rollback") || lower.Contains("restore previous"))
+            {
+                words.Add("rollback restore previous backup readiness");
+            }
+            if (name.Contains("Autopilot", StringComparison.OrdinalIgnoreCase) ||
+                lower.Contains("game mode") || lower.Contains("autopilot"))
+            {
+                words.Add("game mode automation profile per app fullscreen");
+            }
+            if (name.Contains("Overlay", StringComparison.OrdinalIgnoreCase) ||
+                lower.Contains("overlay"))
+            {
+                words.Add("overlay click through opacity");
+            }
+            if (name.Contains("Battery", StringComparison.OrdinalIgnoreCase) ||
+                lower.Contains("battery"))
+            {
+                words.Add("battery power status");
+            }
+
+            return string.Join(" ", words);
+        }
+
+        private void TxtSettingsSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (TxtSettingsSearchPlaceholder != null)
+            {
+                TxtSettingsSearchPlaceholder.Visibility =
+                    string.IsNullOrWhiteSpace(TxtSettingsSearch.Text)
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
+            }
+
+            UpdateSettingsSearchResults();
+        }
+
+        private void TxtSettingsSearch_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                TxtSettingsSearch.Text = "";
+                SettingsSearchPopup.IsOpen = false;
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter && _settingsSearchResults.Count > 0)
+            {
+                NavigateToSetting(_settingsSearchResults[0]);
+                e.Handled = true;
+            }
+        }
+
+        private void UpdateSettingsSearchResults()
+        {
+            if (PnlSettingsSearchResults == null || SettingsSearchPopup == null)
+            {
+                return;
+            }
+
+            _settingsSearchResults = SettingsSearchMatcher.Rank(
+                _settingsSearchIndex, TxtSettingsSearch.Text);
+            PnlSettingsSearchResults.Children.Clear();
+            TxtSettingsSearchEmpty.Visibility = _settingsSearchResults.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            foreach (SettingsSearchItem item in _settingsSearchResults)
+            {
+                var content = new StackPanel();
+                content.Children.Add(new TextBlock
+                {
+                    Text = item.Title,
+                    Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                content.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.Get(item.TabKey),
+                    Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                    FontSize = 10.5,
+                    Margin = new Thickness(0, 1, 0, 0)
+                });
+
+                var button = new Button
+                {
+                    Content = content,
+                    Tag = item,
+                    Style = (Style)FindResource("SettingsFooterButton"),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 1, 0, 1)
+                };
+                AutomationProperties.SetName(button, item.Title);
+                button.Click += SettingsSearchResult_Click;
+                PnlSettingsSearchResults.Children.Add(button);
+            }
+
+            SettingsSearchPopup.IsOpen = !string.IsNullOrWhiteSpace(TxtSettingsSearch.Text);
+        }
+
+        private void SettingsSearchResult_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: SettingsSearchItem item })
+            {
+                NavigateToSetting(item);
+            }
+        }
+
+        private void NavigateToSetting(SettingsSearchItem item)
+        {
+            SettingsSearchPopup.IsOpen = false;
+            TxtSettingsSearch.Text = "";
+
+            RadioButton? tab = item.TabKey switch
+            {
+                "Settings_TabGeneral" => TabGeneral,
+                "Settings_TabView" => TabView,
+                "Settings_TabOverlay" => TabOverlay,
+                "Settings_TabCpu" => TabCpu,
+                "Settings_TabMemory" => TabMemory,
+                "Settings_TabDisk" => TabDisk,
+                "Settings_TabGpu" => TabGpu,
+                "Settings_TabAutopilot" => TabAutopilot,
+                "Settings_TabAbout" => TabAbout,
+                _ => null
+            };
+            if (tab != null)
+            {
+                tab.IsChecked = true;
+            }
+
+            if (item.Target is not FrameworkElement target)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (_isClosed)
+                {
+                    return;
+                }
+
+                target.BringIntoView();
+                FindFocusableTarget(target)?.Focus();
+            }));
+        }
+
+        private static Control? FindFocusableTarget(FrameworkElement target)
+        {
+            if (target is Control control &&
+                control.Focusable && control.IsEnabled && target.Visibility == Visibility.Visible)
+            {
+                return control;
+            }
+
+            DependencyObject? current = target;
+            for (int depth = 0; depth < 5 && current != null; depth++)
+            {
+                current = VisualTreeHelper.GetParent(current);
+                if (current is DependencyObject parent)
+                {
+                    Control? found = FindFocusableDescendant(parent);
+                    if (found != null)
+                    {
+                        return found;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static Control? FindFocusableDescendant(DependencyObject root)
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                if (child is Control control &&
+                    control.Focusable && control.IsEnabled &&
+                    control.Visibility == Visibility.Visible)
+                {
+                    return control;
+                }
+
+                Control? nested = FindFocusableDescendant(child);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
         }
 
         private void OnLanguageChanged()
         {
             LocalizationService.Instance.ApplyWindow(this);
             RefreshPowerProfileChoices();
+            RefreshActivityUi();
             RefreshGpuOptionsSafely();
             ApplyLocalizedText();
             RefreshPawnIoBanner();
@@ -634,6 +910,10 @@ namespace CryoTray.Views
                 {
                     Width = GridLength.Auto
                 });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = GridLength.Auto
+                });
 
                 var nameText = new TextBlock
                 {
@@ -647,6 +927,32 @@ namespace CryoTray.Views
                 };
                 Grid.SetColumn(nameText, 0);
 
+                var profileChoices = PowerProfiles.GamingProfiles
+                    .Select(CreateProfileChoice)
+                    .ToList();
+                string selectedKey = AutopilotService.ResolveProfileKey(
+                    entry,
+                    SettingsService.Instance.Current.AutopilotAppProfiles,
+                    SettingsService.Instance.Current.PreferredGamingProfile);
+                var profileCombo = new ComboBox
+                {
+                    ItemsSource = profileChoices,
+                    DisplayMemberPath = nameof(PowerProfileChoice.DisplayName),
+                    SelectedItem = profileChoices.FirstOrDefault(choice =>
+                        string.Equals(choice.Key, selectedKey, StringComparison.OrdinalIgnoreCase))
+                        ?? profileChoices.FirstOrDefault(),
+                    Tag = entry,
+                    Width = 132,
+                    Height = 26,
+                    Margin = new Thickness(0, 0, 6, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                AutomationProperties.SetName(
+                    profileCombo,
+                    LocalizationService.Format("Settings_AutopilotAppProfileAutomation", entry));
+                profileCombo.SelectionChanged += AutopilotProfileCombo_SelectionChanged;
+                Grid.SetColumn(profileCombo, 1);
+
                 var removeButton = new Button
                 {
                     Content = "×",
@@ -658,9 +964,10 @@ namespace CryoTray.Views
                     removeButton,
                     LocalizationService.Format("Settings_AutopilotRemoveAutomation", entry));
                 removeButton.Click += BtnRemoveAutopilotApp_Click;
-                Grid.SetColumn(removeButton, 1);
+                Grid.SetColumn(removeButton, 2);
 
                 rowGrid.Children.Add(nameText);
+                rowGrid.Children.Add(profileCombo);
                 rowGrid.Children.Add(removeButton);
                 row.Child = rowGrid;
                 PnlAutopilotWhitelist.Children.Add(row);
@@ -683,8 +990,28 @@ namespace CryoTray.Views
             settings.AutopilotWhitelist ??= new List<string>();
             settings.AutopilotWhitelist.RemoveAll(existing =>
                 string.Equals(existing, entry, StringComparison.OrdinalIgnoreCase));
+            settings.AutopilotAppProfiles?.Remove(
+                Path.GetFileNameWithoutExtension(entry.Trim()));
             SettingsService.Instance.Save();
             RefreshAutopilotWhitelist();
+        }
+
+        private void AutopilotProfileCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isBinding || sender is not ComboBox
+                {
+                    Tag: string entry,
+                    SelectedItem: PowerProfileChoice choice
+                })
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            settings.AutopilotAppProfiles ??= new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
+            settings.AutopilotAppProfiles[Path.GetFileNameWithoutExtension(entry.Trim())] = choice.Key;
+            SettingsService.Instance.Save();
         }
 
         private void BtnAddRunningApp_Click(object sender, RoutedEventArgs e)
@@ -940,6 +1267,7 @@ namespace CryoTray.Views
             s.ShowBatteryStatus = ChkShowBatteryStatus.IsChecked == true;
             s.AutomaticUpdateChecks = ChkAutomaticUpdates.IsChecked == true;
             s.SaveRollbackOnUpdate = ChkSaveRollbackOnUpdate.IsChecked == true;
+            s.UpdateChannel = ReadComboTag(CmbUpdateChannel, "Stable");
 
             s.ShowGpuBadge = ChkShowGpuBadge.IsChecked == true;
             s.GpuTrayWhiteDigits = RdoGpuWhiteDigits.IsChecked == true;
@@ -2830,6 +3158,8 @@ namespace CryoTray.Views
                     UpdateStatusService.Instance.Record(
                         UpdateCheckOutcome.Failed, string.Empty, ex.Message);
                     SetUpdateError(ex.Message);
+                    ActivityLogService.Instance.Record(
+                        ActivitySeverity.Warning, "update", "Activity_UpdateCheckFailed", ex.Message);
                 }
             }
             catch (Exception ex)
@@ -2839,6 +3169,8 @@ namespace CryoTray.Views
                     UpdateStatusService.Instance.Record(
                         UpdateCheckOutcome.Failed, string.Empty, ex.Message);
                     SetUpdateState("Settings_CheckFailed", "Settings_CheckAgain");
+                    ActivityLogService.Instance.Record(
+                        ActivitySeverity.Warning, "update", "Activity_UpdateCheckFailed", ex.Message);
                 }
             }
             finally
@@ -2937,6 +3269,11 @@ namespace CryoTray.Views
                 }
                 UpdateService.LaunchUpdater(update, updateId, backupDirectory);
                 updateLaunched = true;
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info,
+                    "update",
+                    "Activity_UpdateStarted",
+                    release.Version);
                 Application.Current.Shutdown();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -2947,6 +3284,8 @@ namespace CryoTray.Views
                     SetUpdateState(
                         "Settings_UpdateCancelled", "Settings_DownloadInstall", release.Version);
                 }
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info, "update", "Activity_UpdateCancelled", release.Version);
             }
             catch (InvalidOperationException ex)
             {
@@ -2954,29 +3293,39 @@ namespace CryoTray.Views
                 {
                     SetUpdateError(ex.Message);
                 }
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Error, "update", "Activity_UpdateInstallFailed", ex.Message);
             }
             catch (UnauthorizedAccessException)
             {
+                string message = LocalizationService.Get(
+                    backingUp ? "Settings_BackupFailed" : "Settings_DownloadFailed");
                 if (!_isClosed)
                 {
-                    SetUpdateError(LocalizationService.Get(
-                        backingUp ? "Settings_BackupFailed" : "Settings_DownloadFailed"));
+                    SetUpdateError(message);
                 }
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Error, "update", "Activity_UpdateInstallFailed", message);
             }
             catch (IOException)
             {
+                string message = LocalizationService.Get(
+                    backingUp ? "Settings_BackupFailed" : "Settings_DownloadFailed");
                 if (!_isClosed)
                 {
-                    SetUpdateError(LocalizationService.Get(
-                        backingUp ? "Settings_BackupFailed" : "Settings_DownloadFailed"));
+                    SetUpdateError(message);
                 }
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Error, "update", "Activity_UpdateInstallFailed", message);
             }
-            catch
+            catch (Exception ex)
             {
                 if (!_isClosed)
                 {
                     SetUpdateState("Settings_DownloadFailed", "Settings_DownloadInstall");
                 }
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Error, "update", "Activity_UpdateInstallFailed", ex.Message);
             }
             finally
             {
@@ -3119,7 +3468,8 @@ namespace CryoTray.Views
 
         private void RefreshRollbackUi()
         {
-            if (TxtRollbackStatus == null || BtnRollback == null || BtnDeleteRollback == null)
+            if (TxtRollbackStatus == null || BtnRollback == null ||
+                BtnDeleteRollback == null || BtnVerifyRollback == null)
             {
                 return;
             }
@@ -3130,6 +3480,8 @@ namespace CryoTray.Views
                 TxtRollbackStatus.Visibility = Visibility.Collapsed;
                 BtnRollback.Visibility = Visibility.Collapsed;
                 BtnDeleteRollback.Visibility = Visibility.Collapsed;
+                BtnVerifyRollback.Visibility = Visibility.Collapsed;
+                TxtRollbackReadiness.Visibility = Visibility.Collapsed;
                 return;
             }
 
@@ -3147,6 +3499,42 @@ namespace CryoTray.Views
             BtnRollback.IsEnabled = !_updateBusy;
             BtnDeleteRollback.Visibility = Visibility.Visible;
             BtnDeleteRollback.IsEnabled = !_updateBusy;
+            BtnVerifyRollback.Visibility = Visibility.Visible;
+            BtnVerifyRollback.IsEnabled = !_updateBusy;
+        }
+
+        private void BtnVerifyRollback_Click(object sender, RoutedEventArgs e)
+        {
+            if (_updateBusy)
+            {
+                return;
+            }
+
+            RollbackReadinessResult result = RollbackReadinessService.Verify();
+            TxtRollbackReadiness.Visibility = Visibility.Visible;
+            if (result.Ready)
+            {
+                TxtRollbackReadiness.Text = LocalizationService.Format(
+                    "Settings_ReadinessReady",
+                    result.FileCount,
+                    FormatByteSize(result.SizeBytes));
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info,
+                    "update",
+                    "Activity_RollbackVerified",
+                    result.FileCount,
+                    FormatByteSize(result.SizeBytes));
+            }
+            else
+            {
+                TxtRollbackReadiness.Text = LocalizationService.Get(
+                    result.ErrorKey ?? "Settings_ReadinessCorrupt");
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Warning,
+                    "update",
+                    "Activity_RollbackVerifyFailed",
+                    TxtRollbackReadiness.Text);
+            }
         }
 
         private void BtnDeleteRollback_Click(object sender, RoutedEventArgs e)
@@ -3187,6 +3575,10 @@ namespace CryoTray.Views
                 TxtRollbackStatus.Visibility = Visibility.Visible;
                 BtnRollback.Visibility = Visibility.Collapsed;
                 BtnDeleteRollback.Visibility = Visibility.Collapsed;
+                BtnVerifyRollback.Visibility = Visibility.Collapsed;
+                TxtRollbackReadiness.Visibility = Visibility.Collapsed;
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info, "update", "Activity_RollbackDeleted", backup.Version);
             }
             catch
             {
@@ -3225,6 +3617,8 @@ namespace CryoTray.Views
             {
                 BtnRollback.IsEnabled = false;
                 TxtUpdateStatus.Text = LocalizationService.Get("Settings_RollbackRestarting");
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info, "update", "Activity_RollbackStarted", backup.Version);
                 UpdateService.LaunchRollback(backup.Path);
                 Application.Current.Shutdown();
             }
@@ -3259,6 +3653,109 @@ namespace CryoTray.Views
                 BtnCancelUpdate.IsEnabled = true;
             }
             return _updateCancellation.Token;
+        }
+
+        private void BtnSaveSupportBundle_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new SaveFileDialog
+            {
+                Filter = LocalizationService.Get("Common_ZipFilter"),
+                FileName = $"CryoTray-Support-{DateTime.Now:yyyyMMdd-HHmm}.zip"
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            try
+            {
+                SupportBundleService.Create(dialog.FileName);
+                TxtSupportBundleStatus.Text = LocalizationService.Format(
+                    "Settings_ActivityBundleSaved", Path.GetFileName(dialog.FileName));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Support bundle error: {ex.Message}");
+                TxtSupportBundleStatus.Text = LocalizationService.Get(
+                    "Settings_ActivityBundleFailed");
+            }
+        }
+
+        private void CmbUpdateChannel_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            SaveUiIntoSettings();
+            UpdateService.Instance.ResetChannelCache();
+            _availableUpdate = null;
+            (System.Windows.Application.Current as App)?.SetAvailableUpdate(null);
+            UpdateStatusService.Instance.Record(UpdateCheckOutcome.NoReleases, string.Empty);
+            SetUpdateState("Settings_UpdateDefault", "Settings_CheckUpdates");
+            SetUpdateNotes(string.Empty);
+            RefreshLastCheckedText();
+        }
+
+        private void OnActivityChanged()
+        {
+            if (_isClosed || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(RefreshActivityUi));
+        }
+
+        private void RefreshActivityUi()
+        {
+            if (PnlActivity == null || TxtActivityEmpty == null)
+            {
+                return;
+            }
+
+            var events = ActivityLogService.Instance.Snapshot();
+            PnlActivity.Children.Clear();
+            TxtActivityEmpty.Visibility = events.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            foreach (CryoTray.Services.ActivityEvent item in events.Reverse().Take(8))
+            {
+                var row = new StackPanel
+                {
+                    Margin = new Thickness(0, 5, 0, 5)
+                };
+                var header = new TextBlock
+                {
+                    Text = item.TimestampUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                    Foreground = ThemeService.GetBrush("TextMutedBrush"),
+                    FontSize = 10.5
+                };
+                var message = new TextBlock
+                {
+                    Text = ActivityLogService.Instance.Format(item),
+                    Foreground = GetActivityBrush(item.Severity),
+                    FontSize = 11.5,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 1, 0, 0)
+                };
+                row.Children.Add(header);
+                row.Children.Add(message);
+                PnlActivity.Children.Add(row);
+            }
+        }
+
+        private static Brush GetActivityBrush(ActivitySeverity severity)
+        {
+            return severity switch
+            {
+                ActivitySeverity.Warning => CreateFrozenBrush(Color.FromRgb(0xF3, 0xC7, 0x65)),
+                ActivitySeverity.Error => CreateFrozenBrush(Color.FromRgb(0xFA, 0xAA, 0x9A)),
+                _ => ThemeService.GetBrush("TextSecondaryBrush")
+            };
         }
 
         private void RepoLink_Click(object sender, RoutedEventArgs e)

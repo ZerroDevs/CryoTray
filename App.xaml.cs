@@ -60,6 +60,7 @@ namespace CryoTray
             if (e.Args.Length > 0 && e.Args[0].Equals("/test", StringComparison.OrdinalIgnoreCase))
             {
                 int exitCode = Tests.VerificationTests.RunAll();
+                Console.Out.Flush();
                 Environment.Exit(exitCode);
                 return;
             }
@@ -67,6 +68,7 @@ namespace CryoTray
             if (e.Args.Length > 0 && e.Args[0].Equals("/test-unit", StringComparison.OrdinalIgnoreCase))
             {
                 int exitCode = Tests.VerificationTests.RunUnitSafe();
+                Console.Out.Flush();
                 Environment.Exit(exitCode);
                 return;
             }
@@ -75,6 +77,7 @@ namespace CryoTray
                 e.Args[0].Equals("/test-updates", StringComparison.OrdinalIgnoreCase))
             {
                 int exitCode = Tests.UpdateVerificationTests.RunAll();
+                Console.Out.Flush();
                 Environment.Exit(exitCode);
                 return;
             }
@@ -202,6 +205,14 @@ namespace CryoTray
             ThemeService.Initialize(settings.Theme);
             UpdateStatusService.Instance.Restore(settings);
             PendingUpdateSuccess = UpdateCompletionService.ReadPending(UpdateService.CurrentVersion);
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Info, "app", "Activity_AppStarted", UpdateService.CurrentVersion);
+            if (PendingUpdateSuccess != null)
+            {
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info, "update", "Activity_UpdateSucceeded",
+                    PendingUpdateSuccess.ToVersion);
+            }
             ThemeService.ThemeChanged += OnThemeChanged;
             StartupTaskService.EnsureSynchronized(settings.LaunchOnStartup);
 
@@ -241,6 +252,7 @@ namespace CryoTray
             _storageHealthAlertService = new StorageHealthAlertService();
             _storageHealthAlertService.AlertRaised += OnStorageHealthAlertRaised;
 
+            RefreshTelemetryDemandBaseline();
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             HardwareMonitorService.Instance.Start();
             DownloadTimerService.Instance.WarningStarted += OnDownloadTimerWarningStarted;
@@ -248,7 +260,9 @@ namespace CryoTray
             DownloadTimerService.Instance.WarningEnded += OnDownloadTimerWarningEnded;
             DownloadTimerService.Instance.SyncWithSettings();
             AutopilotService.Instance.ExternalPauseHoldCheck = () => IsCoolingPausedByTimer;
+            AutopilotService.Instance.StateChanged += OnAutopilotStateChanged;
             AutopilotService.Instance.Start();
+            MemoryOptimizerService.Instance.OptimizationCompleted += OnMemoryOptimizationCompleted;
             MemoryOptimizerService.Instance.Start();
 
             if (settings.EnableCoolingOnLaunch)
@@ -456,6 +470,11 @@ namespace CryoTray
 
         private void OnPowerPlanCoolingChanged(bool isCooling)
         {
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Info,
+                "profile",
+                isCooling ? "Activity_CoolingOn" : "Activity_CoolingOff");
+
             if (!isCooling || !CoolingPausedUntilUtc.HasValue)
             {
                 return;
@@ -832,8 +851,32 @@ namespace CryoTray
             ApplyWindowAccent();
             _trayManager?.ApplyLanguage();
             DownloadTimerService.Instance.SyncWithSettings();
+            RefreshTelemetryDemandBaseline();
             EvaluateBatteryCoolingRule();
             ScheduleAutomaticUpdateCheck();
+        }
+
+        private static void RefreshTelemetryDemandBaseline()
+        {
+            var settings = SettingsService.Instance.Current;
+            // The tray tooltip and menu consume live values even when badges are hidden.
+            TelemetryDemand demand = TelemetryDemand.Tray;
+
+            if (!settings.DisableAllNotifications &&
+                (!settings.MuteTemperatureAlerts ||
+                 settings.FanHealthAlertsEnabled ||
+                 settings.StorageHealthAlertsEnabled ||
+                 settings.GpuDeltaAlertsEnabled))
+            {
+                demand |= TelemetryDemand.Alerts;
+            }
+
+            if (settings.AutoRamOptimizeEnabled)
+            {
+                demand |= TelemetryDemand.Memory;
+            }
+
+            TelemetryDemandTracker.Instance.SetBaseline(demand);
         }
 
         private void OnLanguageChanged()
@@ -848,6 +891,11 @@ namespace CryoTray
 
         private void OnFanStopped(FanStoppedEvent alert)
         {
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Warning,
+                "alert",
+                "Activity_FanStopped",
+                FanHealthService.GetDisplayName(alert.FanKey, alert.FanName, alert.IsGpuFan));
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 string fanName = FanHealthService.GetDisplayName(
@@ -862,6 +910,12 @@ namespace CryoTray
 
         private void OnStorageHealthAlertRaised(StorageHealthAlert alert)
         {
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Warning,
+                "alert",
+                "Activity_DriveHealth",
+                alert.DriveName,
+                alert.HealthPercent);
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 ShowTrayNotification(
@@ -878,6 +932,11 @@ namespace CryoTray
 
         private void OnTemperatureAlertRaised(TemperatureAlert alert)
         {
+            ActivityLogService.Instance.RecordDetail(
+                ActivitySeverity.Warning,
+                "alert",
+                "Activity_TemperatureAlert",
+                alert.Component.ToString());
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 string current = FormatTemperature(alert.CurrentCelsius);
@@ -1045,6 +1104,11 @@ namespace CryoTray
             }
 
             AvailableUpdate = release;
+            if (release != null)
+            {
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info, "update", "Activity_UpdateAvailable", release.Version);
+            }
             UpdateAvailabilityChanged?.Invoke();
         }
 
@@ -1113,6 +1177,8 @@ namespace CryoTray
             {
                 UpdateStatusService.Instance.Record(
                     UpdateCheckOutcome.Failed, string.Empty, ex.Message);
+                ActivityLogService.Instance.RecordDetail(
+                    ActivitySeverity.Warning, "update", "Activity_UpdateFailed", ex.Message);
             }
             finally
             {
@@ -1160,6 +1226,8 @@ namespace CryoTray
             PowerPlanService.Instance.CoolingModeChanged -= OnPowerPlanCoolingChanged;
             UnregisterActivationWaitHandle();
             AutopilotService.Instance.ExternalPauseHoldCheck = null;
+            AutopilotService.Instance.StateChanged -= OnAutopilotStateChanged;
+            MemoryOptimizerService.Instance.OptimizationCompleted -= OnMemoryOptimizationCompleted;
             SettingsService.Instance.SettingsChanged -= RegisterHotkeyIfEnabled;
             SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
             LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
@@ -1331,6 +1399,14 @@ namespace CryoTray
 
         private void OnPowerPlanProfileChanged()
         {
+            var profile = PowerPlanService.Instance.ActiveProfile;
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Info,
+                "profile",
+                "Activity_ProfileChanged",
+                profile == null ? LocalizationService.Get("Common_Unknown")
+                    : LocalizationService.Get(profile.NameKey));
+
             if (!Dispatcher.CheckAccess())
             {
                 Dispatcher.BeginInvoke(new Action(ApplyWindowAccent));
@@ -1338,6 +1414,42 @@ namespace CryoTray
             }
 
             ApplyWindowAccent();
+        }
+
+        private void OnAutopilotStateChanged(AutopilotState state)
+        {
+            if (!state.IsActive)
+            {
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info, "automation", "Activity_GameModeOff");
+                return;
+            }
+
+            string profileName = LocalizationService.Get(
+                PowerProfiles.Get(state.ProfileKey)?.NameKey ?? "Common_Unknown");
+            string targetName = string.IsNullOrWhiteSpace(state.ProcessName)
+                ? LocalizationService.Get("Activity_FullscreenGame")
+                : state.ProcessName;
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Info,
+                "automation",
+                "Activity_GameModeOn",
+                profileName,
+                targetName);
+        }
+
+        private void OnMemoryOptimizationCompleted(MemoryOptimizationResult result)
+        {
+            if (!result.Succeeded)
+            {
+                return;
+            }
+
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Info,
+                "memory",
+                "Activity_RamOptimized",
+                MemoryTelemetryService.FormatBytes(result.FreedBytes));
         }
 
         private void ApplyWindowAccent()
@@ -1366,6 +1478,8 @@ namespace CryoTray
 
         protected override void OnExit(ExitEventArgs e)
         {
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Info, "app", "Activity_AppExited");
             DisableCoolingForExit();
             _isExiting = true;
             _startupTrimTimer?.Stop();
@@ -1396,6 +1510,8 @@ namespace CryoTray
             ThemeService.Shutdown();
             UnregisterActivationWaitHandle();
             AutopilotService.Instance.ExternalPauseHoldCheck = null;
+            AutopilotService.Instance.StateChanged -= OnAutopilotStateChanged;
+            MemoryOptimizerService.Instance.OptimizationCompleted -= OnMemoryOptimizationCompleted;
 
             if (_hotkeySource != null)
             {

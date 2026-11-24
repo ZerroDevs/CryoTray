@@ -12,6 +12,7 @@ namespace CryoTray.Views
     {
         private int _appliedOpacityPercent = -1;
         private bool _isClosing;
+        private IDisposable? _telemetryLease;
 
         public OverlayWindow()
         {
@@ -42,6 +43,8 @@ namespace CryoTray.Views
             ApplyMetricVisibility(s);
             ApplyClickThrough(s.OverlayClickThrough);
             UpdateTelemetry(HardwareMonitorService.Instance.CurrentSnapshot);
+            _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
+                "OverlayWindow", TelemetryDemand.Overlay);
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
         }
@@ -92,6 +95,8 @@ namespace CryoTray.Views
             ThemeService.ThemeChanged -= OnThemeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
             SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
+            _telemetryLease?.Dispose();
+            _telemetryLease = null;
             DataContext = null;
             Content = null;
         }

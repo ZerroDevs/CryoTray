@@ -7,6 +7,20 @@ on:
     paths:
       - VERSION
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - preview
+      preview_number:
+        description: Preview number (preview channel only)
+        required: false
+        default: "1"
+        type: string
 
 permissions:
   contents: write
@@ -37,7 +51,23 @@ jobs:
             throw "VERSION must contain exactly three numeric parts."
           }
 
-          $tag = "v$version"
+          $channel = "${{ inputs.channel }}"
+          if ([string]::IsNullOrWhiteSpace($channel)) { $channel = "stable" }
+          $channel = $channel.ToLowerInvariant()
+          $prerelease = "false"
+          if ($channel -eq "preview") {
+            $previewNumber = "${{ inputs.preview_number }}"
+            if ($previewNumber -notmatch '^\d+$') {
+              throw "preview_number must be a non-negative integer."
+            }
+            $tag = "v$version-preview.$previewNumber"
+            $prerelease = "true"
+          } elseif ($channel -eq "stable") {
+            $tag = "v$version"
+          } else {
+            throw "Unknown release channel: $channel"
+          }
+
           git fetch --tags --force
           $skip = "false"
           if (@(git tag --list "$tag").Count -gt 0) {
@@ -47,6 +77,8 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "skip=$skip" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+          "channel=$channel" >> $env:GITHUB_OUTPUT
 
           if ($skip -eq "true") {
             Write-Host "Tag $tag already exists. This run will not publish a release."
@@ -211,6 +243,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
+          $tag = "${{ steps.version.outputs.tag }}"
           $zipName = "CryoTray-$version-win-x64.zip"
           $setupName = "CryoTray-Setup-$version.exe"
           $updateZipName = "CryoTray-Update-$version-win-x64.zip"
@@ -315,7 +348,7 @@ jobs:
           $setupHashName = "$setupName.sha256"
           $zipHashName = "$zipName.sha256"
           $notes = @"
-          # CryoTray v$version
+          # CryoTray $tag
 
           ## Changes
 
@@ -336,17 +369,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $tag = "v$version"
+          $tag = "${{ steps.version.outputs.tag }}"
           $zipName = "CryoTray-$version-win-x64.zip"
           $setupName = "CryoTray-Setup-$version.exe"
           $updateZipName = "CryoTray-Update-$version-win-x64.zip"
 
-          gh release create $tag `
-            "release\$setupName" `
-            "release\$setupName.sha256" `
-            "release\$zipName" `
-            "release\$zipName.sha256" `
-            "release\$updateZipName" `
-            "release\$updateZipName.sha256" `
-            --title "CryoTray v$version" `
-            --notes-file "release\notes.md"
+          $arguments = @(
+            "release", "create", $tag,
+            "release\$setupName",
+            "release\$setupName.sha256",
+            "release\$zipName",
+            "release\$zipName.sha256",
+            "release\$updateZipName",
+            "release\$updateZipName.sha256",
+            "--title", "CryoTray $tag",
+            "--notes-file", "release\notes.md"
+          )
+          if ("${{ steps.version.outputs.prerelease }}" -eq "true") {
+            $arguments += "--prerelease"
+          }
+          gh @arguments

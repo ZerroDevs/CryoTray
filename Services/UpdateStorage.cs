@@ -109,6 +109,18 @@ namespace CryoTray.Services
             }
         }
 
+        public static bool IsDirectoryProtected(string path)
+        {
+            try
+            {
+                return Directory.Exists(path) && IsTrustedDirectory(path);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static bool IsSafeApplicationLocation(string applicationDirectory)
         {
             try

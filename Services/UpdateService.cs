@@ -30,7 +30,8 @@ namespace CryoTray.Services
     {
         public ReleaseInfo(string version, string tagName, string releaseUrl,
             string releaseNotes, string assetName, string assetDownloadUrl,
-            UpdateAssetKind assetKind, string checksumName, string checksumDownloadUrl)
+            UpdateAssetKind assetKind, string checksumName, string checksumDownloadUrl,
+            bool isPrerelease = false)
         {
             Version = version;
             TagName = tagName;
@@ -41,6 +42,7 @@ namespace CryoTray.Services
             AssetKind = assetKind;
             ChecksumName = checksumName;
             ChecksumDownloadUrl = checksumDownloadUrl;
+            IsPrerelease = isPrerelease;
         }
 
         public string Version { get; }
@@ -52,6 +54,7 @@ namespace CryoTray.Services
         public UpdateAssetKind AssetKind { get; }
         public string ChecksumName { get; }
         public string ChecksumDownloadUrl { get; }
+        public bool IsPrerelease { get; }
     }
 
     public sealed class PreparedUpdate
@@ -87,6 +90,7 @@ namespace CryoTray.Services
     public sealed class UpdateService
     {
         private const string LatestReleaseApi = "https://api.github.com/repos/ZerroDevs/CryoTray/releases/latest";
+        private const string ReleasesApi = "https://api.github.com/repos/ZerroDevs/CryoTray/releases?per_page=20";
         private const int MaxDownloadAttempts = 3;
         private const long MaxDownloadBytes = 512L * 1024 * 1024;
         private const int MaxReleaseNotesLength = 2400;
@@ -101,9 +105,15 @@ namespace CryoTray.Services
         };
         private static readonly HttpClient Http = CreateHttpClient();
         private static string? _currentVersion;
-        private static string? _latestReleaseETag;
-        private static ReleaseInfo? _latestReleaseCache;
+        private static readonly Dictionary<string, ChannelCache> ChannelCaches =
+            new(StringComparer.OrdinalIgnoreCase);
         private static DateTime _latestReleaseRetryAfterUtc;
+
+        private sealed class ChannelCache
+        {
+            public string? ETag { get; set; }
+            public ReleaseInfo? Release { get; set; }
+        }
 
         public static UpdateService Instance { get; } = new();
 
@@ -111,12 +121,13 @@ namespace CryoTray.Services
 
         public async Task<ReleaseInfo?> GetLatestReleaseAsync(CancellationToken cancellationToken)
         {
+            string channel = NormalizeChannel(SettingsService.Instance.Current.UpdateChannel);
             for (int attempt = 0; ; attempt++)
             {
                 try
                 {
                     return await GetLatestReleaseAsyncCore(
-                        cancellationToken, allowConditionalRequest: true).ConfigureAwait(false);
+                        channel, cancellationToken, allowConditionalRequest: true).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (
                     !cancellationToken.IsCancellationRequested &&
@@ -138,7 +149,9 @@ namespace CryoTray.Services
         }
 
         private async Task<ReleaseInfo?> GetLatestReleaseAsyncCore(
-            CancellationToken cancellationToken, bool allowConditionalRequest)
+            string channel,
+            CancellationToken cancellationToken,
+            bool allowConditionalRequest)
         {
             if (DateTime.UtcNow < _latestReleaseRetryAfterUtc)
             {
@@ -149,14 +162,16 @@ namespace CryoTray.Services
                     LocalizationService.Format("Update_RateLimited", minutes));
             }
 
+            ChannelCache cache = GetChannelCache(channel);
             using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             requestTimeout.CancelAfter(TimeSpan.FromSeconds(20));
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, LatestReleaseApi);
+            string api = channel == UpdateChannelPreview ? ReleasesApi : LatestReleaseApi;
+            using var request = new HttpRequestMessage(HttpMethod.Get, api);
             request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
-            if (allowConditionalRequest && !string.IsNullOrWhiteSpace(_latestReleaseETag))
+            if (allowConditionalRequest && !string.IsNullOrWhiteSpace(cache.ETag))
             {
-                request.Headers.TryAddWithoutValidation("If-None-Match", _latestReleaseETag);
+                request.Headers.TryAddWithoutValidation("If-None-Match", cache.ETag);
             }
 
             using var response = await Http.SendAsync(
@@ -166,14 +181,14 @@ namespace CryoTray.Services
 
             if (response.StatusCode == HttpStatusCode.NotModified)
             {
-                if (_latestReleaseCache != null)
+                if (cache.Release != null)
                 {
-                    return _latestReleaseCache;
+                    return cache.Release;
                 }
 
-                _latestReleaseETag = null;
+                cache.ETag = null;
                 return await GetLatestReleaseAsyncCore(
-                    cancellationToken, allowConditionalRequest: false).ConfigureAwait(false);
+                    channel, cancellationToken, allowConditionalRequest: false).ConfigureAwait(false);
             }
 
             if (response.StatusCode == HttpStatusCode.NotFound)
@@ -198,23 +213,164 @@ namespace CryoTray.Services
                 .ReadAsStreamAsync(requestTimeout.Token).ConfigureAwait(false);
             using var document = await JsonDocument.ParseAsync(
                 stream, cancellationToken: requestTimeout.Token).ConfigureAwait(false);
-            var root = document.RootElement;
 
+            bool installed = UpdateInstallationService.IsInstalled();
+            ReleaseInfo? release;
+            if (channel == UpdateChannelPreview)
+            {
+                release = SelectPreviewRelease(document.RootElement, installed);
+            }
+            else
+            {
+                release = TryCreateRelease(document.RootElement, installed, out string? error);
+                if (release == null)
+                {
+                    throw new InvalidOperationException(LocalizationService.Get(
+                        error ?? "Update_NoVersion"));
+                }
+            }
+
+            cache.Release = release;
+            cache.ETag = response.Headers.ETag?.Tag;
+            return release;
+        }
+
+        private const string UpdateChannelPreview = "Preview";
+
+        internal static string NormalizeChannel(string? channel)
+        {
+            return string.Equals(channel, UpdateChannelPreview, StringComparison.OrdinalIgnoreCase)
+                ? UpdateChannelPreview
+                : "Stable";
+        }
+
+        public void ResetChannelCache()
+        {
+            lock (ChannelCaches)
+            {
+                ChannelCaches.Clear();
+            }
+        }
+
+        private static ChannelCache GetChannelCache(string channel)
+        {
+            lock (ChannelCaches)
+            {
+                if (!ChannelCaches.TryGetValue(channel, out ChannelCache? cache))
+                {
+                    cache = new ChannelCache();
+                    ChannelCaches[channel] = cache;
+                }
+
+                return cache;
+            }
+        }
+
+        internal static ReleaseInfo? SelectReleaseForChannel(
+            JsonElement root,
+            string channel,
+            bool installed)
+        {
+            return NormalizeChannel(channel) == UpdateChannelPreview
+                ? SelectPreviewRelease(root, installed)
+                : SelectStableRelease(root, installed);
+        }
+
+        private static ReleaseInfo? SelectStableRelease(JsonElement root, bool installed)
+        {
+            if (root.ValueKind != JsonValueKind.Array)
+            {
+                ReleaseInfo? single = TryCreateRelease(root, installed, out _);
+                return single is { IsPrerelease: false } ? single : null;
+            }
+
+            ReleaseInfo? best = null;
+            Version? bestVersion = null;
+            foreach (JsonElement item in root.EnumerateArray())
+            {
+                if (IsDraft(item))
+                {
+                    continue;
+                }
+
+                ReleaseInfo? release = TryCreateRelease(item, installed, out _);
+                if (release == null || release.IsPrerelease ||
+                    !TryParseVersion(release.Version, out Version version))
+                {
+                    continue;
+                }
+
+                if (bestVersion == null || version > bestVersion)
+                {
+                    best = release;
+                    bestVersion = version;
+                }
+            }
+
+            return best;
+        }
+
+        private static ReleaseInfo? SelectPreviewRelease(JsonElement root, bool installed)
+        {
+            if (root.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            ReleaseInfo? best = null;
+            Version? bestVersion = null;
+            foreach (JsonElement item in root.EnumerateArray())
+            {
+                if (IsDraft(item))
+                {
+                    continue;
+                }
+
+                ReleaseInfo? release = TryCreateRelease(item, installed, out _);
+                if (release == null || !TryParseVersion(release.Version, out Version version))
+                {
+                    continue;
+                }
+
+                if (bestVersion == null ||
+                    version > bestVersion ||
+                    (version == bestVersion && !release.IsPrerelease && best?.IsPrerelease == true))
+                {
+                    best = release;
+                    bestVersion = version;
+                }
+            }
+
+            return best;
+        }
+
+        private static bool IsDraft(JsonElement item)
+        {
+            return item.TryGetProperty("draft", out JsonElement draft) &&
+                   draft.ValueKind == JsonValueKind.True;
+        }
+
+        private static ReleaseInfo? TryCreateRelease(
+            JsonElement root,
+            bool installed,
+            out string? error)
+        {
+            error = null;
             string tagName = root.TryGetProperty("tag_name", out var tagElement)
                 ? tagElement.GetString() ?? string.Empty
                 : string.Empty;
 
             if (!TryParseVersion(tagName, out var version))
             {
-                throw new InvalidOperationException(LocalizationService.Get("Update_NoVersion"));
+                error = "Update_NoVersion";
+                return null;
             }
 
-            bool installed = UpdateInstallationService.IsInstalled();
             var asset = SelectAsset(root, installed);
             if (asset == null)
             {
-                throw new InvalidOperationException(LocalizationService.Get(
-                    installed ? "Update_NoInstaller" : "Update_NoDownload"));
+                error = installed ? "Update_NoInstaller" : "Update_NoDownload";
+                return null;
             }
 
             var checksum = SelectChecksumAsset(root, asset.Name);
@@ -225,8 +381,10 @@ namespace CryoTray.Services
                           bodyElement.ValueKind == JsonValueKind.String
                 ? bodyElement.GetString() ?? string.Empty
                 : string.Empty;
+            bool isPrerelease = root.TryGetProperty("prerelease", out JsonElement prerelease) &&
+                                prerelease.ValueKind == JsonValueKind.True;
 
-            var release = new ReleaseInfo(
+            return new ReleaseInfo(
                 version.ToString(3),
                 tagName,
                 releaseUrl,
@@ -235,11 +393,8 @@ namespace CryoTray.Services
                 asset.Url,
                 asset.Kind,
                 checksum?.Name ?? string.Empty,
-                checksum?.Url ?? string.Empty);
-
-            _latestReleaseCache = release;
-            _latestReleaseETag = response.Headers.ETag?.Tag;
-            return release;
+                checksum?.Url ?? string.Empty,
+                isPrerelease);
         }
 
         public static bool IsNewer(string candidate, string current)

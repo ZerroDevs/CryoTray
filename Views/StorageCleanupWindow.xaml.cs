@@ -282,6 +282,12 @@ namespace CryoTray.Views
                 }
 
                 ShowResult(result);
+                ActivityLogService.Instance.Record(
+                    ActivitySeverity.Info,
+                    "cleanup",
+                    "Activity_Cleanup",
+                    result.FilesDeleted,
+                    StorageCleanupService.FormatBytes(result.BytesFreed));
                 _isCleaning = false;
                 HideProgress();
                 UpdateActionStates();

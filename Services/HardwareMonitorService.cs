@@ -50,6 +50,9 @@ namespace CryoTray.Services
         private CancellationTokenSource? _cts;
         private bool _isInitialized;
         private bool _openedWithPawnIo;
+        private DateTime _lastStorageRefreshUtc;
+        private IReadOnlyList<DriveTelemetry> _lastStorageDrives = Array.Empty<DriveTelemetry>();
+        private IReadOnlyList<FanTelemetry> _lastFans = Array.Empty<FanTelemetry>();
 
         public TelemetryRingBuffer RingBuffer => _ringBuffer;
         public HardwareSnapshot CurrentSnapshot { get; private set; } = new();
@@ -666,7 +669,9 @@ namespace CryoTray.Services
 
                 try
                 {
-                    await Task.Delay(1000, token);
+                    TimeSpan interval = TelemetryPollPolicy.GetInterval(
+                        TelemetryDemandTracker.Instance.Current);
+                    await Task.Delay(interval, token);
                 }
                 catch (TaskCanceledException)
                 {
@@ -694,6 +699,11 @@ namespace CryoTray.Services
                 }
             }
 
+            TelemetryDemand demand = TelemetryDemandTracker.Instance.Current;
+            bool readStorage = TelemetryPollPolicy.IsStorageRefreshDue(
+                _lastStorageRefreshUtc, DateTime.UtcNow, demand);
+            bool readFans = TelemetryPollPolicy.ShouldReadFans(demand);
+
             var snapshot = new HardwareSnapshot
             {
                 CpuName = _cpuName,
@@ -717,18 +727,31 @@ namespace CryoTray.Services
             {
                 foreach (var hardware in _computer.Hardware)
                 {
+                    bool isStorage = hardware.HardwareType == HardwareType.Storage;
+                    bool isMotherboard = hardware.HardwareType == HardwareType.Motherboard;
+                    bool isCpu = hardware.HardwareType == HardwareType.Cpu;
+                    bool isGpu = hardware.HardwareType == HardwareType.GpuNvidia ||
+                        hardware.HardwareType == HardwareType.GpuAmd ||
+                        hardware.HardwareType == HardwareType.GpuIntel;
+
+                    if (isStorage && !readStorage)
+                    {
+                        continue;
+                    }
+
+                    if (!isStorage && !isMotherboard && !isCpu && !isGpu && !readFans)
+                    {
+                        continue;
+                    }
+
                     hardware.Update();
 
-                    if (hardware.HardwareType != HardwareType.Cpu &&
-                        hardware.HardwareType != HardwareType.GpuNvidia &&
-                        hardware.HardwareType != HardwareType.GpuAmd &&
-                        hardware.HardwareType != HardwareType.GpuIntel &&
-                        hardware.HardwareType != HardwareType.Storage)
+                    if (readFans && !isCpu && !isGpu && !isStorage)
                     {
                         CollectFanSensors(hardware, fans, fanKeys);
                     }
 
-                    if (hardware.HardwareType == HardwareType.Cpu)
+                    if (isCpu)
                     {
                         CollectCpuSensors(hardware.Sensors, cpuSensors);
 
@@ -862,8 +885,23 @@ namespace CryoTray.Services
 
             PopulateMemoryTelemetry(snapshot);
 
-            snapshot.StorageDrives = drives;
-            snapshot.Fans = fans;
+            if (readStorage)
+            {
+                _lastStorageRefreshUtc = DateTime.UtcNow;
+                _lastStorageDrives = drives;
+            }
+
+            if (readFans)
+            {
+                _lastFans = fans;
+            }
+
+            snapshot.StorageDrives = readStorage
+                ? drives
+                : new List<DriveTelemetry>(_lastStorageDrives);
+            snapshot.Fans = readFans
+                ? fans
+                : new List<FanTelemetry>(_lastFans);
             return snapshot;
         }
 

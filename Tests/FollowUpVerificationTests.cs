@@ -1,0 +1,513 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text.Json;
+using CryoTray.Models;
+using CryoTray.Services;
+
+namespace CryoTray.Tests
+{
+    public static class FollowUpVerificationTests
+    {
+        internal static bool RunNonElevatedChecks()
+        {
+            bool allPassed = true;
+            allPassed &= TestTelemetryDemandAndPolicy();
+            allPassed &= TestChartReducer();
+            allPassed &= TestActivityLog();
+            allPassed &= TestSupportBundle();
+            allPassed &= TestSettingsSearch();
+            allPassed &= TestAutopilotTargetResolution();
+            return allPassed;
+        }
+
+        internal static bool RunUpdateFollowUpChecks()
+        {
+            bool allPassed = true;
+            allPassed &= TestUpdateChannelSelection();
+            allPassed &= TestRollbackReadiness();
+            return allPassed;
+        }
+
+        private static bool TestTelemetryDemandAndPolicy()
+        {
+            Console.Write("[TEST] Adaptive telemetry demand & policy... ");
+            try
+            {
+                var tracker = new TelemetryDemandTracker();
+                Assert(tracker.Current == TelemetryDemand.None, "initial demand");
+                Assert(TelemetryPollPolicy.GetInterval(tracker.Current) == TimeSpan.FromSeconds(3), "idle interval");
+
+                using (tracker.Acquire("dashboard", TelemetryDemand.Dashboard))
+                {
+                    Assert(tracker.Current == TelemetryDemand.Dashboard, "dashboard demand");
+                    Assert(TelemetryPollPolicy.GetInterval(tracker.Current) == TimeSpan.FromSeconds(1), "dashboard interval");
+                }
+
+                Assert(tracker.Current == TelemetryDemand.None, "dashboard release");
+                using (tracker.Acquire("overlay", TelemetryDemand.Overlay))
+                using (tracker.Acquire("tray", TelemetryDemand.Tray))
+                {
+                    Assert(TelemetryPollPolicy.GetInterval(tracker.Current) == TimeSpan.FromSeconds(1), "overlay interval");
+                }
+
+                using (tracker.Acquire("tray", TelemetryDemand.Tray))
+                {
+                    Assert(TelemetryPollPolicy.GetInterval(tracker.Current) == TimeSpan.FromSeconds(2), "tray interval");
+                }
+
+                Assert(TelemetryPollPolicy.GetInterval(TelemetryDemand.None) == TimeSpan.FromSeconds(3), "none interval");
+                Assert(TelemetryPollPolicy.ShouldReadStorage(TelemetryDemand.Dashboard), "dashboard storage");
+                Assert(!TelemetryPollPolicy.ShouldReadStorage(TelemetryDemand.Tray), "tray storage");
+                Assert(TelemetryPollPolicy.ShouldReadFans(TelemetryDemand.Alerts), "alert fans");
+                Assert(!TelemetryPollPolicy.ShouldReadFans(TelemetryDemand.Tray), "tray fans");
+
+                DateTime now = DateTime.UtcNow;
+                Assert(TelemetryPollPolicy.IsStorageRefreshDue(
+                    DateTime.MinValue, now, TelemetryDemand.Dashboard), "first storage");
+                Assert(!TelemetryPollPolicy.IsStorageRefreshDue(
+                    now.AddSeconds(-5), now, TelemetryDemand.Dashboard), "storage 5s");
+                Assert(TelemetryPollPolicy.IsStorageRefreshDue(
+                    now.AddSeconds(-11), now, TelemetryDemand.Dashboard), "storage 11s");
+                Assert(!TelemetryPollPolicy.IsStorageRefreshDue(
+                    now.AddSeconds(-11), now, TelemetryDemand.Alerts), "alert storage 11s");
+                Assert(TelemetryPollPolicy.IsStorageRefreshDue(
+                    now.AddSeconds(-31), now, TelemetryDemand.Alerts), "alert storage 31s");
+                Assert(!TelemetryPollPolicy.IsStorageRefreshDue(
+                    now.AddSeconds(-31), now, TelemetryDemand.Tray), "tray storage 31s");
+
+                tracker.SetBaseline(TelemetryDemand.Tray);
+                var first = tracker.Acquire("window", TelemetryDemand.Settings);
+                var second = tracker.Acquire("window", TelemetryDemand.Settings);
+                first.Dispose();
+                first.Dispose();
+                Assert(tracker.Current == (TelemetryDemand.Tray | TelemetryDemand.Settings), "first lease release");
+                second.Dispose();
+                Assert(tracker.Current == TelemetryDemand.Tray, "second lease release");
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestChartReducer()
+        {
+            Console.Write("[TEST] Chart decimation... ");
+            try
+            {
+                var samples = Enumerable.Range(0, 3600)
+                    .Select(i => new TelemetrySample
+                    {
+                        CpuTemp = 50 + Math.Sin(i / 20.0) * 10
+                    })
+                    .ToList();
+                samples[1800].CpuTemp = 95;
+
+                List<int> reduced = ChartSampleReducer.ReduceRange(
+                    samples, 0, samples.Count - 1, 200, sample => sample.CpuTemp);
+                Assert(reduced.Count <= 200);
+                Assert(reduced.Contains(0));
+                Assert(reduced.Contains(samples.Count - 1));
+                Assert(reduced.Contains(1800));
+                Assert(reduced.SequenceEqual(reduced.OrderBy(index => index)));
+                Assert(reduced.Distinct().Count() == reduced.Count);
+
+                List<int> firstSegment = ChartSampleReducer.ReduceRange(
+                    samples, 0, 1799, 100, sample => sample.CpuTemp);
+                List<int> secondSegment = ChartSampleReducer.ReduceRange(
+                    samples, 1800, 3599, 100, sample => sample.CpuTemp);
+                Assert(firstSegment.Contains(0));
+                Assert(firstSegment.Contains(1799));
+                Assert(secondSegment.Contains(1800));
+                Assert(secondSegment.Contains(3599));
+                Assert(firstSegment.Count + secondSegment.Count <= 200);
+
+                var shortSeries = samples.Take(40).ToList();
+                List<int> unchanged = ChartSampleReducer.ReduceRange(
+                    shortSeries, 0, shortSeries.Count - 1, 200, sample => sample.CpuTemp);
+                Assert(unchanged.Count == shortSeries.Count);
+                Assert(unchanged[0] == 0 && unchanged[^1] == shortSeries.Count - 1);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestActivityLog()
+        {
+            Console.Write("[TEST] Activity log cap & sanitization... ");
+            string folder = Path.Combine(
+                Path.GetTempPath(), "cryotray-activity-test-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(folder);
+                var log = new ActivityLogService(folder);
+                string userProfile = Environment.GetFolderPath(
+                    Environment.SpecialFolder.UserProfile);
+                for (int i = 0; i < 305; i++)
+                {
+                    log.RecordDetail(
+                        ActivitySeverity.Info,
+                        "test",
+                        "Activity_AppStarted",
+                        $"{userProfile}\\test-{i}.txt",
+                        i);
+                }
+
+                Assert(log.Snapshot().Count == 300);
+                Assert(log.Snapshot()[^1].Detail.Contains("%USERPROFILE%"));
+                Assert(!log.Snapshot()[^1].Detail.Contains(userProfile));
+                Assert(log.SerializeForBundle().Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries).Length <= 300);
+
+                var reloaded = new ActivityLogService(folder);
+                Assert(reloaded.Snapshot().Count > 0);
+                reloaded.Clear();
+                Assert(reloaded.Snapshot().Count == 0);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try { if (Directory.Exists(folder)) Directory.Delete(folder, true); } catch { }
+            }
+        }
+
+        private static bool TestSupportBundle()
+        {
+            Console.Write("[TEST] Support bundle entries & redaction... ");
+            string path = Path.Combine(
+                Path.GetTempPath(), "cryotray-bundle-test-" + Guid.NewGuid().ToString("N") + ".zip");
+            try
+            {
+                SupportBundleService.Create(path);
+                Assert(File.Exists(path));
+                using (ZipArchive archive = ZipFile.OpenRead(path))
+                {
+                    var names = archive.Entries.Select(entry => entry.FullName).ToHashSet(
+                        StringComparer.OrdinalIgnoreCase);
+                    Assert(names.Contains("summary.txt"));
+                    Assert(names.Contains("diagnostics.txt"));
+                    Assert(names.Contains("system-info.txt"));
+                    Assert(names.Contains("activity.jsonl"));
+                    Assert(names.Contains("activity.txt"));
+                    Assert(names.Contains("settings.json"));
+
+                    var settingsEntry = archive.GetEntry("settings.json");
+                    Assert(settingsEntry != null);
+                    using var reader = new StreamReader(settingsEntry!.Open());
+                    string settings = reader.ReadToEnd();
+                    Assert(settings.Contains("\"UpdateChannel\""));
+                    Assert(!settings.Contains("AutopilotWhitelist"));
+                    Assert(!settings.Contains("AutopilotAppProfiles"));
+                    Assert(!settings.Contains("HotkeyKey"));
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try { if (File.Exists(path)) File.Delete(path); } catch { }
+            }
+        }
+
+        private static bool TestSettingsSearch()
+        {
+            Console.Write("[TEST] Settings search ranking & localization... ");
+            try
+            {
+                var items = new List<SettingsSearchItem>
+                {
+                    new() { Title = "Release channel", Keywords = "update stable preview", TabKey = "Settings_TabAbout" },
+                    new() { Title = "Verify rollback readiness", Keywords = "restore backup", TabKey = "Settings_TabAbout" },
+                    new() { Title = "Game Mode", Keywords = "autopilot profile", TabKey = "Settings_TabAutopilot" },
+                    new() { Title = "قناة الإصدار", Keywords = "تحديث معاينة", TabKey = "Settings_TabAbout" }
+                };
+
+                var channel = SettingsSearchMatcher.Rank(items, "channel");
+                Assert(channel.Count == 1 && channel[0].Title == "Release channel");
+
+                var arabic = SettingsSearchMatcher.Rank(items, "الإصدار");
+                Assert(arabic.Count == 1 && arabic[0].Title == "قناة الإصدار");
+
+                var rollback = SettingsSearchMatcher.Rank(items, "ROLLBACK");
+                Assert(rollback.Count == 1 && rollback[0].Title == "Verify rollback readiness");
+
+                var none = SettingsSearchMatcher.Rank(items, "printer");
+                Assert(none.Count == 0);
+
+                var gameMode = SettingsSearchMatcher.Rank(items, "game");
+                Assert(gameMode.Count == 1 && gameMode[0].Title == "Game Mode");
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestAutopilotTargetResolution()
+        {
+            Console.Write("[TEST] Game Mode target resolution & profile fallback... ");
+            try
+            {
+                var settings = new AppSettings
+                {
+                    AutopilotForegroundOnly = true,
+                    PreferredGamingProfile = PowerProfiles.GamingLowKey,
+                    AutopilotAppProfiles = new Dictionary<string, string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["game.exe"] = PowerProfiles.GamingHighKey
+                    }
+                };
+
+                var foregroundTarget = AutopilotService.ResolveWhitelistTarget(
+                    settings,
+                    new[] { "game.exe" },
+                    "game",
+                    Array.Empty<string>());
+                Assert(foregroundTarget != null);
+                Assert(foregroundTarget!.ProcessName == "game");
+                Assert(foregroundTarget.ProfileKey == PowerProfiles.GamingHighKey);
+                Assert(!foregroundTarget.IsGameMode);
+
+                Assert(AutopilotService.ResolveWhitelistTarget(
+                    settings,
+                    new[] { "game.exe" },
+                    "other",
+                    new[] { "game" }) == null);
+
+                settings.AutopilotForegroundOnly = false;
+                var runningTarget = AutopilotService.ResolveWhitelistTarget(
+                    settings,
+                    new[] { "game.exe" },
+                    null,
+                    new[] { "game" });
+                Assert(runningTarget != null && runningTarget.ProcessName == "game");
+
+                Assert(AutopilotService.ResolveWhitelistTarget(
+                    settings,
+                    new[] { "game.exe" },
+                    "other",
+                    new[] { "notgame" }) == null);
+                Assert(AutopilotService.ResolveProfileKey(
+                    "unknown.exe",
+                    settings.AutopilotAppProfiles,
+                    settings.PreferredGamingProfile) == PowerProfiles.GamingLowKey);
+                Assert(AutopilotService.ResolveProfileKey(
+                    "game.exe",
+                    settings.AutopilotAppProfiles,
+                    settings.PreferredGamingProfile) == PowerProfiles.GamingHighKey);
+
+                var moved = new AppSettings
+                {
+                    AutopilotForegroundOnly = false,
+                    PreferredGamingProfile = PowerProfiles.GamingLowKey,
+                    AutopilotAppProfiles = new Dictionary<string, string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["game.exe"] = PowerProfiles.GamingHighKey
+                    }
+                };
+                string json = JsonSerializer.Serialize(moved);
+                AppSettings? roundTripped = JsonSerializer.Deserialize<AppSettings>(json);
+                Assert(roundTripped != null);
+                Assert(roundTripped!.AutopilotAppProfiles["game.exe"] == PowerProfiles.GamingHighKey);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static bool TestUpdateChannelSelection()
+        {
+            Console.Write("[TEST] Update release channel selection... ");
+            try
+            {
+                const string json = """
+                [
+                  {
+                    "tag_name": "v0.0.104-preview.2",
+                    "prerelease": true,
+                    "draft": false,
+                    "assets": [
+                      { "name": "CryoTray-Setup-0.0.104.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104-preview.2/CryoTray-Setup-0.0.104.exe" },
+                      { "name": "CryoTray-Update-0.0.104-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104-preview.2/CryoTray-Update-0.0.104-win-x64.zip" }
+                    ]
+                  },
+                  {
+                    "tag_name": "v0.0.104",
+                    "prerelease": false,
+                    "draft": false,
+                    "assets": [
+                      { "name": "CryoTray-Setup-0.0.104.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Setup-0.0.104.exe" },
+                      { "name": "CryoTray-Update-0.0.104-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Update-0.0.104-win-x64.zip" }
+                    ]
+                  },
+                  {
+                    "tag_name": "v0.0.105-preview.1",
+                    "prerelease": true,
+                    "draft": false,
+                    "assets": [
+                      { "name": "CryoTray-Setup-0.0.105.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.105-preview.1/CryoTray-Setup-0.0.105.exe" },
+                      { "name": "CryoTray-Update-0.0.105-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.105-preview.1/CryoTray-Update-0.0.105-win-x64.zip" }
+                    ]
+                  },
+                  {
+                    "tag_name": "v0.0.106",
+                    "prerelease": false,
+                    "draft": true,
+                    "assets": [
+                      { "name": "CryoTray-Setup-0.0.106.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.106/CryoTray-Setup-0.0.106.exe" }
+                    ]
+                  },
+                  {
+                    "tag_name": "not-a-version",
+                    "prerelease": false,
+                    "draft": false,
+                    "assets": [
+                      { "name": "CryoTray-Setup.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/bad/CryoTray-Setup.exe" }
+                    ]
+                  }
+                ]
+                """;
+                using var document = JsonDocument.Parse(json);
+                ReleaseInfo? stable = UpdateService.SelectReleaseForChannel(
+                    document.RootElement, "Stable", installed: true);
+                Assert(stable != null);
+                Assert(stable!.Version == "0.0.104");
+                Assert(!stable.IsPrerelease);
+
+                ReleaseInfo? preview = UpdateService.SelectReleaseForChannel(
+                    document.RootElement, "Preview", installed: false);
+                Assert(preview != null);
+                Assert(preview!.Version == "0.0.105");
+                Assert(preview.IsPrerelease);
+                Assert(preview.AssetKind == UpdateAssetKind.Archive);
+                Assert(UpdateService.IsNewer("0.0.105-preview.1", "0.0.104"));
+                Assert(UpdateService.NormalizeChannel("preview") == "Preview");
+                Assert(UpdateService.NormalizeChannel("") == "Stable");
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static bool TestRollbackReadiness()
+        {
+            Console.Write("[TEST] Rollback readiness verification... ");
+            string? previousRoot = UpdateStorage.RootPathOverride;
+            string testRoot = Path.Combine(
+                Path.GetTempPath(), "cryotray-readiness-test-" + Guid.NewGuid().ToString("N"));
+            string backupDirectory = Path.Combine(testRoot, "Rollback", "previous");
+            try
+            {
+                UpdateStorage.RootPathOverride = testRoot;
+                UpdateStorage.EnsureRollbackRoot();
+                RollbackReadinessResult missing = RollbackReadinessService.VerifyForTest();
+                Assert(!missing.Ready);
+                Assert(missing.ErrorKey == "Settings_ReadinessNoBackup");
+
+                Directory.CreateDirectory(backupDirectory);
+                UpdateStorage.SecureDirectory(backupDirectory);
+                string exe = Path.Combine(backupDirectory, "CryoTray.exe");
+                string dll = Path.Combine(backupDirectory, "CryoTray.dll");
+                File.WriteAllText(exe, "exe-payload");
+                File.WriteAllText(dll, "dll-payload");
+
+                var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["CryoTray.exe"] = Hash(exe),
+                    ["CryoTray.dll"] = Hash(dll)
+                };
+                var info = new UpdateBackupInfo
+                {
+                    Version = "0.0.104",
+                    Path = backupDirectory,
+                    CreatedUtc = DateTime.UtcNow,
+                    Files = files
+                };
+                string manifest = Path.Combine(UpdateStorage.RollbackRoot, "backup.json");
+                File.WriteAllText(manifest, JsonSerializer.Serialize(info));
+
+                RollbackReadinessResult ready = RollbackReadinessService.VerifyForTest();
+                Assert(ready.Ready);
+                Assert(ready.FileCount == 2);
+                Assert(ready.SizeBytes > 0);
+
+                File.AppendAllText(exe, "tampered");
+                RollbackReadinessResult corrupt = RollbackReadinessService.VerifyForTest();
+                Assert(!corrupt.Ready);
+                Assert(corrupt.ErrorKey == "Settings_ReadinessCorrupt");
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                UpdateStorage.RootPathOverride = previousRoot;
+                try { if (Directory.Exists(testRoot)) Directory.Delete(testRoot, true); } catch { }
+            }
+        }
+
+        private static string Hash(string path)
+        {
+            return Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))
+                .ToLowerInvariant();
+        }
+
+        private static void Assert(bool condition, string? detail = null)
+        {
+            if (!condition)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(detail) ? "Assertion failed." : $"Assertion failed: {detail}");
+            }
+        }
+    }
+}

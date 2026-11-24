@@ -56,8 +56,11 @@ namespace CryoTray.Views
         private bool _cpuHoverActive;
         private bool _cpuHoverSmall;
         private bool _gpuHoverActive;
+        private bool _chartsDirty;
         private double _cpuHoverX;
         private double _gpuHoverX;
+        private IDisposable? _telemetryLease;
+        private DispatcherTimer? _chartRenderTimer;
         private SsdRowView? _activeHoverDriveRow;
 
         private readonly List<SsdRowView> _ssdRows = new();
@@ -141,6 +144,12 @@ namespace CryoTray.Views
             RamBreakdownToolTip.PlacementTarget = BtnRamBreakdown;
             SetupFanAnimation();
 
+            _chartRenderTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(200)
+            };
+            _chartRenderTimer.Tick += ChartRenderTimer_Tick;
+
             Loaded += MainWindow_Loaded;
             IsVisibleChanged += MainWindow_IsVisibleChanged;
             Activated += MainWindow_Activated;
@@ -148,6 +157,7 @@ namespace CryoTray.Views
             StateChanged += MainWindow_StateChanged;
             Closing += MainWindow_Closing;
             Closed += MainWindow_Closed;
+            AutopilotService.Instance.StateChanged += OnAutopilotStateChanged;
         }
 
         private void SetupFanAnimation()
@@ -184,6 +194,7 @@ namespace CryoTray.Views
         private void MainWindow_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
             (System.Windows.Application.Current as App)?.OnDashboardVisibilityChanged(IsVisible);
+            UpdateDashboardDemand();
 
             if (IsVisible)
             {
@@ -201,6 +212,7 @@ namespace CryoTray.Views
 
         private void MainWindow_StateChanged(object? sender, EventArgs e)
         {
+            UpdateDashboardDemand();
             if (WindowState == WindowState.Minimized)
             {
                 StopFanAnimation();
@@ -212,6 +224,27 @@ namespace CryoTray.Views
             {
                 UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
             }
+        }
+
+        private void UpdateDashboardDemand()
+        {
+            bool active = IsVisible && WindowState != WindowState.Minimized;
+            if (active)
+            {
+                if (_telemetryLease == null)
+                {
+                    _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
+                        "MainWindow", TelemetryDemand.Dashboard);
+                }
+
+                _chartRenderTimer?.Start();
+                return;
+            }
+
+            _telemetryLease?.Dispose();
+            _telemetryLease = null;
+            _chartsDirty = false;
+            _chartRenderTimer?.Stop();
         }
 
         private bool CanAnimateFan =>
@@ -259,8 +292,11 @@ namespace CryoTray.Views
             MemoryOptimizerService.Instance.OptimizingStateChanged += OnRamOptimizingStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted += OnRamOptimizationCompleted;
 
+            UpdateDashboardDemand();
             UpdateTheme(PowerPlanService.Instance.ActiveProfile, false);
             UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+            DrawCpuChart();
+            DrawGpuChart();
             SetRamOptimizingVisualState(MemoryOptimizerService.Instance.IsOptimizing);
             StartFanAnimation();
         }
@@ -298,6 +334,7 @@ namespace CryoTray.Views
                 app.UpdateAvailabilityChanged -= RefreshUpdateBanner;
             }
             UpdateStatusService.Instance.Changed -= OnUpdateStatusChanged;
+            AutopilotService.Instance.StateChanged -= OnAutopilotStateChanged;
             _updateSnoozeTimer?.Stop();
             _updateSnoozeTimer = null;
             if (UpdateSuccessBanner.Visibility == Visibility.Visible)
@@ -319,6 +356,9 @@ namespace CryoTray.Views
             MemoryOptimizerService.Instance.OptimizationCompleted -= OnRamOptimizationCompleted;
             _ramFeedbackTimer?.Stop();
             _ramFeedbackTimer = null;
+            _chartRenderTimer?.Stop();
+            _telemetryLease?.Dispose();
+            _telemetryLease = null;
             OptGlyphHost?.BeginAnimation(OpacityProperty, null);
             StopFanAnimation();
             DataContext = null;
@@ -386,6 +426,7 @@ namespace CryoTray.Views
                 AutopilotRow.Visibility = s.ShowAutopilotRow
                     ? Visibility.Visible
                     : Visibility.Collapsed;
+                RefreshAutopilotStatus();
                 AutopilotSeparator.Visibility = s.ShowOverlayRow && s.ShowAutopilotRow
                     ? Visibility.Visible
                     : Visibility.Collapsed;
@@ -400,6 +441,40 @@ namespace CryoTray.Views
             {
                 _isApplyingSettings = false;
             }
+        }
+
+        private void OnAutopilotStateChanged(AutopilotState state)
+        {
+            if (Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(RefreshAutopilotStatus));
+        }
+
+        private void RefreshAutopilotStatus()
+        {
+            if (TxtAutopilotStatus == null)
+            {
+                return;
+            }
+
+            AutopilotState state = AutopilotService.Instance.CurrentState;
+            if (!state.IsActive)
+            {
+                TxtAutopilotStatus.Text = "";
+                TxtAutopilotStatus.ToolTip = null;
+                return;
+            }
+
+            string profileName = LocalizationService.Get(
+                PowerProfiles.Get(state.ProfileKey)?.NameKey ?? "Common_Unknown");
+            TxtAutopilotStatus.Text = LocalizationService.Format(
+                "Main_AutopilotGameMode", profileName);
+            TxtAutopilotStatus.ToolTip = string.IsNullOrWhiteSpace(state.ProcessName)
+                ? LocalizationService.Get("Main_AutopilotFullscreen")
+                : state.ProcessName;
         }
 
         private void UpdateWindowHeight(bool showOverlay, bool showAutopilot)
@@ -1047,14 +1122,29 @@ namespace CryoTray.Views
             RenderSsdRows(snapshot.StorageDrives, isFahrenheit, unit);
             UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
 
-            // Draw Charts
-            DrawCpuChart();
-            DrawGpuChart();
+            InvalidateCharts();
 
             if (CpuCoresPopup.IsOpen)
             {
                 UpdateCpuCoreItems(snapshot);
             }
+        }
+
+        private void InvalidateCharts()
+        {
+            _chartsDirty = true;
+        }
+
+        private void ChartRenderTimer_Tick(object? sender, EventArgs e)
+        {
+            if (!_chartsDirty || !IsVisible || WindowState == WindowState.Minimized)
+            {
+                return;
+            }
+
+            _chartsDirty = false;
+            DrawCpuChart();
+            DrawGpuChart();
         }
 
         private static string FormatGpuVramUsage(HardwareSnapshot snapshot)
@@ -1869,6 +1959,7 @@ namespace CryoTray.Views
 
             int n = samples.Count;
             double stepX = w / Math.Max(1, n - 1);
+            int maxPoints = Math.Max(16, (int)Math.Ceiling(w * 2));
 
             int start = 0;
             while (start < n - 1)
@@ -1883,7 +1974,12 @@ namespace CryoTray.Views
                 }
 
                 int segEnd = Math.Min(end + 1, n - 1);
-                DrawCpuSegment(plotCanvas, samples, start, segEnd, segmentProfile, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
+                int segmentLength = segEnd - start + 1;
+                int segmentBudget = Math.Max(4,
+                    (int)Math.Ceiling(maxPoints * segmentLength / (double)n));
+                var indices = ChartSampleReducer.ReduceRange(
+                    samples, start, segEnd, segmentBudget, sample => sample.CpuTemp);
+                DrawCpuSegment(plotCanvas, samples, indices, segmentProfile, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
                 start = end + 1;
             }
 
@@ -1906,8 +2002,7 @@ namespace CryoTray.Views
         private static void DrawCpuSegment(
             Canvas targetCanvas,
             List<TelemetrySample> samples,
-            int start,
-            int end,
+            IReadOnlyList<int> indices,
             PowerProfileDefinition profile,
             double minT,
             double maxT,
@@ -1917,14 +2012,14 @@ namespace CryoTray.Views
             double fillBottom,
             bool includeGlow)
         {
-            var points = new List<Point>(end - start + 1);
-            for (int i = start; i <= end; i++)
+            var points = new List<Point>(indices.Count);
+            foreach (int index in indices)
             {
-                double t = samples[i].CpuTemp;
+                double t = samples[index].CpuTemp;
                 double norm = (t - minT) / (maxT - minT);
                 norm = Math.Clamp(norm, 0, 1);
                 double y = h - (norm * (h - (padY * 2)) + padY);
-                double x = i * stepX;
+                double x = index * stepX;
                 points.Add(new Point(x, y));
             }
 
@@ -2136,17 +2231,28 @@ namespace CryoTray.Views
             _gpuChartMaximum = maxValue;
 
             double stepX = w / Math.Max(1, samples.Count - 1);
+            int maxPoints = Math.Max(16, (int)Math.Ceiling(w * 2));
+            var reducedIndices = ChartSampleReducer.ReduceRange(
+                samples,
+                0,
+                samples.Count - 1,
+                maxPoints,
+                sample =>
+                {
+                    TryGetGpuChartValue(sample, metric, activeGpuId, out double value);
+                    return value;
+                });
 
             var areaPoints = new PointCollection { new Point(0, h) };
             var linePoints = new PointCollection();
 
-            for (int i = 0; i < samples.Count; i++)
+            foreach (int index in reducedIndices)
             {
-                TryGetGpuChartValue(samples[i], metric, activeGpuId, out double value);
+                TryGetGpuChartValue(samples[index], metric, activeGpuId, out double value);
                 double norm = (value - minValue) / Math.Max(1, maxValue - minValue);
                 norm = Math.Clamp(norm, 0, 1);
                 double y = h - (norm * (h - 8) + 4);
-                double x = i * stepX;
+                double x = index * stepX;
 
                 areaPoints.Add(new Point(x, y));
                 linePoints.Add(new Point(x, y));

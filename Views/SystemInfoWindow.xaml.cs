@@ -39,6 +39,7 @@ namespace CryoTray.Views
         private readonly Dictionary<string, Border> _fanHealthRows = new(StringComparer.OrdinalIgnoreCase);
         private string? _highlightFanKey;
         private bool _highlightScrolled;
+        private IDisposable? _telemetryLease;
 
         public SystemInfoWindow()
         {
@@ -107,6 +108,8 @@ namespace CryoTray.Views
             _processChevron = null;
             _processPanel = null;
             _processRowsHost = null;
+            _telemetryLease?.Dispose();
+            _telemetryLease = null;
             InfoContainer.Children.Clear();
             _data = new SystemInfoData();
             Content = null;
@@ -121,6 +124,8 @@ namespace CryoTray.Views
         private void SystemInfoWindow_Loaded(object sender, RoutedEventArgs e)
         {
             _data = SystemInfoQueryService.Instance.QuerySystemInfo();
+            _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
+                "SystemInfoWindow", TelemetryDemand.SystemInfo);
             RenderRows();
             _uptimeTimer.Start();
         }

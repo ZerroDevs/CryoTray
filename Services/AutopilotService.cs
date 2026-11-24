@@ -10,6 +10,17 @@ using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Services
 {
+    public sealed record AutopilotState(
+        bool IsActive,
+        string ProcessName,
+        string ProfileKey,
+        bool IsGameMode);
+
+    internal sealed record AutomationTarget(
+        string ProcessName,
+        string ProfileKey,
+        bool IsGameMode);
+
     public sealed class AutopilotService : IDisposable
     {
         private static AutopilotService? _instance;
@@ -33,6 +44,12 @@ namespace CryoTray.Services
         private int _polling;
         private bool _pausedByAutopilot;
         private bool _lastShouldPause;
+        private bool _automationActive;
+        private bool _previousWasCooling;
+        private string? _previousProfileKey;
+        private string? _appliedProfileKey;
+        private AutomationTarget? _activeTarget;
+        private AutopilotState _currentState = new(false, "", "", false);
         private bool _disposed;
 
         public bool ShouldHoldPause
@@ -56,6 +73,19 @@ namespace CryoTray.Services
                 }
             }
         }
+
+        public AutopilotState CurrentState
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _currentState;
+                }
+            }
+        }
+
+        public event Action<AutopilotState>? StateChanged;
 
         internal Func<bool>? ExternalPauseHoldCheck { get; set; }
 
@@ -125,11 +155,17 @@ namespace CryoTray.Services
             var settings = SettingsService.Instance.Current;
             if (!settings.AutopilotEnabled)
             {
+                if (IsAutomationActive())
+                {
+                    RestorePreviousProfile(settings);
+                }
+
                 lock (_stateLock)
                 {
                     _pausedByAutopilot = false;
                     _lastShouldPause = false;
                 }
+
                 return;
             }
 
@@ -141,41 +177,282 @@ namespace CryoTray.Services
                 ? EnumerateProcessesByPidToolhelp32()
                 : null;
 
-            bool isWhitelistedRunning = hasWhitelist && runningByPid != null &&
-                (settings.AutopilotForegroundOnly
-                    ? IsWhitelistedForegroundProcess(whitelist, runningByPid)
-                    : IsAnyWhitelistedProcessRunning(whitelist, runningByPid.Values));
-            bool isFullscreenRunning = settings.AutopilotPauseOnFullscreen &&
-                IsFullscreen3DOrBorderlessActive(runningByPid);
-            bool shouldPause = isWhitelistedRunning || isFullscreenRunning;
+            AutomationTarget? target = ResolveActiveTarget(
+                settings, whitelist, runningByPid);
 
-            bool pauseCooling = false;
-            bool resumeCooling = false;
+            if (target == null)
+            {
+                if (IsAutomationActive())
+                {
+                    RestorePreviousProfile(settings);
+                }
+                else
+                {
+                    lock (_stateLock)
+                    {
+                        _lastShouldPause = false;
+                    }
+                }
 
+                return;
+            }
+
+            bool needsSwitch;
             lock (_stateLock)
             {
-                _lastShouldPause = shouldPause;
-                if (shouldPause &&
-                    !_pausedByAutopilot &&
-                    PowerPlanService.Instance.IsCoolingModeActive)
+                needsSwitch = !_automationActive ||
+                    _activeTarget == null ||
+                    !TargetEquals(_activeTarget, target) ||
+                    !string.Equals(_appliedProfileKey, target.ProfileKey, StringComparison.OrdinalIgnoreCase);
+
+                if (needsSwitch && !_automationActive)
                 {
-                    _pausedByAutopilot = true;
-                    pauseCooling = true;
+                    var activeProfile = PowerPlanService.Instance.ActiveProfile;
+                    _previousProfileKey = activeProfile?.Key;
+                    _previousWasCooling = PowerPlanService.Instance.IsCoolingModeActive;
+                    _automationActive = true;
+                    _lastShouldPause = true;
+                    _pausedByAutopilot = _previousWasCooling;
                 }
-                else if (!shouldPause && _pausedByAutopilot)
+                else if (needsSwitch)
                 {
-                    _pausedByAutopilot = false;
-                    resumeCooling = true;
+                    _lastShouldPause = true;
                 }
             }
 
-            if (pauseCooling)
+            if (!needsSwitch)
             {
-                SetCoolingMode(false);
+                return;
             }
-            else if (resumeCooling && ExternalPauseHoldCheck?.Invoke() != true)
+
+            if (!SwitchProfile(target.ProfileKey, settings))
+            {
+                return;
+            }
+
+            bool stateChanged;
+            lock (_stateLock)
+            {
+                _activeTarget = target;
+                _appliedProfileKey = target.ProfileKey;
+                stateChanged = !_currentState.Equals(
+                    new AutopilotState(true, target.ProcessName, target.ProfileKey, target.IsGameMode));
+                _currentState = new AutopilotState(
+                    true, target.ProcessName, target.ProfileKey, target.IsGameMode);
+            }
+
+            if (stateChanged)
+            {
+                StateChanged?.Invoke(CurrentState);
+            }
+        }
+
+        private bool IsAutomationActive()
+        {
+            lock (_stateLock)
+            {
+                return _automationActive;
+            }
+        }
+
+        private void RestorePreviousProfile(AppSettings settings)
+        {
+            string? previousKey;
+            bool previousCooling;
+            lock (_stateLock)
+            {
+                previousKey = _previousProfileKey;
+                previousCooling = _previousWasCooling;
+                _automationActive = false;
+                _activeTarget = null;
+                _appliedProfileKey = null;
+                _lastShouldPause = false;
+                _pausedByAutopilot = false;
+                _currentState = new AutopilotState(false, "", "", false);
+            }
+
+            bool externalHold = ExternalPauseHoldCheck?.Invoke() == true;
+            if (previousCooling && externalHold)
+            {
+                SwitchProfile(settings.PreferredGamingProfile, settings);
+            }
+            else if (!string.IsNullOrWhiteSpace(previousKey))
+            {
+                SwitchProfile(previousKey, settings);
+            }
+            else if (previousCooling)
             {
                 SetCoolingMode(true);
+            }
+
+            StateChanged?.Invoke(CurrentState);
+        }
+
+        internal static AutomationTarget? ResolveActiveTarget(
+            AppSettings settings,
+            IReadOnlyCollection<string> whitelist,
+            IReadOnlyDictionary<uint, string>? processesByPid)
+        {
+            string? foreground = GetForegroundProcessName(processesByPid);
+            IReadOnlyCollection<string> running =
+                (IReadOnlyCollection<string>?)processesByPid?.Values.ToList()
+                ?? Array.Empty<string>();
+            AutomationTarget? target = ResolveWhitelistTarget(
+                settings, whitelist, foreground, running);
+            if (target != null)
+            {
+                return target;
+            }
+
+            if (settings.AutopilotPauseOnFullscreen &&
+                IsFullscreen3DOrBorderlessActive(processesByPid))
+            {
+                return new AutomationTarget(
+                    "", settings.PreferredGamingProfile, true);
+            }
+
+            return null;
+        }
+
+        internal static AutomationTarget? ResolveWhitelistTarget(
+            AppSettings settings,
+            IReadOnlyCollection<string> whitelist,
+            string? foreground,
+            IReadOnlyCollection<string> runningNames)
+        {
+            string? matchedProcess = null;
+            foreach (string entry in whitelist)
+            {
+                string normalized = NormalizeProcessName(entry);
+                if (normalized.Length == 0)
+                {
+                    continue;
+                }
+
+                bool matches = settings.AutopilotForegroundOnly
+                    ? string.Equals(
+                        NormalizeProcessName(foreground),
+                        normalized,
+                        StringComparison.OrdinalIgnoreCase)
+                    : runningNames.Contains(normalized, StringComparer.OrdinalIgnoreCase);
+
+                if (matches)
+                {
+                    matchedProcess = normalized;
+                    break;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(matchedProcess))
+            {
+                return null;
+            }
+
+            string profileKey = ResolveProfileKey(
+                matchedProcess,
+                settings.AutopilotAppProfiles,
+                settings.PreferredGamingProfile);
+            return new AutomationTarget(matchedProcess, profileKey, false);
+        }
+
+        internal static string ResolveProfileKey(
+            string processName,
+            IReadOnlyDictionary<string, string>? profiles,
+            string fallbackKey)
+        {
+            string fallback = string.IsNullOrWhiteSpace(fallbackKey)
+                ? PowerProfiles.BalancedKey
+                : fallbackKey;
+
+            if (profiles != null && !string.IsNullOrWhiteSpace(processName))
+            {
+                foreach (var pair in profiles)
+                {
+                    if (!string.Equals(
+                        NormalizeProcessName(pair.Key),
+                        NormalizeProcessName(processName),
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (PowerProfiles.Get(pair.Value) != null)
+                    {
+                        return pair.Value;
+                    }
+                }
+            }
+
+            return fallback;
+        }
+
+        private static bool TargetEquals(AutomationTarget left, AutomationTarget right)
+        {
+            return string.Equals(left.ProcessName, right.ProcessName, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(left.ProfileKey, right.ProfileKey, StringComparison.OrdinalIgnoreCase) &&
+                   left.IsGameMode == right.IsGameMode;
+        }
+
+        private static string? GetForegroundProcessName(
+            IReadOnlyDictionary<uint, string>? processesByPid)
+        {
+            IntPtr fgWindow = NativeMethods.GetForegroundWindow();
+            if (fgWindow == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            _ = NativeMethods.GetWindowThreadProcessId(fgWindow, out uint fgPid);
+            if (fgPid == 0 || fgPid == (uint)Environment.ProcessId)
+            {
+                return null;
+            }
+
+            var processMap = processesByPid ?? EnumerateProcessesByPidToolhelp32();
+            return processMap.TryGetValue(fgPid, out string? processName)
+                ? processName
+                : null;
+        }
+
+        private static bool SwitchProfile(string profileKey, AppSettings settings)
+        {
+            PowerProfileDefinition? profile = PowerProfiles.Get(profileKey);
+            if (profile == null)
+            {
+                profile = PowerProfiles.GetGaming(settings.PreferredGamingProfile);
+            }
+
+            var application = System.Windows.Application.Current;
+            if (application?.Dispatcher != null && !application.Dispatcher.CheckAccess())
+            {
+                application.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    PowerPlanService.Instance.SwitchToProfile(profile);
+                }));
+                return true;
+            }
+
+            return PowerPlanService.Instance.SwitchToProfile(profile);
+        }
+
+        private static void SetCoolingMode(bool enable)
+        {
+            var application = System.Windows.Application.Current;
+            if (application?.Dispatcher != null && !application.Dispatcher.CheckAccess())
+            {
+                application.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (PowerPlanService.Instance.IsCoolingModeActive != enable)
+                    {
+                        PowerPlanService.Instance.SetCoolingMode(enable);
+                    }
+                }));
+                return;
+            }
+
+            if (PowerPlanService.Instance.IsCoolingModeActive != enable)
+            {
+                PowerPlanService.Instance.SetCoolingMode(enable);
             }
         }
 
@@ -232,20 +509,8 @@ namespace CryoTray.Services
             IReadOnlyCollection<string> whitelist,
             IReadOnlyDictionary<uint, string> processesByPid)
         {
-            IntPtr fgWindow = NativeMethods.GetForegroundWindow();
-            if (fgWindow == IntPtr.Zero)
-            {
-                return false;
-            }
-
-            _ = NativeMethods.GetWindowThreadProcessId(fgWindow, out uint fgPid);
-            if (fgPid == 0 || fgPid == (uint)Environment.ProcessId)
-            {
-                return false;
-            }
-
-            return processesByPid.TryGetValue(fgPid, out string? processName) &&
-                   IsWhitelistedProcessName(processName, whitelist);
+            string? foreground = GetForegroundProcessName(processesByPid);
+            return IsWhitelistedProcessName(foreground, whitelist);
         }
 
         /// <summary>Enumerates running process names keyed by PID with a single Toolhelp32 kernel snapshot.</summary>
@@ -353,27 +618,6 @@ namespace CryoTray.Services
             catch (ArgumentException)
             {
                 return "";
-            }
-        }
-
-        private static void SetCoolingMode(bool enable)
-        {
-            var application = System.Windows.Application.Current;
-            if (application?.Dispatcher != null && !application.Dispatcher.CheckAccess())
-            {
-                application.Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    if (PowerPlanService.Instance.IsCoolingModeActive != enable)
-                    {
-                        PowerPlanService.Instance.SetCoolingMode(enable);
-                    }
-                }));
-                return;
-            }
-
-            if (PowerPlanService.Instance.IsCoolingModeActive != enable)
-            {
-                PowerPlanService.Instance.SetCoolingMode(enable);
             }
         }
 

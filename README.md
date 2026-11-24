@@ -126,6 +126,12 @@ All temperature displays, thresholds, charts, and notifications honor the select
 
 Settings > About checks the latest GitHub release and can download and install a newer build in place. Automatic checks are enabled by default: every 5 minutes while the dashboard is open, every 30 minutes in the tray, and immediately after startup, resume, or a network reconnect. Updates require the release's SHA-256 checksum, the manifest version, and every per-file hash to match; Authenticode is checked when present but a signature is not required. About shows the release notes, last checked time and result, download speed, ETA, a Cancel button, and the downloaded-update cache size with a **Clear downloads** action. Startup creates and secures the update and rollback roots before any rollback metadata is read. Before installing, CryoTray saves a hash-verified rollback point under `%ProgramData%\CryoTray` and verifies it before launch; if the new build does not work, About can restore the previous version or delete that rollback copy to reclaim its disk space.
 
+**Release channel** selects Stable (default) or Preview. Stable uses the latest non-prerelease release. Preview reads the latest 20 releases, skips drafts and invalid versions, and picks the highest base version; stable wins when both channels offer the same base. Each channel keeps its own cache and ETag, and switching channels clears the other channel's cached response. Preview builds must bump the numeric patch and use a tag such as `v0.0.104-preview.1`; the existing version comparison then sees `0.0.104-preview.1` as newer than `0.0.103`. A preview build that reuses an already released base version will not be offered.
+
+**Verify rollback readiness** is a read-only drill. It checks the saved rollback manifest, every file hash, the protected ACLs, reparse safety, the app location, and that `CryoTray.exe` and `CryoTray.dll` are present. About reports the file count, size, and localized result, and the check is written to Recent activity. It never writes to the app directory; the existing restore action remains the only path that changes installed files.
+
+Settings > About also includes **Recent activity**, a local timeline of app starts and exits, profile and cooling changes, alerts, update checks and installs, cleanup, RAM optimization, and Game Mode transitions. **Save support bundle...** writes a ZIP with a plain-text summary, the existing diagnostics text, the System Information report, the activity JSONL plus readable text, allowlisted settings, and the tail of the updater log. The settings projection omits file paths, hotkeys, fan aliases, the Autopilot app list, and window positions.
+
 If you are upgrading from `v0.0.100`, use the setup manually once. That release's updater prefers ZIP assets and can fail before the new installer runs. `v0.0.101` and later correctly choose the setup for installed copies.
 
 ## Cooling Mode and power profiles
@@ -181,18 +187,19 @@ Support depends on the GPU, driver, and VBIOS. Firmware that reports a locked or
 
 ## Autopilot
 
-Autopilot monitors running processes every 2.5 seconds using a single Win32 `CreateToolhelp32Snapshot` scan and can optionally watch for active fullscreen 3D or borderless games via `SHQueryUserNotificationState`. If a whitelisted app or a fullscreen game is active while Cooling Mode is on, Autopilot switches to the preferred off profile; when the game closes, it restores the preferred cooling profile.
+Game Mode, still titled Autopilot in the navigation, monitors running processes every 2.5 seconds using a single Win32 `CreateToolhelp32Snapshot` scan and can optionally watch for active fullscreen 3D or borderless games via `SHQueryUserNotificationState`. Each whitelisted app maps to a profile. The first matching foreground app wins, then any running whitelisted app, then fullscreen Game Mode. CryoTray captures the profile that was active before the rule, switches once, and restores it when the rule clears.
 
 Important behavior:
 
-- Autopilot only switches away from a cooling profile that is already active. It does not turn Cooling Mode on by itself.
+- Game Mode only switches away from a cooling profile that is already active. It does not turn Cooling Mode on by itself.
 - Entries are stored by executable name, so a selected game can be matched regardless of its install path.
+- Each Settings row has its own profile selector; entries saved before this change use the preferred off profile.
 - Fullscreen auto-switch can be enabled from Settings > Autopilot independently of or alongside the whitelist.
-- Foreground-only pause is available under Settings > Autopilot. When enabled, a whitelisted app pauses Cooling Mode only while it owns the foreground window, so a background launcher cannot keep Cooling Mode off after the game closes.
+- Foreground-only matching is available under Settings > Autopilot. When enabled, a whitelisted app applies only while it owns the foreground window, so a background launcher cannot hold a profile after the game closes.
+- Manual profile changes made while a rule is active are respected until that rule changes.
+- If a timed Cooling Mode pause is still active, Game Mode does not resume cooling when the app closes.
 - Running applications can be picked from a list, or a portable executable can be added with the file browser.
 - Removing an entry will not affect any process that is already running; the next poll updates the state.
-
-Autopilot is useful for games that should not be limited by the low-heat processor settings. Users who never enable Cooling Mode do not need Autopilot.
 
 ## Smart Download Timer
 
@@ -499,7 +506,7 @@ gh workflow run Release --ref main
 gh run list --workflow release.yml --limit 1
 ```
 
-Open the returned run URL to follow the build. A successful run creates the tag `v<version>`. Rerunning the same version after that tag exists is intentionally skipped, so bump `VERSION` before publishing another release. Signing is applied automatically when the repository signing secrets are configured; otherwise the assets are published unsigned with SHA-256 checksums.
+Open the returned run URL to follow the build. A successful stable run creates the tag `v<version>`. Rerunning the same version after that tag exists is intentionally skipped, so bump `VERSION` before publishing another release. To publish a preview, dispatch the workflow with channel `preview` and a preview number; it creates `v<version>-preview.<number>` and marks the GitHub release as a prerelease. The base version must still be newer than the installed stable build, so bump the numeric patch. Signing is applied automatically when the repository signing secrets are configured; otherwise the assets are published unsigned with SHA-256 checksums.
 
 ## Testing and diagnostics
 
@@ -511,7 +518,7 @@ The executable includes an integration test harness:
 dotnet .\bin\Release\net8.0-windows\CryoTray.dll /test
 ```
 
-Run it elevated for full sensor coverage. The 56 checks cover ring buffer stats, GPU detail formatting, the sustained hotspot-to-edge alert and its cooldown, live process CPU/GPU sampling, the six-profile whitelist engine, Windows Balanced cleanup, power-plan lifecycle and uninstall cleanup, GPU power clamping and VBIOS-default handling, WMI/EDID system queries, GDI icon handle cleanup, English and Arabic RTL localization, theme persistence and normalization, WPF window instantiation across the dashboard, Settings, System Information, stress test, overlay, and Storage Cleanup, per-core temperature mapping and honest `NaN` fallback safety, alert cooldown and drive exclusion filtering, fan health arming, GPU fan and idle-stop guards, storage health transitions and cooldowns, storage cleanup path and broad-root guards, cleanup confirmation and active-cancel/close guards, tray badge metric resolution, foreground-only Autopilot matching, multi-GPU selection, PawnIO detection, overlay `WS_EX_TRANSPARENT` click-through, custom hotkey capture/registration, `Toolhelp32` process scan and fullscreen state, `EventWaitHandle` activation signaling, `GlobalMemoryStatusEx` + NT page-list RAM breakdown (`NtQuerySystemInformation(80)`), dynamic byte formatting, `GetSystemTimes` CPU-idle math, kernel memory optimization (`NtSetSystemInformation`) and privilege fallback, RAM tooltip hover/pin lifecycle, `TelemetryCsvService` export, `StartupTaskService` XML & elevated Task Scheduler sync, dashboard SSD drive-letter labels, timed Cooling Mode pause/resume, stress-test Cooling OFF vs ON delta, retained-throughput, and FPS-impact calculations, dark owner-drawn tray context menu rendering, custom Cooling ON/OFF frame colors, Black vs White tray badge digit rendering, CPU clock/base-speed formatting, Small/Large CPU graph layouts, per-drive inline temperature history lookup, zero-hardcoding hardware vendor/snapshot clone integrity, download-timer wait-for-start, quiet-window, disk-guard, warning-cancel, and auto-disarm behavior, and dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering without white icon gutters.
+Run it elevated for full sensor coverage. The runtime checks cover ring buffer stats, GPU detail formatting, the sustained hotspot-to-edge alert and its cooldown, live process CPU/GPU sampling, the six-profile whitelist engine, Windows Balanced cleanup, power-plan lifecycle and uninstall cleanup, GPU power clamping and VBIOS-default handling, WMI/EDID system queries, GDI icon handle cleanup, English and Arabic RTL localization, theme persistence and normalization, WPF window instantiation across the dashboard, Settings, System Information, stress test, overlay, and Storage Cleanup, per-core temperature mapping and honest `NaN` fallback safety, alert cooldown and drive exclusion filtering, fan health arming, GPU fan and idle-stop guards, storage health transitions and cooldowns, storage cleanup path and broad-root guards, cleanup confirmation and active-cancel/close guards, adaptive telemetry demand and storage policy, chart decimation, activity cap and sanitization, support bundle entries and redaction, Settings search ranking and localization, Game Mode target resolution, update channel selection, rollback readiness, tray badge metric resolution, foreground-only Autopilot matching, multi-GPU selection, PawnIO detection, overlay `WS_EX_TRANSPARENT` click-through, custom hotkey capture/registration, `Toolhelp32` process scan and fullscreen state, `EventWaitHandle` activation signaling, `GlobalMemoryStatusEx` + NT page-list RAM breakdown (`NtQuerySystemInformation(80)`), dynamic byte formatting, `GetSystemTimes` CPU-idle math, kernel memory optimization (`NtSetSystemInformation`) and privilege fallback, RAM tooltip hover/pin lifecycle, `TelemetryCsvService` export, `StartupTaskService` XML & elevated Task Scheduler sync, dashboard SSD drive-letter labels, timed Cooling Mode pause/resume, stress-test Cooling OFF vs ON delta, retained-throughput, and FPS-impact calculations, dark owner-drawn tray context menu rendering, custom Cooling ON/OFF frame colors, Black vs White tray badge digit rendering, CPU clock/base-speed formatting, Small/Large CPU graph layouts, per-drive inline temperature history lookup, zero-hardcoding hardware vendor/snapshot clone integrity, download-timer wait-for-start, quiet-window, disk-guard, warning-cancel, and auto-disarm behavior, and dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering without white icon gutters.
 
 This is not an isolated unit test suite. It reads real hardware, creates or modifies CryoTray power profiles, resets stored parameters, and may require multiple CPU cores. Use it on a test machine or accept that it touches those system settings. The GPU power checks validate bounds, defaults, and unsupported copy without writing a real board-power limit, and the download-timer checks exercise the pure engine and sampler guards without performing a shutdown.
 
@@ -540,6 +547,7 @@ CryoTray does not include analytics, advertising, accounts, or remote telemetry.
 Local files:
 
 - `%APPDATA%\CryoTray\settings.json`: all application settings, including window positions and the Autopilot whitelist.
+- `%APPDATA%\CryoTray\activity.jsonl`: the bounded local activity timeline, capped near 256 KB.
 - `%APPDATA%\CryoTray\crash.log`: unhandled exception details, when one is captured.
 
 Update checks contact the GitHub Releases API:
@@ -620,7 +628,8 @@ Key implementation choices:
 
 - **Software rendering.** WPF renders in software to keep text and charts consistent across systems.
 - **On-demand windows.** Companion windows are constructed per open and released on close where practical.
-- **Cached telemetry.** The ring buffer holds 3,600 one-second samples, enough for the 60 minute chart range.
+- **Adaptive telemetry.** Window and service leases choose 1 s, 2 s, or 3 s polling; CPU and GPU always update, while fans and storage are gated and cached. The ring buffer holds up to 3,600 telemetry samples, enough for the 60 minute chart range at 1 s.
+- **Bounded chart work.** Charts reduce to bucket min/max within a point budget near twice the plot width, keep original indices for hover, and coalesce telemetry redraws on a 200 ms timer.
 - **Resource ownership.** GDI objects and HICON handles are retained only as long as needed and destroyed when a badge is replaced or disposed.
 - **Localization resources.** English and Arabic strings live in XAML resource dictionaries, and the application reapplies localization when the language changes.
 - **Theme resources.** Shared brushes in `App.xaml` are swapped at runtime by `ThemeService`; dark is the default, light is a full warm-neutral palette, and System follows the Windows app theme.
@@ -686,7 +695,7 @@ CryoTray takes security seriously. If you find a security vulnerability, please 
 
 ## Contributing
 
-Contributions, bug reports, and hardware compatibility findings are welcome. Please read our [Contributing Guide](CONTRIBUTING.md) for architectural guidelines, the 1-second telemetry budget, GDI resource hygiene, RTL localization, and testing requirements before submitting a pull request. Useful reports include:
+Contributions, bug reports, and hardware compatibility findings are welcome. Please read our [Contributing Guide](CONTRIBUTING.md) for architectural guidelines, the adaptive telemetry budget, GDI resource hygiene, RTL localization, and testing requirements before submitting a pull request. Useful reports include:
 
 - Windows version and build.
 - CPU, GPU, and storage models.

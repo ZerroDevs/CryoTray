@@ -86,6 +86,7 @@ namespace CryoTray.Tests
             allPassed &= TestStorageCleanupClosePromptsWhileBusy();
             allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
+            allPassed &= FollowUpVerificationTests.RunNonElevatedChecks();
 
             Console.WriteLine("==================================================");
             if (allPassed)
@@ -152,6 +153,7 @@ namespace CryoTray.Tests
             allPassed &= TestStorageCleanupClosePromptsWhileBusy();
             allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
+            allPassed &= FollowUpVerificationTests.RunNonElevatedChecks();
             allPassed &= UpdateVerificationTests.RunNonElevatedChecks();
 
             Console.WriteLine("==================================================");

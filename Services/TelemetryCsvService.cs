@@ -20,6 +20,7 @@ namespace CryoTray.Services
         private StreamWriter? _writer;
         private string _currentFilePath = "";
         private bool _disposed;
+        private IDisposable? _demandLease;
 
         public event Action<bool>? RecordingStateChanged;
         public event Action<string>? RecordingError;
@@ -93,6 +94,8 @@ namespace CryoTray.Services
                 writer.Flush();
                 _writer = writer;
                 _currentFilePath = filePath;
+                _demandLease = TelemetryDemandTracker.Instance.Acquire(
+                    "TelemetryCsv", TelemetryDemand.Csv);
                 HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             }
 
@@ -102,6 +105,7 @@ namespace CryoTray.Services
         public void StopRecording()
         {
             bool stopped = false;
+            IDisposable? lease = null;
             lock (_lock)
             {
                 if (_writer != null)
@@ -117,10 +121,13 @@ namespace CryoTray.Services
                     }
                     _writer = null;
                     _currentFilePath = "";
+                    lease = _demandLease;
+                    _demandLease = null;
                     stopped = true;
                 }
             }
 
+            lease?.Dispose();
             if (stopped)
             {
                 RecordingStateChanged?.Invoke(false);
@@ -130,6 +137,7 @@ namespace CryoTray.Services
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
         {
             string? failureMessage = null;
+            IDisposable? lease = null;
             lock (_lock)
             {
                 if (_writer == null || _disposed)
@@ -155,9 +163,12 @@ namespace CryoTray.Services
                     }
                     _writer = null;
                     _currentFilePath = "";
+                    lease = _demandLease;
+                    _demandLease = null;
                 }
             }
 
+            lease?.Dispose();
             if (failureMessage != null)
             {
                 RecordingStateChanged?.Invoke(false);

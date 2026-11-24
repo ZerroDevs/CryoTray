@@ -95,8 +95,12 @@ namespace CryoTray.Views
             }
         }
 
+        private IDisposable? _telemetryLease;
+
         private void StressTestWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
+                "StressTestWindow", TelemetryDemand.StressTest);
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetry;
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingChanged;
             UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
@@ -121,6 +125,8 @@ namespace CryoTray.Views
             ThemeService.ThemeChanged -= OnThemeChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetry;
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingChanged;
+            _telemetryLease?.Dispose();
+            _telemetryLease = null;
             _timer.Stop();
             _testCts?.Dispose();
             _testCts = null;

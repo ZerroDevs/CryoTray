@@ -101,6 +101,7 @@ namespace CryoTray.Models
         public bool AutopilotPauseOnFullscreen { get; set; } = false;
         public bool AutopilotForegroundOnly { get; set; } = false;
         public List<string> AutopilotWhitelist { get; set; } = new();
+        public Dictionary<string, string> AutopilotAppProfiles { get; set; } = new();
 
         // Overlay
         public bool OverlayEnabled { get; set; } = false;
@@ -146,6 +147,7 @@ namespace CryoTray.Models
         // Updates
         public bool AutomaticUpdateChecks { get; set; } = true;
         public bool SaveRollbackOnUpdate { get; set; } = true;
+        public string UpdateChannel { get; set; } = "Stable";
         public DateTime? LastUpdateCheckUtc { get; set; }
         public string LastUpdateOutcome { get; set; } = "";
         public string LastUpdateVersion { get; set; } = "";
