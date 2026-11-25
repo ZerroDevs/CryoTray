@@ -10,7 +10,7 @@
 - A stale `build-check/WpfProbe` folder from the README's `-o build-check` command broke the first build with duplicate assembly attributes. It was deleted; regenerate it only outside the project tree, or delete it before building.
 - Version stamps for `0.0.105`: `VERSION`, `app.manifest`, and the Inno default `AppVersion`. Custom release notes live in `release-notes/0.0.105.md`.
 - Published by Release run `45708842640` in `3m1s`; tag `v0.0.105` points at `ee68a1e`. Assets: setup `CryoTray-Setup-0.0.105.exe` (`55.1 MB`), portable `CryoTray-0.0.105-win-x64.zip` (`78.7 MB`), update `CryoTray-Update-0.0.105-win-x64.zip` (`78.8 MB`), and matching `.sha256` files. Signing was skipped because the repository secrets are unset, so the assets are unsigned and SHA-256 verification is required. The published body is the custom notes copy and names no tests.
-- Still stale after the release: the static docs fallback (`docs/js/config.js`, `docs/index.html`, `docs/js/i18n.js`) still points at `v0.0.104` and its asset sizes.
+- The static docs fallback (`docs/js/config.js`, `docs/index.html`, `docs/js/i18n.js`) now seeds `v0.0.105`, the `2026-11-25T21:59:13Z` publish time, and the real `55,137,499`/`82,533,912` byte assets, so the no-JavaScript path no longer advertises `v0.0.104`.
 
 ## v0.0.104 release (2026-11-24)
 
