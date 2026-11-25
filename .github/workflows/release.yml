@@ -84,10 +84,10 @@ jobs:
             Write-Host "Tag $tag already exists. This run will not publish a release."
           }
 
-      - name: Set up .NET 8
+      - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore
         shell: pwsh
@@ -100,11 +100,11 @@ jobs:
       - name: Run verification tests
         shell: pwsh
         run: |
-          dotnet bin\Release\net8.0-windows\CryoTray.dll /test
+          dotnet bin\Release\net10.0-windows\CryoTray.dll /test
           if ($LASTEXITCODE -ne 0) {
             throw "/test failed with exit code $LASTEXITCODE."
           }
-          dotnet bin\Release\net8.0-windows\CryoTray.dll /test-updates
+          dotnet bin\Release\net10.0-windows\CryoTray.dll /test-updates
           if ($LASTEXITCODE -ne 0) {
             throw "/test-updates failed with exit code $LASTEXITCODE."
           }
@@ -360,7 +360,13 @@ jobs:
           - **Portable Zip:** Download ``$zipName``, verify against ``$zipHashName``, extract, run ``PawnIO_setup.exe`` if the driver is missing, then run ``CryoTray.exe``.
           "@
 
-          Set-Content -LiteralPath "release\notes.md" -Value $notes -Encoding utf8
+          # A per-version file in release-notes/ replaces the generated notes verbatim.
+          $notesSource = "release-notes\$version.md"
+          if (Test-Path -LiteralPath $notesSource -PathType Leaf) {
+            Copy-Item -LiteralPath $notesSource -Destination "release\notes.md" -Force
+          } else {
+            Set-Content -LiteralPath "release\notes.md" -Value $notes -Encoding utf8
+          }
 
       - name: Publish GitHub release
         if: steps.version.outputs.skip != 'true'

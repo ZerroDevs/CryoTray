@@ -2,6 +2,8 @@
 
 Exhaustive catalog of CryoTray features. Check before planning or adding features to enforce zero duplication.
 
+- **Runtime support (2026-11-25)**: The app targets `net10.0-windows` (LTS, supported to 2028-11-14) after .NET 8 left support on 2026-11-10. Release builds stay self-contained `win-x64`, so users install nothing extra, and no feature changed.
+
 - **Repository state (2026-11-24)**: `main` includes the `v0.0.104` release (tag at `1420823`) and its docs update. The release commits the health check, session report, GPU diagnostics, accessibility pass, opt-in timer/standby/keep-awake utilities, Settings search fix, English/Arabic copy, docs-site update, and tests listed below. These are current behavior; the remaining candidates in `HANDOFF.md` are still unimplemented.
 - **Documentation site (`docs/`)**: The static marketing site's nine-card feature grid mirrors the app's health check, session report, GPU diagnostics, and accessibility capabilities. It is explanatory content only and changes no app behavior; keep English/Arabic keys and HTML fallbacks aligned.
 

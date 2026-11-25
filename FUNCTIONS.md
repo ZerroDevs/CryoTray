@@ -2,6 +2,8 @@
 
 Reuse these before adding a duplicate helper. Update this file when adding shared code.
 
+- Target framework (2026-11-25): the project targets `net10.0-windows` (LTS) after the .NET 8 end of support on 2026-11-10. That retarget changed no function, type, or signature.
+
 - Remaining candidates without contracts: chart peak/threshold insights, quiet hours, battery health/runtime, native tray hosting, and tray layout self-check.
 - Repository state: `main` includes the `v0.0.104` release (tag at `1420823`); the health check, session report, GPU diagnostics, opt-in utilities, and Settings search contracts below are committed. The 150% accessibility pass is included in the release and adds `TextScaleService` plus the related UI changes.
 - The docs-site refresh added no application functions or shared contracts. Its static card uses only `docs/index.html`, `docs/css/features.css`, and `docs/js/i18n.js`; keep the nine-card English/Arabic copy and HTML fallbacks aligned there.

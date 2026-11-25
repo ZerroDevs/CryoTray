@@ -1,5 +1,15 @@
 # HANDOFF
 
+## v0.0.105 .NET 10 retarget (2026-11-25)
+
+- `CryoTray.csproj` now targets `net10.0-windows` (was `net8.0-windows`, out of support since 2026-11-10). .NET 10 is LTS to 2028-11-14; .NET 11 is STS with the same end date, so it was not chosen.
+- `.github/workflows/release.yml`: `setup-dotnet` installs `10.0.x`, both runtime test paths point at `bin\Release\net10.0-windows`, and a `release-notes/<version>.md` file now replaces the generated release notes when present.
+- `README.md` and `CONTRIBUTING.md`: SDK links and minimums, the runtime row, the badge, the TFM sentence, and every `net8.0-windows` command path now read `net10.0-windows`. `CONTRIBUTING.md` also carries the `0.0.105` baseline.
+- `WFO0003` joins `WFAC010` in `NoWarn`: it wants DPI settings out of `app.manifest`, but WPF needs `PerMonitorV2` there and WinForms only hosts the tray icon. The manifest keeps its DPI entries.
+- Verified: `dotnet build CryoTray.csproj -c Release -t:Rebuild -p:UseSharedCompilation=false` passed `0 Warning(s), 0 Error(s)`; `/test` passed 64/64 with live sensors; `/test-updates` passed 16/16. In Git Bash, export `MSYS2_ARG_CONV_EXCL='*'` first or `/test` is rewritten into a path and the app just starts its GUI.
+- A stale `build-check/WpfProbe` folder from the README's `-o build-check` command broke the first build with duplicate assembly attributes. It was deleted; regenerate it only outside the project tree, or delete it before building.
+- Version stamps for `0.0.105`: `VERSION`, `app.manifest`, and the Inno default `AppVersion`. Custom release notes live in `release-notes/0.0.105.md`.
+
 ## v0.0.104 release (2026-11-24)
 
 - Bumped `VERSION`, `app.manifest`, and the Inno default `AppVersion` to `0.0.104`; aligned the `CONTRIBUTING.md` and `SECURITY.md` baselines. The release is stable, not a prerelease, and tag `v0.0.104` points at commit `1420823`.

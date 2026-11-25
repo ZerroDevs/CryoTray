@@ -23,8 +23,8 @@ When proposing or implementing changes, keep these core design values in mind:
 
 ### Prerequisites
 - **Operating System**: Windows 10 (version 1809+) or Windows 11, x64 architecture.
-- **SDK**: [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (version `8.0.300` or newer).
-- **IDE / Editor**: Visual Studio 2022 (with *.NET desktop development* workload), Visual Studio Code (with *C# Dev Kit*), or JetBrains Rider.
+- **SDK**: [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (version `10.0.100` or newer).
+- **IDE / Editor**: Visual Studio (with the *.NET desktop development* workload), Visual Studio Code (with *C# Dev Kit*), or JetBrains Rider.
 - **Hardware Drivers**: [PawnIO 2.x](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) installed on the host machine for low-level CPU/motherboard sensor access.
 - **GPU Driver**: A current NVIDIA or AMD display driver for the opt-in GPU power limit. Unsupported or locked VBIOS ranges leave the control disabled.
 
@@ -46,26 +46,26 @@ git checkout -b feature/your-feature-name
 ```powershell
 dotnet build -c Release
 ```
-CryoTray targets `net8.0-windows` with both `UseWPF=true` and `UseWindowsForms=true`.
+CryoTray targets `net10.0-windows` with both `UseWPF=true` and `UseWindowsForms=true`.
 
 ### Run Automated Verification Tests
 CryoTray includes a built-in automated test suite that validates ring buffers, power plan integration, system queries, GDI leak prevention, WPF window instantiation, per-core sensor logic, storage cleanup guards, GPU power bounds and defaults, and download-timer warning/cancel safety:
 ```powershell
-dotnet bin\Release\net8.0-windows\CryoTray.dll /test
+dotnet bin\Release\net10.0-windows\CryoTray.dll /test
 ```
 *All verification tests must pass before submitting a pull request.*
 
 ### Run Hardware Sensor Dump (Diagnostics)
 To inspect raw sensors detected on your machine:
 ```powershell
-dotnet bin\Release\net8.0-windows\CryoTray.dll /dump
+dotnet bin\Release\net10.0-windows\CryoTray.dll /dump
 ```
 
 ### Launch the Application
 `app.manifest` requires Administrator privileges for kernel-level sensor access, and Release builds refuse to start from a user-writable folder such as the project output. Use the Debug build for IDE runs and launch via PowerShell:
 ```powershell
 dotnet build -c Debug
-Start-Process .\bin\Debug\net8.0-windows\CryoTray.exe
+Start-Process .\bin\Debug\net10.0-windows\CryoTray.exe
 ```
 To run the Release configuration from the project folder instead, create the developer marker once from an elevated shell; delete it to restore the guard:
 ```powershell
@@ -132,8 +132,8 @@ fix(tray): prevent tooltip cutoff when merged badge is active
 
 ### 8. Versioning Scheme (`VERSION`)
 CryoTray uses three-part semantic versioning rooted at `0.0.100`:
-- **Current Baseline**: `0.0.104` (defined in the root `VERSION` file).
-- **Subsequent Updates**: Increment sequentially (`0.0.104`, `0.0.105`, `0.0.106`, etc.).
+- **Current Baseline**: `0.0.105` (defined in the root `VERSION` file).
+- **Subsequent Updates**: Increment sequentially (`0.0.105`, `0.0.106`, `0.0.107`, etc.).
 - **Automatic Stamping**: `CryoTray.csproj` dynamically reads `VERSION` to stamp `AssemblyVersion`, `FileVersion`, and `InformationalVersion` on build.
 - **Automated Releases**: The release workflow (`.github/workflows/release.yml`) monitors changes to `VERSION` on `main` and creates matching tags (e.g., `v0.0.100`, `v0.0.101`) and release artifacts with SHA-256 digests.
 
@@ -144,7 +144,7 @@ CryoTray uses three-part semantic versioning rooted at `0.0.100`:
 Before opening a pull request, verify:
 
 - [ ] Code compiles cleanly with zero warnings and zero errors (`dotnet build -c Release`).
-- [ ] All automated tests pass (`dotnet bin\Release\net8.0-windows\CryoTray.dll /test`).
+- [ ] All automated tests pass (`dotnet bin\Release\net10.0-windows\CryoTray.dll /test`).
 - [ ] Any new UI strings are localized in both `Strings.en.xaml` and `Strings.ar.xaml`.
 - [ ] New system-level controls are opt-in, restore system state on exit, and have tests for unsupported hardware and cancellation.
 - [ ] No GDI handle leaks are introduced (verify via test or Windows Task Manager GDI Objects column).

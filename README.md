@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 / 11">
-  <img src="https://img.shields.io/badge/.NET-8.0%20WPF%20%2B%20WinForms-purple" alt=".NET 8.0 WPF + WinForms">
+  <img src="https://img.shields.io/badge/.NET-10.0%20WPF%20%2B%20WinForms-purple" alt=".NET 10.0 WPF + WinForms">
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="Apache-2.0">
 </p>
 
@@ -45,7 +45,7 @@ CryoTray does not control fans or voltages. Cooling Mode changes Windows process
 | Item | Details |
 | --- | --- |
 | Platform | Windows 10 and Windows 11, x64 |
-| Runtime | .NET 8 with WPF and Windows Forms |
+| Runtime | .NET 10 LTS with WPF and Windows Forms |
 | Privileges | Administrator, required by the application manifest for hardware sensor access and system-level power controls |
 | Sensor source | LibreHardwareMonitorLib 0.9.6, with WMI used only for system inventory |
 | Sensor driver | PawnIO 2.x for low-level CPU and motherboard access |
@@ -440,7 +440,7 @@ The dashboard opens unless `Launch app in background mode` is enabled. Hiding th
 
 ### Prerequisites
 
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
+- [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 - Windows 10 or Windows 11, x64.
 - Visual Studio is optional; the repository builds with the .NET CLI.
 - PawnIO 2.x for running the sensor-dependent parts of the runtime tests.
@@ -455,14 +455,14 @@ dotnet build CryoTray.csproj -c Release
 The executable is written to:
 
 ```text
-bin\Release\net8.0-windows\CryoTray.exe
+bin\Release\net10.0-windows\CryoTray.exe
 ```
 
 For local UI work, build the Debug configuration and start it from an elevated terminal, or launch it normally and approve the UAC prompt:
 
 ```powershell
 dotnet build CryoTray.csproj -c Debug
-Start-Process .\bin\Debug\net8.0-windows\CryoTray.exe
+Start-Process .\bin\Debug\net10.0-windows\CryoTray.exe
 ```
 
 Debug builds skip the installed-copy location guard so the app can run from the project folder. Release builds keep that guard unless the machine has a developer marker, which an administrator creates once:
@@ -515,7 +515,7 @@ Open the returned run URL to follow the build. A successful stable run creates t
 The executable includes an integration test harness:
 
 ```powershell
-dotnet .\bin\Release\net8.0-windows\CryoTray.dll /test
+dotnet .\bin\Release\net10.0-windows\CryoTray.dll /test
 ```
 
 Run it elevated for full sensor coverage. The runtime checks cover ring buffer stats, GPU detail formatting, the sustained hotspot-to-edge alert and its cooldown, live process CPU/GPU sampling, the six-profile whitelist engine, Windows Balanced cleanup, power-plan lifecycle and uninstall cleanup, GPU power clamping and VBIOS-default handling, WMI/EDID system queries, GDI icon handle cleanup, English and Arabic RTL localization, theme persistence and normalization, WPF window instantiation across the dashboard, Settings, System Information, stress test, overlay, and Storage Cleanup, per-core temperature mapping and honest `NaN` fallback safety, alert cooldown and drive exclusion filtering, fan health arming, GPU fan and idle-stop guards, storage health transitions and cooldowns, storage cleanup path and broad-root guards, cleanup confirmation and active-cancel/close guards, adaptive telemetry demand and storage policy, chart decimation, activity cap and sanitization, support bundle entries and redaction, Settings search ranking and localization, Game Mode target resolution, update channel selection, rollback readiness, tray badge metric resolution, foreground-only Autopilot matching, multi-GPU selection, PawnIO detection, overlay `WS_EX_TRANSPARENT` click-through, custom hotkey capture/registration, `Toolhelp32` process scan and fullscreen state, `EventWaitHandle` activation signaling, `GlobalMemoryStatusEx` + NT page-list RAM breakdown (`NtQuerySystemInformation(80)`), dynamic byte formatting, `GetSystemTimes` CPU-idle math, kernel memory optimization (`NtSetSystemInformation`) and privilege fallback, RAM tooltip hover/pin lifecycle, `TelemetryCsvService` export, `StartupTaskService` XML & elevated Task Scheduler sync, dashboard SSD drive-letter labels, timed Cooling Mode pause/resume, stress-test Cooling OFF vs ON delta, retained-throughput, and FPS-impact calculations, dark owner-drawn tray context menu rendering, custom Cooling ON/OFF frame colors, Black vs White tray badge digit rendering, CPU clock/base-speed formatting, Small/Large CPU graph layouts, per-drive inline temperature history lookup, zero-hardcoding hardware vendor/snapshot clone integrity, download-timer wait-for-start, quiet-window, disk-guard, warning-cancel, and auto-disarm behavior, and dark WPF `ToolsContextMenu` / `RamScopeMenu` rendering without white icon gutters.
@@ -527,7 +527,7 @@ This is not an isolated unit test suite. It reads real hardware, creates or modi
 For diagnosing missing or incorrect CPU readings:
 
 ```powershell
-dotnet .\bin\Release\net8.0-windows\CryoTray.dll /dump
+dotnet .\bin\Release\net10.0-windows\CryoTray.dll /dump
 ```
 
 Run it elevated. It opens a CPU-only LibreHardwareMonitor session and writes every temperature and clock sensor, including type, value, minimum, maximum, and identifier, to `cpu-sensors.txt`.
@@ -640,7 +640,7 @@ Key implementation choices:
 ## Project layout
 
 ```text
-CryoTray.csproj              .NET 8 WPF/WinForms project and package metadata
+CryoTray.csproj              .NET 10 WPF/WinForms project and package metadata
 App.xaml / App.xaml.cs       application lifecycle and orchestration
 VERSION                      release version, consumed by MSBuild
 LICENSE                      Apache License 2.0

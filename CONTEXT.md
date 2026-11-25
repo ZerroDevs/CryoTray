@@ -1,5 +1,14 @@
 # CONTEXT
 
+## .NET runtime support (2026-11-25)
+
+- The project targets `net10.0-windows` (LTS, supported to 2028-11-14), retargeted from `net8.0-windows` after .NET 8 left support on 2026-11-10. .NET 11 is STS and ends on the same date, so it was rejected.
+- Release builds are self-contained `win-x64`, so the runtime ships inside `publish\win-x64` and the installed payload. End users never install .NET separately, and the installer, update payload, and rollback paths are unaffected by the TFM.
+- `WFO0003` is suppressed alongside `WFAC010`: it wants DPI settings out of `app.manifest`, but WPF requires `PerMonitorV2` there and WinForms only hosts the tray icon.
+- Desktop behavior checked before the move: `MainWindow` aliases `WinForms = System.Windows.Forms` and the tray/services files import only WinForms, so the .NET 10 `MenuItem`/`ContextMenu` ambiguity does not apply; there are no empty `Grid.ColumnDefinitions`/`RowDefinitions`; there are no WinForms `Form.OnClosing`/`OnClosed` overrides.
+- `LibreHardwareMonitorLib 0.9.6` ships `net8.0`/`netstandard2.0` and `System.Management 10.0.2` ships `net10.0`, so both packages run on `net10.0`.
+- Build and both runtime suites were verified on `net10.0-windows`: `0` warnings, `/test` 64/64, `/test-updates` 16/16.
+
 ## Repository state (2026-11-24)
 
 - `main` is synced with `origin/main` after the `v0.0.104` release and its docs update. The release tag points at `1420823`; the release commit is `6248882`. It combines every post-`v0.0.103` feature commit with the accessibility pass and the test-fixture fix described below. No new architecture or dependency was introduced by the release itself.
