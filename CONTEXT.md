@@ -8,6 +8,7 @@
 - Desktop behavior checked before the move: `MainWindow` aliases `WinForms = System.Windows.Forms` and the tray/services files import only WinForms, so the .NET 10 `MenuItem`/`ContextMenu` ambiguity does not apply; there are no empty `Grid.ColumnDefinitions`/`RowDefinitions`; there are no WinForms `Form.OnClosing`/`OnClosed` overrides.
 - `LibreHardwareMonitorLib 0.9.6` ships `net8.0`/`netstandard2.0` and `System.Management 10.0.2` ships `net10.0`, so both packages run on `net10.0`.
 - Build and both runtime suites were verified on `net10.0-windows`: `0` warnings, `/test` 64/64, `/test-updates` 16/16.
+- `v0.0.105` published the retarget: tag `v0.0.105` at `ee68a1e`, Release run `45708842640`, self-contained unsigned `win-x64` assets with SHA-256 files.
 
 ## Repository state (2026-11-24)
 
