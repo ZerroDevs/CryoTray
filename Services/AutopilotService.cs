@@ -50,7 +50,19 @@ namespace CryoTray.Services
         private string? _appliedProfileKey;
         private AutomationTarget? _activeTarget;
         private AutopilotState _currentState = new(false, "", "", false);
+        private bool _started;
         private bool _disposed;
+
+        internal bool IsTimerRunningForTest
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _timer != null;
+                }
+            }
+        }
 
         public bool ShouldHoldPause
         {
@@ -106,14 +118,22 @@ namespace CryoTray.Services
 
         public void Start()
         {
+            bool shouldListen = false;
             lock (_stateLock)
             {
-                if (_disposed || _timer != null)
+                if (_disposed || _started)
                 {
                     return;
                 }
 
-                _timer = new Timer(_ => Poll(), null, PollInterval, PollInterval);
+                _started = true;
+                shouldListen = true;
+            }
+
+            if (shouldListen)
+            {
+                SettingsService.Instance.SettingsChanged += OnSettingsChanged;
+                SyncTimerWithSettings();
             }
         }
 
@@ -122,11 +142,48 @@ namespace CryoTray.Services
             Timer? timer;
             lock (_stateLock)
             {
+                _started = false;
                 timer = _timer;
                 _timer = null;
             }
 
+            SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
             timer?.Dispose();
+        }
+
+        private void OnSettingsChanged()
+        {
+            SyncTimerWithSettings();
+        }
+
+        internal void SyncTimerWithSettings()
+        {
+            bool enabled = SettingsService.Instance.Current.AutopilotEnabled;
+            Timer? timerToDispose = null;
+            bool needCleanupRestore = false;
+
+            lock (_stateLock)
+            {
+                if (_disposed || !_started || !enabled)
+                {
+                    timerToDispose = _timer;
+                    _timer = null;
+                    if (!enabled && (_automationActive || _pausedByAutopilot || _lastShouldPause))
+                    {
+                        needCleanupRestore = true;
+                    }
+                }
+                else if (_timer == null)
+                {
+                    _timer = new Timer(_ => Poll(), null, PollInterval, PollInterval);
+                }
+            }
+
+            timerToDispose?.Dispose();
+            if (needCleanupRestore)
+            {
+                Poll();
+            }
         }
 
         private void Poll()

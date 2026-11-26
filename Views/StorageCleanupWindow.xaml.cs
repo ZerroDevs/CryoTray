@@ -199,6 +199,10 @@ namespace CryoTray.Views
                 }
 
                 cts.Dispose();
+                if (!_isClosed)
+                {
+                    MemoryTrimService.Instance.ScheduleTrim();
+                }
             }
         }
 
@@ -367,6 +371,10 @@ namespace CryoTray.Views
                 }
 
                 cts.Dispose();
+                if (!_isClosed)
+                {
+                    MemoryTrimService.Instance.ScheduleTrim();
+                }
             }
         }
 
@@ -1057,7 +1065,23 @@ namespace CryoTray.Views
                 }
 
                 _allowClose = true;
-                Close();
+                _isClosed = true;
+                _scanCts?.Cancel();
+                _cleanCts?.Cancel();
+                HideProgress();
+                if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            Close();
+                        }
+                        catch
+                        {
+                        }
+                    }));
+                }
                 return;
             }
 

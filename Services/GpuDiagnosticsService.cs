@@ -37,9 +37,21 @@ namespace CryoTray.Services
         private const string DisplayClassKey =
             @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
         private static readonly object CacheLock = new();
-        private static GpuDiagnosticsInfo? _cached;
-        private static DateTime _cachedAtUtc;
-        private static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(10);
+        private static StaticGpuAdapterInfo? _cachedStatic;
+        private static IReadOnlyList<string> _cachedControllerNames = Array.Empty<string>();
+        private static DateTime _cachedStaticAtUtc;
+        private static readonly TimeSpan StaticCacheLifetime = TimeSpan.FromMinutes(2);
+
+        internal sealed record StaticGpuAdapterInfo(
+            bool Available,
+            string GpuName,
+            string DriverVersion,
+            string DriverDateText,
+            string VideoBios,
+            string PciIds,
+            string PnpDeviceId,
+            int? TdrCount);
+
         private static readonly Regex PciVendorRegex = new(
             "VEN_([0-9A-F]{4})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex PciDeviceRegex = new(
@@ -49,36 +61,99 @@ namespace CryoTray.Services
         private static readonly Regex PciRevisionRegex = new(
             "REV_([0-9A-F]{2})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        public static GpuDiagnosticsInfo Query(bool force = false)
+        internal static bool HasFreshStaticCache()
         {
             lock (CacheLock)
             {
-                if (!force && _cached != null &&
-                    DateTime.UtcNow - _cachedAtUtc < CacheLifetime)
+                return _cachedStatic != null &&
+                    DateTime.UtcNow - _cachedStaticAtUtc < StaticCacheLifetime;
+            }
+        }
+
+        internal static void InvalidateCacheForTest()
+        {
+            lock (CacheLock)
+            {
+                _cachedStatic = null;
+                _cachedControllerNames = Array.Empty<string>();
+                _cachedStaticAtUtc = DateTime.MinValue;
+            }
+        }
+
+        public static GpuDiagnosticsInfo CreateImmediate(
+            HardwareSnapshot snapshot,
+            AppSettings settings,
+            out bool hasStaticCache)
+        {
+            StaticGpuAdapterInfo? cached;
+            lock (CacheLock)
+            {
+                if (_cachedStatic != null &&
+                    DateTime.UtcNow - _cachedStaticAtUtc < StaticCacheLifetime)
                 {
-                    return _cached;
+                    cached = _cachedStatic;
+                    hasStaticCache = true;
+                }
+                else
+                {
+                    cached = null;
+                    hasStaticCache = false;
                 }
             }
 
-            GpuDiagnosticsInfo result = Build();
-            lock (CacheLock)
+            if (cached != null)
             {
-                _cached = result;
-                _cachedAtUtc = DateTime.UtcNow;
+                return ComposeDiagnostics(cached, snapshot, settings);
             }
 
-            return result;
+            var placeholder = new StaticGpuAdapterInfo(
+                Available: true,
+                GpuName: snapshot.GpuName ?? "",
+                DriverVersion: "",
+                DriverDateText: "",
+                VideoBios: "",
+                PciIds: "",
+                PnpDeviceId: "",
+                TdrCount: null);
+            return ComposeDiagnostics(placeholder, snapshot, settings);
         }
 
-        private static GpuDiagnosticsInfo Build()
+        public static GpuDiagnosticsInfo Query(bool force = false)
+        {
+            StaticGpuAdapterInfo? cachedStatic = null;
+            if (!force)
+            {
+                lock (CacheLock)
+                {
+                    if (_cachedStatic != null &&
+                        DateTime.UtcNow - _cachedStaticAtUtc < StaticCacheLifetime)
+                    {
+                        cachedStatic = _cachedStatic;
+                    }
+                }
+            }
+
+            StaticGpuAdapterInfo staticInfo = cachedStatic ??
+                QueryStaticAdapterInfo(preReadTdrCount: null, useSharedTdr: false, out _);
+
+            return ComposeDiagnostics(
+                staticInfo,
+                HardwareMonitorService.Instance.CurrentSnapshot,
+                SettingsService.Instance.Current);
+        }
+
+        internal static StaticGpuAdapterInfo QueryStaticAdapterInfo(
+            int? preReadTdrCount,
+            bool useSharedTdr,
+            out IReadOnlyList<string> controllerNames)
         {
             var snapshot = HardwareMonitorService.Instance.CurrentSnapshot;
-            var settings = SettingsService.Instance.Current;
             string primaryName = snapshot.GpuName ?? "";
             string driverVersion = "";
             DateTime? driverDate = null;
             string videoBios = "";
             string pnpDeviceId = "";
+            var allNames = new List<string>();
 
             try
             {
@@ -90,6 +165,11 @@ namespace CryoTray.Services
                 foreach (ManagementObject obj in results)
                 {
                     controllers.Add(obj);
+                    string rawName = obj["Name"]?.ToString()?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(rawName))
+                    {
+                        allNames.Add(rawName);
+                    }
                 }
 
                 using ManagementObject? controller = SelectController(controllers, primaryName);
@@ -120,8 +200,44 @@ namespace CryoTray.Services
                 videoBios = ReadRegistryBios(primaryName);
             }
 
-            int? tdrCount = ReadTdrCount();
-            bool tdrUnavailable = tdrCount == null;
+            int? tdrCount = useSharedTdr ? preReadTdrCount : ReadTdrCount();
+            bool available = !string.IsNullOrWhiteSpace(primaryName) ||
+                !string.IsNullOrWhiteSpace(driverVersion);
+
+            var staticInfo = new StaticGpuAdapterInfo(
+                available,
+                primaryName,
+                driverVersion,
+                driverDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "",
+                videoBios,
+                FormatPciIds(pnpDeviceId),
+                pnpDeviceId,
+                tdrCount);
+
+            controllerNames = allNames;
+            lock (CacheLock)
+            {
+                _cachedStatic = staticInfo;
+                _cachedControllerNames = allNames;
+                _cachedStaticAtUtc = DateTime.UtcNow;
+            }
+
+            return staticInfo;
+        }
+
+        internal static IReadOnlyList<string> GetCachedControllerNames()
+        {
+            lock (CacheLock)
+            {
+                return _cachedControllerNames;
+            }
+        }
+
+        internal static GpuDiagnosticsInfo ComposeDiagnostics(
+            StaticGpuAdapterInfo staticInfo,
+            HardwareSnapshot snapshot,
+            AppSettings settings)
+        {
             List<TelemetrySample> samples = HardwareMonitorService.Instance.RingBuffer
                 .GetRecentSamples(60);
             var deltas = samples
@@ -170,16 +286,15 @@ namespace CryoTray.Services
 
             return new GpuDiagnosticsInfo
             {
-                Available = !string.IsNullOrWhiteSpace(primaryName) ||
-                    !string.IsNullOrWhiteSpace(driverVersion),
-                GpuName = primaryName,
-                DriverVersion = driverVersion,
-                DriverDateText = driverDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "",
-                VideoBios = videoBios,
-                PciIds = FormatPciIds(pnpDeviceId),
-                PnpDeviceId = pnpDeviceId,
-                TdrCount = tdrCount,
-                TdrUnavailable = tdrUnavailable,
+                Available = staticInfo.Available,
+                GpuName = !string.IsNullOrWhiteSpace(snapshot.GpuName) ? snapshot.GpuName : staticInfo.GpuName,
+                DriverVersion = staticInfo.DriverVersion,
+                DriverDateText = staticInfo.DriverDateText,
+                VideoBios = staticInfo.VideoBios,
+                PciIds = staticInfo.PciIds,
+                PnpDeviceId = staticInfo.PnpDeviceId,
+                TdrCount = staticInfo.TdrCount,
+                TdrUnavailable = staticInfo.TdrCount == null,
                 HotspotEdgeCurrent = current,
                 HotspotEdgeAverage = average,
                 HotspotEdgeMax = maximum,

@@ -53,6 +53,9 @@ namespace CryoTray.Services
 
         private readonly object _switchLock = new();
         private bool _obsoleteMigrationAttempted;
+        private Guid _lastObservedActiveSchemeGuid = Guid.Empty;
+        private bool _hasObservedActiveScheme;
+        internal int RefreshStateSchemeEnumerationCountForTest { get; private set; }
 
         public event Action<bool>? CoolingModeChanged;
         public event Action? ProfileChanged;
@@ -257,9 +260,19 @@ namespace CryoTray.Services
             return IsSchemeInstalled(profile.SchemeGuid) ? profile.SchemeGuid : Guid.Empty;
         }
 
-        public void RefreshState()
+        public void RefreshState() => RefreshState(forceSchemeEnumeration: false);
+
+        public void RefreshState(bool forceSchemeEnumeration)
         {
             Guid activeGuid = GetActiveSchemeGuid();
+            if (!forceSchemeEnumeration &&
+                _hasObservedActiveScheme &&
+                activeGuid == _lastObservedActiveSchemeGuid)
+            {
+                return;
+            }
+
+            RefreshStateSchemeEnumerationCountForTest++;
             var activeScheme = GetInstalledSchemes()
                 .FirstOrDefault(scheme => scheme.Guid == activeGuid);
 
@@ -286,6 +299,8 @@ namespace CryoTray.Services
             }
 
             SetActiveProfile(PowerProfiles.FromSchemeGuid(activeGuid, SettingsService.Instance.Current));
+            _lastObservedActiveSchemeGuid = activeGuid;
+            _hasObservedActiveScheme = true;
         }
 
         internal static bool IsExternalDrift(PowerProfileDefinition? previous, Guid activeGuid)
@@ -446,6 +461,16 @@ namespace CryoTray.Services
 
             ActiveProfile = profile;
             IsCoolingModeActive = cooling;
+            if (profile != null)
+            {
+                _lastObservedActiveSchemeGuid = profile.SchemeGuid;
+                _hasObservedActiveScheme = true;
+            }
+            else
+            {
+                _lastObservedActiveSchemeGuid = Guid.Empty;
+                _hasObservedActiveScheme = false;
+            }
 
             if (coolingChanged)
             {

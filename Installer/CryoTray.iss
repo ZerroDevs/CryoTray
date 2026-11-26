@@ -1,9 +1,9 @@
 ; CryoTray installer script (Inno Setup 6)
 ; Build from the repository root with build-installer.ps1, or directly:
-;   ISCC.exe /DAppVersion=0.0.108 Installer\CryoTray.iss
+;   ISCC.exe /DAppVersion=0.0.109 Installer\CryoTray.iss
 
 #ifndef AppVersion
-#define AppVersion "0.0.108"
+#define AppVersion "0.0.109"
 #endif
 
 [Setup]

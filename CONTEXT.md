@@ -1,5 +1,25 @@
 # CONTEXT
 
+## v0.0.109 release preparation: bug fixes, stability & lighter runtime (2026-11-26)
+
+- Bumped `VERSION`, `app.manifest`, `Installer/CryoTray.iss`, `CONTRIBUTING.md`, `SECURITY.md`, `README.md`, `docs/index.html`, `docs/js/config.js`, and `docs/js/i18n.js` to `0.0.109` / `v0.0.109` with user-facing `release-notes/0.0.109.md` (no test mentions).
+
+## Fix StorageCleanupWindow crash on confirmed close while busy (2026-11-26)
+
+- `StorageCleanupWindow.Window_Closing` sets `e.Cancel = true` while showing the confirmation prompt; on confirmation it immediately sets `_allowClose = true`, `_isClosed = true`, cancels `_scanCts`/`_cleanCts`, calls `HideProgress()`, and queues `Dispatcher.BeginInvoke(() => Close())` so `Close()` never executes re-entrantly inside WPF's `Closing` dispatch frame.
+
+## Instant SettingsWindow open optimizations (2026-11-26)
+
+- `SettingsWindow.LoadSettingsIntoUI(isInitialLoad: true)` sets `ChkLaunchStartup.IsChecked = s.LaunchOnStartup` synchronously and runs `VerifyStartupTaskAsync` (`_startupSyncGeneration` + `_startupCheckboxTouched`) on `Task.Run`; only updates `ChkLaunchStartup` cleanly if not touched by user and `!_isClosed`.
+- `RefreshRollbackUi()` reads manifest metadata immediately, caches `(_cachedRollbackPath, _cachedRollbackSizeBytes)` per open `SettingsWindow`, and runs `UpdateBackupService.GetSizeBytes` on `Task.Run`; `RefreshDownloadCacheUi()` runs `UpdateService.GetDownloadCacheSizeBytes()` on `Task.Run`; `ApplyLocalizedText(skipLoadedControls: true)` avoids repeating initial bindings while preserving full `OnLanguageChanged()` localization. `LoadPowerProfiles(settings, refreshManageProfiles: ...)` skips collapsed `ManageProfiles` external `PowerEnumerate` until expanded.
+
+## Memory trim, idle timer gating & instant async System Information (2026-11-26)
+
+- `MemoryTrimService` debounces off-UI compacting Gen2 GC + `EmptyWorkingSet` via a single-shot `System.Threading.Timer` (`DefaultDelay=1.5s`, `LoadedDelay=3.5s`, `StartupDelay=2.5s`) and cancels cleanly on exit (`CancelPending(shuttingDown: true)`).
+- `PowerPlanService.RefreshState(bool forceSchemeEnumeration = false)` tracks `_lastObservedActiveSchemeGuid` / `_hasObservedActiveScheme` (synced in `SetActiveProfile` and updated on actual GUID change), skipping `GetInstalledSchemes()` on idle ticks while `App` slows `_powerPlanWatchTimer` to `4s` when dashboard is closed.
+- `AutopilotService` and `StandbyPurgeService` listen to `SettingsService.Instance.SettingsChanged` to spin up their `2.5s` / `5s` timers only while their feature bools are enabled.
+- `SystemInfoQueryService.CreateImmediateSnapshotData` + `GpuDiagnosticsService.CreateImmediate` populate live/in-memory and cached rows immediately without blocking UI first paint; `QuerySystemInfoWithGpuAsync` shares one `Win32_VideoController` read (`QueryStaticAdapterInfo`) and one `System` Event Log pass (`QuerySystemLogCounters`: `1001` + `4101`), caches static OS/CPU/BootTime per session and dynamic adapter/monitor/network/log metrics for `2` minutes (`InvalidateCacheForTest` for tests), and uses `NetworkInterface.GetAllNetworkInterfaces()` + `CurrentSnapshot.StorageDrives`/`DriveInfo` fast paths cleanly. `TestStorageCleanupSafety` now reads expected `CleanTempSkipRecent24h` dynamically from `SettingsService` while separately asserting `new AppSettings().CleanTempSkipRecent24h == true`.
+
 ## v0.0.108 release published (2026-11-26)
 
 - Release commit `b3c436e` published tag `v0.0.108` via Release workflow run `45859061526` (`2026-11-26T16:31:08Z`): `CryoTray-Setup-0.0.108.exe` (`55,172,002` bytes), `CryoTray-0.0.108-win-x64.zip` (`82,600,065` bytes), `CryoTray-Update-0.0.108-win-x64.zip` (`82,624,212` bytes), and `.sha256` files.

@@ -8,6 +8,8 @@ using System.Linq;
 using System.Management;
 using System.Net.NetworkInformation;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using CryoTray.Models;
 
@@ -18,44 +20,299 @@ namespace CryoTray.Services
         private static SystemInfoQueryService? _instance;
         public static SystemInfoQueryService Instance => _instance ??= new SystemInfoQueryService();
 
-        public SystemInfoData QuerySystemInfo()
+        private static readonly TimeSpan DynamicCacheLifetime = TimeSpan.FromMinutes(2);
+        private readonly object _cacheLock = new();
+        private string? _cachedProcessorName;
+        private int? _cachedProcessorPhysicalCores;
+        private string? _cachedOperatingSystem;
+        private double? _cachedBootTimeSeconds;
+        private string? _cachedMonitors;
+        private string? _cachedNetwork;
+        private int? _cachedBsodCount;
+        private bool _hasCachedBsodCount;
+        private IReadOnlyList<string>? _cachedGpuNames;
+        private DateTime _dynamicCachedAtUtc = DateTime.MinValue;
+
+        internal void InvalidateCacheForTest()
         {
+            lock (_cacheLock)
+            {
+                _cachedProcessorName = null;
+                _cachedProcessorPhysicalCores = null;
+                _cachedOperatingSystem = null;
+                _cachedBootTimeSeconds = null;
+                _cachedMonitors = null;
+                _cachedNetwork = null;
+                _cachedBsodCount = null;
+                _hasCachedBsodCount = false;
+                _cachedGpuNames = null;
+                _dynamicCachedAtUtc = DateTime.MinValue;
+            }
+        }
+
+        public SystemInfoData CreateImmediateSnapshotData(out bool needsAsyncEnrichment)
+        {
+            var snapshot = HardwareMonitorService.Instance.CurrentSnapshot;
+            var settings = SettingsService.Instance.Current;
+
+            string? cachedCpuName;
+            int? cachedCpuCores;
+            string? cachedOs;
+            double? cachedBootSeconds;
+            string? cachedMonitors;
+            string? cachedNetwork;
+            int? cachedBsod;
+            bool hasBsod;
+            IReadOnlyList<string>? cachedGpus;
+            bool dynamicFresh;
+
+            lock (_cacheLock)
+            {
+                cachedCpuName = _cachedProcessorName;
+                cachedCpuCores = _cachedProcessorPhysicalCores;
+                cachedOs = _cachedOperatingSystem;
+                cachedBootSeconds = _cachedBootTimeSeconds;
+                dynamicFresh = _dynamicCachedAtUtc != DateTime.MinValue &&
+                    DateTime.UtcNow - _dynamicCachedAtUtc < DynamicCacheLifetime;
+                cachedMonitors = dynamicFresh ? _cachedMonitors : null;
+                cachedNetwork = dynamicFresh ? _cachedNetwork : null;
+                hasBsod = dynamicFresh && _hasCachedBsodCount;
+                cachedBsod = _cachedBsodCount;
+                cachedGpus = dynamicFresh ? _cachedGpuNames : null;
+            }
+
+            bool hasMappedTelemetryStorage = HasMappedTelemetryStorage(snapshot.StorageDrives);
+            bool gpuStaticFresh = GpuDiagnosticsService.HasFreshStaticCache();
+
+            needsAsyncEnrichment =
+                string.IsNullOrEmpty(cachedCpuName) ||
+                string.IsNullOrEmpty(cachedOs) ||
+                !cachedBootSeconds.HasValue ||
+                !dynamicFresh ||
+                !gpuStaticFresh ||
+                !hasMappedTelemetryStorage;
+
+            string cpuName = !string.IsNullOrWhiteSpace(cachedCpuName)
+                ? cachedCpuName
+                : (!string.IsNullOrWhiteSpace(snapshot.CpuName)
+                    ? snapshot.CpuName
+                    : LocalizationService.Get("System_LoadingHardware"));
+            int cores = cachedCpuCores ?? (snapshot.CpuCores > 0 ? snapshot.CpuCores : Environment.ProcessorCount);
+
             var info = new SystemInfoData
             {
-                PcName = Environment.MachineName
+                PcName = Environment.MachineName,
+                ProcessorName = cpuName,
+                ProcessorCores = LocalizationService.Format("Main_CpuProcessor", cores),
+                Memory = QueryMemoryImmediate(snapshot),
+                GraphicsCard = SelectGraphicsCardSummary(
+                    cachedGpus ?? Array.Empty<string>(),
+                    snapshot.GpuName),
+                StorageDevices = BuildStorageFromTelemetry(snapshot.StorageDrives),
+                OperatingSystem = !string.IsNullOrWhiteSpace(cachedOs)
+                    ? cachedOs
+                    : LocalizationService.Get("System_LoadingHardware"),
+                WindowsUptime = FormatUptime(TimeSpan.FromMilliseconds(Environment.TickCount64)),
+                StartupSpeed = cachedBootSeconds.HasValue
+                    ? (cachedBootSeconds.Value > 0
+                        ? LocalizationService.Format("System_SecondsFormat", $"{cachedBootSeconds.Value:0.0}")
+                        : LocalizationService.Get("Common_NotReported"))
+                    : LocalizationService.Get("System_LoadingBootLog"),
+                TempStats = BuildTempStatsText(settings),
+                Monitors = cachedMonitors ?? LocalizationService.Get("System_LoadingMonitors"),
+                Network = cachedNetwork ?? LocalizationService.Get("System_LoadingNetwork"),
+                SystemErrors = hasBsod
+                    ? (cachedBsod.HasValue
+                        ? LocalizationService.Format("System_BsodCount", cachedBsod.Value)
+                        : LocalizationService.Get("Common_NotReported"))
+                    : LocalizationService.Get("System_LoadingSystemLog"),
+                FanSpeeds = settings.ShowFanSpeeds
+                    ? FormatFanSpeeds(snapshot.Fans)
+                    : ""
             };
 
-            // 1. Processor
-            try
+            return info;
+        }
+
+        public async Task<(SystemInfoData Data, GpuDiagnosticsInfo GpuDiagnostics)> QuerySystemInfoWithGpuAsync(
+            bool forceRefresh = false,
+            CancellationToken cancellationToken = default)
+        {
+            var snapshot = HardwareMonitorService.Instance.CurrentSnapshot;
+            var settings = SettingsService.Instance.Current;
+
+            string? cachedCpuName;
+            int? cachedCpuCores;
+            string? cachedOs;
+            double? cachedBootSeconds;
+            bool dynamicFresh;
+            string? cachedMonitors;
+            string? cachedNetwork;
+            int? cachedBsod;
+            bool hasBsod;
+            IReadOnlyList<string>? cachedGpus;
+
+            lock (_cacheLock)
             {
-                using var searcher = new ManagementObjectSearcher("SELECT Name, NumberOfCores FROM Win32_Processor");
-                using var results = searcher.Get();
-                foreach (ManagementObject obj in results)
+                cachedCpuName = !forceRefresh ? _cachedProcessorName : null;
+                cachedCpuCores = !forceRefresh ? _cachedProcessorPhysicalCores : null;
+                cachedOs = !forceRefresh ? _cachedOperatingSystem : null;
+                cachedBootSeconds = !forceRefresh ? _cachedBootTimeSeconds : null;
+                dynamicFresh = !forceRefresh &&
+                    _dynamicCachedAtUtc != DateTime.MinValue &&
+                    DateTime.UtcNow - _dynamicCachedAtUtc < DynamicCacheLifetime;
+                cachedMonitors = dynamicFresh ? _cachedMonitors : null;
+                cachedNetwork = dynamicFresh ? _cachedNetwork : null;
+                hasBsod = dynamicFresh && _hasCachedBsodCount;
+                cachedBsod = _cachedBsodCount;
+                cachedGpus = dynamicFresh ? _cachedGpuNames : null;
+            }
+
+            Task<(string Name, int Cores)> cpuTask = !string.IsNullOrWhiteSpace(cachedCpuName) && cachedCpuCores.HasValue
+                ? Task.FromResult((cachedCpuName, cachedCpuCores.Value))
+                : Task.Run(QueryProcessorWmi, cancellationToken);
+
+            Task<string> osTask = !string.IsNullOrWhiteSpace(cachedOs)
+                ? Task.FromResult(cachedOs)
+                : Task.Run(QueryOperatingSystemWmi, cancellationToken);
+
+            Task<double> bootTask = cachedBootSeconds.HasValue
+                ? Task.FromResult(cachedBootSeconds.Value)
+                : Task.Run(QueryBootTimeSeconds, cancellationToken);
+
+            Task<string> monitorTask = cachedMonitors != null
+                ? Task.FromResult(cachedMonitors)
+                : Task.Run(QueryMonitorNames, cancellationToken);
+
+            Task<string> networkTask = cachedNetwork != null
+                ? Task.FromResult(cachedNetwork)
+                : Task.Run(QueryActiveNetwork, cancellationToken);
+
+            Task<List<StorageInfoItem>> storageTask = Task.Run(
+                () => QueryStorageDevices(snapshot.StorageDrives),
+                cancellationToken);
+
+            bool needLogCounters = forceRefresh || !hasBsod || !GpuDiagnosticsService.HasFreshStaticCache();
+            Task<(int? BsodCount, int? TdrCount)> logCountersTask = needLogCounters
+                ? Task.Run(() => QuerySystemLogCounters(cancellationToken), cancellationToken)
+                : Task.FromResult<(int?, int?)>((cachedBsod, null));
+
+            bool needStaticGpu = forceRefresh || !GpuDiagnosticsService.HasFreshStaticCache() || cachedGpus == null;
+            Task<GpuDiagnosticsService.StaticGpuAdapterInfo?> gpuStaticTask = needStaticGpu
+                ? Task.Run<GpuDiagnosticsService.StaticGpuAdapterInfo?>(async () =>
                 {
-                    using var row = obj;
-                    string? processorName = obj["Name"]?.ToString()?.Trim();
-                    info.ProcessorName = string.IsNullOrWhiteSpace(processorName)
-                        ? LocalizationService.Get("Common_NotReported")
-                        : processorName;
-                    if (int.TryParse(obj["NumberOfCores"]?.ToString(), out int cores))
-                    {
-                        info.ProcessorCores = LocalizationService.Format("Main_CpuProcessor", cores);
-                    }
-                    break;
+                    var logCounts = await logCountersTask.ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return GpuDiagnosticsService.QueryStaticAdapterInfo(
+                        preReadTdrCount: logCounts.TdrCount,
+                        useSharedTdr: true,
+                        out _);
+                }, cancellationToken)
+                : Task.FromResult<GpuDiagnosticsService.StaticGpuAdapterInfo?>(null);
+
+            await Task.WhenAll(
+                cpuTask,
+                osTask,
+                bootTask,
+                monitorTask,
+                networkTask,
+                storageTask,
+                logCountersTask,
+                gpuStaticTask).ConfigureAwait(false);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var cpuResult = await cpuTask.ConfigureAwait(false);
+            string osResult = await osTask.ConfigureAwait(false);
+            double bootSeconds = await bootTask.ConfigureAwait(false);
+            string monitors = await monitorTask.ConfigureAwait(false);
+            string network = await networkTask.ConfigureAwait(false);
+            List<StorageInfoItem> storageDevices = await storageTask.ConfigureAwait(false);
+            var logCounters = await logCountersTask.ConfigureAwait(false);
+            IReadOnlyList<string> gpuNames = needStaticGpu
+                ? GpuDiagnosticsService.GetCachedControllerNames()
+                : (cachedGpus ?? Array.Empty<string>());
+
+            lock (_cacheLock)
+            {
+                if (!string.IsNullOrWhiteSpace(cpuResult.Name))
+                {
+                    _cachedProcessorName = cpuResult.Name;
+                    _cachedProcessorPhysicalCores = cpuResult.Cores;
                 }
-            }
-            catch
-            {
-                info.ProcessorName = LocalizationService.Get("Common_NotReported");
-                info.ProcessorCores = string.Empty;
+                if (!string.IsNullOrWhiteSpace(osResult))
+                {
+                    _cachedOperatingSystem = osResult;
+                }
+                _cachedBootTimeSeconds = bootSeconds;
+                _cachedMonitors = monitors;
+                _cachedNetwork = network;
+                _cachedBsodCount = logCounters.BsodCount;
+                _hasCachedBsodCount = true;
+                _cachedGpuNames = gpuNames;
+                _dynamicCachedAtUtc = DateTime.UtcNow;
             }
 
-            if (string.IsNullOrEmpty(info.ProcessorCores))
+            HardwareSnapshot liveSnapshot = HardwareMonitorService.Instance.CurrentSnapshot;
+            AppSettings liveSettings = SettingsService.Instance.Current;
+
+            var info = new SystemInfoData
             {
-                info.ProcessorCores = LocalizationService.Format("Main_CpuProcessor", Environment.ProcessorCount);
+                PcName = Environment.MachineName,
+                ProcessorName = !string.IsNullOrWhiteSpace(cpuResult.Name)
+                    ? cpuResult.Name
+                    : LocalizationService.Get("Common_NotReported"),
+                ProcessorCores = LocalizationService.Format("Main_CpuProcessor", cpuResult.Cores),
+                Memory = QueryMemoryImmediate(liveSnapshot),
+                GraphicsCard = SelectGraphicsCardSummary(gpuNames, liveSnapshot.GpuName),
+                StorageDevices = storageDevices,
+                OperatingSystem = !string.IsNullOrWhiteSpace(osResult)
+                    ? osResult
+                    : LocalizationService.Get("Common_NotReported"),
+                WindowsUptime = FormatUptime(TimeSpan.FromMilliseconds(Environment.TickCount64)),
+                StartupSpeed = bootSeconds > 0
+                    ? LocalizationService.Format("System_SecondsFormat", $"{bootSeconds:0.0}")
+                    : LocalizationService.Get("Common_NotReported"),
+                TempStats = BuildTempStatsText(liveSettings),
+                Monitors = monitors,
+                Network = network,
+                SystemErrors = logCounters.BsodCount.HasValue
+                    ? LocalizationService.Format("System_BsodCount", logCounters.BsodCount.Value)
+                    : LocalizationService.Get("Common_NotReported"),
+                FanSpeeds = liveSettings.ShowFanSpeeds
+                    ? FormatFanSpeeds(liveSnapshot.Fans)
+                    : ""
+            };
+
+            GpuDiagnosticsInfo gpuDiagnostics = (await gpuStaticTask.ConfigureAwait(false)) is { } staticInfo
+                ? GpuDiagnosticsService.ComposeDiagnostics(staticInfo, liveSnapshot, liveSettings)
+                : GpuDiagnosticsService.Query(force: false);
+
+            return (info, gpuDiagnostics);
+        }
+
+        public SystemInfoData QuerySystemInfo()
+        {
+            return QuerySystemInfoWithGpuAsync(forceRefresh: true, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
+                .Data;
+        }
+
+        private static string QueryMemoryImmediate(HardwareSnapshot snapshot)
+        {
+            if (MemoryTelemetryService.TryReadBreakdown(out var breakdown) &&
+                breakdown.TotalUsableBytes > 0)
+            {
+                double gb = breakdown.TotalUsableBytes / (1024.0 * 1024.0 * 1024.0);
+                return $"{gb:0.00} GB";
             }
 
-            // 2. Memory
+            if (double.IsFinite(snapshot.RamTotalGb) && snapshot.RamTotalGb > 0)
+            {
+                return $"{snapshot.RamTotalGb:0.00} GB";
+            }
+
             try
             {
                 using var searcher = new ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem");
@@ -66,46 +323,176 @@ namespace CryoTray.Services
                     if (ulong.TryParse(obj["TotalPhysicalMemory"]?.ToString(), out ulong bytes))
                     {
                         double gb = bytes / (1024.0 * 1024.0 * 1024.0);
-                        info.Memory = $"{gb:0.00} GB";
+                        return $"{gb:0.00} GB";
                     }
                     break;
                 }
             }
             catch
             {
-                info.Memory = LocalizationService.Get("Common_NotReported");
             }
 
-            // 3. Graphics card
+            return LocalizationService.Get("Common_NotReported");
+        }
+
+        private static (string Name, int Cores) QueryProcessorWmi()
+        {
+            string name = "";
+            int cores = 0;
             try
             {
-                var gpuNames = new List<string>();
-                using var searcher = new ManagementObjectSearcher("SELECT Name FROM Win32_VideoController");
+                using var searcher = new ManagementObjectSearcher("SELECT Name, NumberOfCores FROM Win32_Processor");
                 using var results = searcher.Get();
                 foreach (ManagementObject obj in results)
                 {
                     using var row = obj;
-                    string name = obj["Name"]?.ToString()?.Trim() ?? "";
-                    if (!string.IsNullOrEmpty(name))
+                    name = obj["Name"]?.ToString()?.Trim() ?? "";
+                    if (int.TryParse(obj["NumberOfCores"]?.ToString(), out int parsedCores) && parsedCores > 0)
                     {
-                        gpuNames.Add(name);
+                        cores = parsedCores;
                     }
+                    break;
                 }
-
-                info.GraphicsCard = SelectGraphicsCardSummary(
-                    gpuNames, HardwareMonitorService.Instance.CurrentSnapshot.GpuName);
             }
             catch
             {
-                info.GraphicsCard = SelectGraphicsCardSummary(
-                    Array.Empty<string>(), HardwareMonitorService.Instance.CurrentSnapshot.GpuName);
             }
 
-            // 4. Storage devices
-            var telemetryDrives = HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives;
+            if (cores <= 0)
+            {
+                cores = Environment.ProcessorCount;
+            }
+
+            return (name, cores);
+        }
+
+        private static string QueryOperatingSystemWmi()
+        {
             try
             {
-                var drives = new List<StorageInfoItem>();
+                using var searcher = new ManagementObjectSearcher("SELECT Caption, OSArchitecture FROM Win32_OperatingSystem");
+                using var results = searcher.Get();
+                foreach (ManagementObject obj in results)
+                {
+                    using var row = obj;
+                    string? caption = obj["Caption"]?.ToString()?.Replace("Microsoft", "")?.Trim();
+                    string arch = FormatOsArchitecture(obj["OSArchitecture"]?.ToString());
+                    if (!string.IsNullOrWhiteSpace(caption))
+                    {
+                        return $"{caption} {arch}".Trim();
+                    }
+                    break;
+                }
+            }
+            catch
+            {
+            }
+
+            return "";
+        }
+
+        private static bool HasMappedTelemetryStorage(IReadOnlyList<DriveTelemetry>? telemetryDrives) =>
+            telemetryDrives != null &&
+            telemetryDrives.Count > 0 &&
+            telemetryDrives.Any(d => !string.IsNullOrWhiteSpace(d.DriveLetters));
+
+        private static List<StorageInfoItem> BuildStorageFromTelemetry(IReadOnlyList<DriveTelemetry>? telemetryDrives)
+        {
+            if (telemetryDrives == null || telemetryDrives.Count == 0)
+            {
+                return new List<StorageInfoItem>();
+            }
+
+            DriveInfo[] driveInfos;
+            try
+            {
+                driveInfos = DriveInfo.GetDrives();
+            }
+            catch
+            {
+                driveInfos = Array.Empty<DriveInfo>();
+            }
+
+            var items = new List<StorageInfoItem>(telemetryDrives.Count);
+            for (int index = 0; index < telemetryDrives.Count; index++)
+            {
+                DriveTelemetry drive = telemetryDrives[index];
+                string type = drive.IsSolidState == false ? "HDD" : "SSD";
+                string letters = !string.IsNullOrWhiteSpace(drive.DriveLetters)
+                    ? drive.DriveLetters
+                    : LocalizationService.Format("System_DriveFallback", index + 1);
+
+                double freeGb = 0;
+                bool hasFreeSpace = false;
+                if (!string.IsNullOrWhiteSpace(drive.DriveLetters))
+                {
+                    foreach (string raw in drive.DriveLetters.Split(','))
+                    {
+                        string letter = raw.Trim().TrimEnd(':');
+                        if (letter.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            var logicalDrive = driveInfos.FirstOrDefault(di =>
+                                di.Name.StartsWith(letter + ":", StringComparison.OrdinalIgnoreCase));
+                            if (logicalDrive != null && logicalDrive.IsReady)
+                            {
+                                freeGb += logicalDrive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
+                                hasFreeSpace = true;
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+                else if (double.IsFinite(drive.FreeSpaceGb) && drive.FreeSpaceGb >= 0)
+                {
+                    freeGb = drive.FreeSpaceGb;
+                    hasFreeSpace = true;
+                }
+
+                items.Add(new StorageInfoItem
+                {
+                    Header = LocalizationService.Get("System_StorageDevice"),
+                    Title = drive.SmartHealthPercent.HasValue
+                        ? LocalizationService.Format(
+                            "System_StorageTitle",
+                            type,
+                            LocalizationService.Format(
+                                "System_HealthFormat",
+                                drive.SmartHealthPercent.Value,
+                                LocalizationService.Health(drive.StatusText)))
+                        : LocalizationService.Format(
+                            "System_StorageTitle",
+                            type,
+                            LocalizationService.Get("Common_Unknown")),
+                    Subtitle = LocalizationService.Format(
+                        "System_StorageSubtitle",
+                        letters,
+                        $"{drive.CapacityGb:0.00}"),
+                    FreeSpace = hasFreeSpace
+                        ? LocalizationService.Format("System_FreeSpace", $"{freeGb:0.00}")
+                        : ""
+                });
+            }
+
+            return items;
+        }
+
+        private List<StorageInfoItem> QueryStorageDevices(IReadOnlyList<DriveTelemetry> telemetryDrives)
+        {
+            if (HasMappedTelemetryStorage(telemetryDrives))
+            {
+                return BuildStorageFromTelemetry(telemetryDrives);
+            }
+
+            var result = new List<StorageInfoItem>();
+            try
+            {
                 var driveInfos = DriveInfo.GetDrives();
                 var consumedTelemetry = new HashSet<DriveTelemetry>();
                 using var driveSearcher = new ManagementObjectSearcher("SELECT Model, Size, Index, DeviceID, SerialNumber FROM Win32_DiskDrive");
@@ -185,7 +572,6 @@ namespace CryoTray.Services
                     }
                     catch
                     {
-                        // Fallback handled below using telemetry metadata when available.
                     }
 
                     if (string.IsNullOrEmpty(letters) &&
@@ -208,8 +594,8 @@ namespace CryoTray.Services
                     {
                         try
                         {
-                            var logicalDrive = driveInfos.FirstOrDefault(info =>
-                                info.Name.StartsWith(letter + ":", StringComparison.OrdinalIgnoreCase));
+                            var logicalDrive = driveInfos.FirstOrDefault(d =>
+                                d.Name.StartsWith(letter + ":", StringComparison.OrdinalIgnoreCase));
                             if (logicalDrive != null && logicalDrive.IsReady)
                             {
                                 freeGb += logicalDrive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
@@ -218,11 +604,10 @@ namespace CryoTray.Services
                         }
                         catch
                         {
-                            // Ignore a drive that disappears during the query.
                         }
                     }
 
-                    drives.Add(new StorageInfoItem
+                    result.Add(new StorageInfoItem
                     {
                         Header = LocalizationService.Get("System_StorageDevice"),
                         Title = LocalizationService.Format("System_StorageTitle", type, healthText),
@@ -232,110 +617,34 @@ namespace CryoTray.Services
                             : ""
                     });
                 }
-
-                if (drives.Count > 0)
-                {
-                    info.StorageDevices = drives;
-                }
             }
             catch
             {
-                // Fallback
             }
 
-            if (info.StorageDevices.Count == 0 && telemetryDrives.Count > 0)
-            {
-                info.StorageDevices = telemetryDrives.Select((drive, index) =>
-                {
-                    string type = drive.IsSolidState == false ? "HDD" : "SSD";
-                    string letters = !string.IsNullOrWhiteSpace(drive.DriveLetters)
-                        ? drive.DriveLetters
-                        : LocalizationService.Format("System_DriveFallback", index + 1);
-                    return new StorageInfoItem
-                    {
-                        Header = LocalizationService.Get("System_StorageDevice"),
-                        Title = drive.SmartHealthPercent.HasValue
-                            ? LocalizationService.Format(
-                                "System_StorageTitle",
-                                type,
-                                LocalizationService.Format(
-                                    "System_HealthFormat",
-                                    drive.SmartHealthPercent.Value,
-                                    LocalizationService.Health(drive.StatusText)))
-                            : LocalizationService.Format(
-                                "System_StorageTitle",
-                                type,
-                                LocalizationService.Get("Common_Unknown")),
-                        Subtitle = LocalizationService.Format(
-                            "System_StorageSubtitle",
-                            letters,
-                            $"{drive.CapacityGb:0.00}")
-                    };
-                }).ToList();
-            }
+            return result.Count > 0 ? result : BuildStorageFromTelemetry(telemetryDrives);
+        }
 
-            // 5. Operating System
-            try
-            {
-                using var searcher = new ManagementObjectSearcher("SELECT Caption, OSArchitecture FROM Win32_OperatingSystem");
-                using var results = searcher.Get();
-                foreach (ManagementObject obj in results)
-                {
-                    using var row = obj;
-                    string? caption = obj["Caption"]?.ToString()?.Replace("Microsoft", "")?.Trim();
-                    string arch = FormatOsArchitecture(obj["OSArchitecture"]?.ToString());
-                    info.OperatingSystem = string.IsNullOrWhiteSpace(caption)
-                        ? LocalizationService.Get("Common_NotReported")
-                        : $"{caption} {arch}".Trim();
-                    break;
-                }
-            }
-            catch
-            {
-                info.OperatingSystem = LocalizationService.Get("Common_NotReported");
-            }
-
-            // 6. Windows Uptime
-            info.WindowsUptime = FormatUptime(TimeSpan.FromMilliseconds(Environment.TickCount64));
-
-            // 7. Startup Speed
-            info.StartupSpeed = QueryBootTime();
-
-            // 8. Temp Stats
+        private static string BuildTempStatsText(AppSettings settings)
+        {
             var (min, avg, max) = HardwareMonitorService.Instance.RingBuffer.GetCpuStats(coolingOnly: true);
             if (min > 0 && max > 0)
             {
-                bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+                bool isFahrenheit = settings.TemperatureUnit == "Fahrenheit";
                 string formatKey = isFahrenheit ? "System_TempStatsFormatF" : "System_TempStatsFormat";
-                info.TempStats = LocalizationService.Format(
+                return LocalizationService.Format(
                     formatKey,
                     Math.Round(isFahrenheit ? (min * 9 / 5) + 32 : min),
                     Math.Round(isFahrenheit ? (avg * 9 / 5) + 32 : avg),
                     Math.Round(isFahrenheit ? (max * 9 / 5) + 32 : max));
             }
-            else if (HardwareMonitorService.Instance.RingBuffer.GetCpuStats(coolingOnly: false).MinCpu > 0)
+
+            if (HardwareMonitorService.Instance.RingBuffer.GetCpuStats(coolingOnly: false).MinCpu > 0)
             {
-                info.TempStats = LocalizationService.Get("System_TempStatsNoCooling");
-            }
-            else
-            {
-                info.TempStats = LocalizationService.Get("Common_NotReported");
+                return LocalizationService.Get("System_TempStatsNoCooling");
             }
 
-            // 9. Monitors
-            info.Monitors = QueryMonitorNames();
-
-            // 10. Network
-            info.Network = QueryActiveNetwork();
-
-            // 11. System Errors (BSOD Count)
-            info.SystemErrors = QueryBsodCount();
-
-            info.FanSpeeds = SettingsService.Instance.Current.ShowFanSpeeds
-                ? FormatFanSpeeds(HardwareMonitorService.Instance.CurrentSnapshot.Fans)
-                : "";
-
-            return info;
+            return LocalizationService.Get("Common_NotReported");
         }
 
         public static string FormatUptime(TimeSpan uptime)
@@ -469,7 +778,7 @@ namespace CryoTray.Services
             return sb.ToString();
         }
 
-        private string QueryBootTime()
+        private static double QueryBootTimeSeconds()
         {
             try
             {
@@ -485,7 +794,7 @@ namespace CryoTray.Services
                 using EventRecord? record = reader.ReadEvent();
                 if (record == null)
                 {
-                    return LocalizationService.Get("Common_NotReported");
+                    return 0;
                 }
 
                 // Event 100 stores the total boot duration in milliseconds.
@@ -497,14 +806,14 @@ namespace CryoTray.Services
                 if (bootTimeData == null ||
                     !double.TryParse(bootTimeData.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double milliseconds))
                 {
-                    return LocalizationService.Get("Common_NotReported");
+                    return 0;
                 }
 
-                return LocalizationService.Format("System_SecondsFormat", $"{milliseconds / 1000.0:0.0}");
+                return milliseconds / 1000.0;
             }
             catch
             {
-                return LocalizationService.Get("Common_NotReported");
+                return 0;
             }
         }
 
@@ -627,40 +936,70 @@ namespace CryoTray.Services
             return lower.Contains("64") ? "x64" : "x86";
         }
 
-        private string QueryActiveNetwork()
+        internal static string? SelectActiveNetworkSummary(IEnumerable<(string ConnectionId, string Name)> adapters)
         {
+            string? virtualFallback = null;
+            foreach (var (idRaw, nameRaw) in adapters)
+            {
+                string name = nameRaw?.Trim() ?? "";
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+
+                string id = string.IsNullOrWhiteSpace(idRaw) ? "Ethernet" : idRaw.Trim();
+                if (name.Contains("WARP", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Virtual", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("TAP", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("VPN", StringComparison.OrdinalIgnoreCase))
+                {
+                    virtualFallback ??= LocalizationService.Format("System_NetworkFormat", id, name);
+                    continue;
+                }
+
+                return LocalizationService.Format("System_NetworkFormat", id, name);
+            }
+
+            return virtualFallback;
+        }
+
+        private static string QueryActiveNetwork()
+        {
+            try
+            {
+                var fastAdapters = NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(ni => ni.OperationalStatus == OperationalStatus.Up &&
+                                 ni.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                                 ni.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+                    .Select(ni => (ni.Name, ni.Description));
+                string? fastMatch = SelectActiveNetworkSummary(fastAdapters);
+                if (!string.IsNullOrEmpty(fastMatch))
+                {
+                    return fastMatch;
+                }
+            }
+            catch
+            {
+            }
+
             try
             {
                 using var searcher = new ManagementObjectSearcher(
                     "SELECT NetConnectionID, Name, NetConnectionStatus FROM Win32_NetworkAdapter WHERE NetConnectionStatus = 2");
                 using var results = searcher.Get();
-                string? virtualFallback = null;
+                var wmiAdapters = new List<(string ConnectionId, string Name)>();
                 foreach (ManagementObject obj in results)
                 {
                     using var row = obj;
-                    string id = obj["NetConnectionID"]?.ToString()?.Trim() ?? "Ethernet";
-                    string name = obj["Name"]?.ToString()?.Trim() ?? "";
-                    if (string.IsNullOrEmpty(name))
-                    {
-                        continue;
-                    }
-
-                    // Ignore virtual/tunnel adapters if physical is available
-                    if (name.Contains("WARP", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("Virtual", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("TAP", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("VPN", StringComparison.OrdinalIgnoreCase))
-                    {
-                        virtualFallback ??= LocalizationService.Format("System_NetworkFormat", id, name);
-                        continue;
-                    }
-
-                    return LocalizationService.Format("System_NetworkFormat", id, name);
+                    wmiAdapters.Add((
+                        obj["NetConnectionID"]?.ToString() ?? "Ethernet",
+                        obj["Name"]?.ToString() ?? ""));
                 }
 
-                if (!string.IsNullOrEmpty(virtualFallback))
+                string? wmiMatch = SelectActiveNetworkSummary(wmiAdapters);
+                if (!string.IsNullOrEmpty(wmiMatch))
                 {
-                    return virtualFallback;
+                    return wmiMatch;
                 }
             }
             catch
@@ -671,16 +1010,25 @@ namespace CryoTray.Services
             return LocalizationService.Get("Common_NotReported");
         }
 
-        private string QueryBsodCount()
+        internal static (int? BsodCount, int? TdrCount) QuerySystemLogCounters(
+            CancellationToken cancellationToken = default)
         {
-            const int MaxEvents = 10000;
-            int count = 0;
+            const int MaxBsodEvents = 10000;
+            int bsodCount = 0;
+            int tdrCount = 0;
             try
             {
-                string query = "*[System[(EventID=1001) and (Provider[@Name='BugCheck' or @Name='Microsoft-Windows-WER-SystemErrorReporting'])]]";
-                var eventQuery = new EventLogQuery("System", PathType.LogName, query);
+                string query =
+                    "*[System[" +
+                    "(EventID=1001 and Provider[@Name='BugCheck' or @Name='Microsoft-Windows-WER-SystemErrorReporting']) " +
+                    "or (EventID=4101 and Provider[@Name='Display'])" +
+                    "]]";
+                var eventQuery = new EventLogQuery("System", PathType.LogName, query)
+                {
+                    TolerateQueryErrors = true
+                };
                 using var reader = new EventLogReader(eventQuery);
-                while (count < MaxEvents)
+                while (!cancellationToken.IsCancellationRequested)
                 {
                     using var record = reader.ReadEvent();
                     if (record == null)
@@ -688,15 +1036,25 @@ namespace CryoTray.Services
                         break;
                     }
 
-                    count++;
+                    if (record.Id == 1001)
+                    {
+                        if (bsodCount < MaxBsodEvents)
+                        {
+                            bsodCount++;
+                        }
+                    }
+                    else if (record.Id == 4101)
+                    {
+                        tdrCount++;
+                    }
                 }
+
+                return (bsodCount, tdrCount);
             }
             catch
             {
-                return LocalizationService.Get("Common_NotReported");
+                return (null, null);
             }
-
-            return LocalizationService.Format("System_BsodCount", count);
         }
 
         internal static string FormatFanSpeeds(IReadOnlyList<FanTelemetry> fans)

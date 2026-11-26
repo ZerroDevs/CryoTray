@@ -1047,6 +1047,14 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="System_GpuHeadroomValue">{0} {1} أقل من حد {2} {1}</sys:String>
     <sys:String x:Key="System_GpuHeadroomOver">تجاوز حد {0} {1} بمقدار {2} {1}</sys:String>
     <sys:String x:Key="System_GpuDiagnosticsUnavailable">تعذر قراءة تشخيص GPU.</sys:String>
+    <sys:String x:Key="System_LoadingStatus">جارٍ قراءة عتاد Windows والتعريفات والسجلات…</sys:String>
+    <sys:String x:Key="System_LoadingHardware">جارٍ فحص تفاصيل Windows…</sys:String>
+    <sys:String x:Key="System_LoadingBootLog">جارٍ فحص سجل إقلاع Windows…</sys:String>
+    <sys:String x:Key="System_LoadingDrivers">جارٍ فحص التعريف ومعرفات PCI…</sys:String>
+    <sys:String x:Key="System_LoadingSystemLog">جارٍ فحص سجل نظام Windows…</sys:String>
+    <sys:String x:Key="System_LoadingMonitors">جارٍ فحص معرفات الشاشات…</sys:String>
+    <sys:String x:Key="System_LoadingNetwork">جارٍ فحص محول الشبكة النشط…</sys:String>
+    <sys:String x:Key="System_ActionsPendingTooltip">يتاح فور انتهاء فحص العتاد</sys:String>
     <sys:String x:Key="Main_GpuDetailsUnavailable">بيانات الذاكرة والترددات غير متوفرة.</sys:String>
     <sys:String x:Key="Main_ActiveTimer_KeepAwake">إبقاء النشاط · {0}</sys:String>
     <sys:String x:Key="Main_ActiveTimer_KeepAwakeOn">إبقاء النشاط · مفعّل</sys:String>

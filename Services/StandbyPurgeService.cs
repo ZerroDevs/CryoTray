@@ -34,6 +34,8 @@ namespace CryoTray.Services
 
         public event Action? StatusChanged;
 
+        internal bool IsTimerRunningForTest => _timer != null;
+
         private StandbyPurgeService()
         {
         }
@@ -59,7 +61,33 @@ namespace CryoTray.Services
             }
 
             _started = true;
-            _timer = new Timer(_ => Evaluate(), null, EvaluationInterval, EvaluationInterval);
+            SettingsService.Instance.SettingsChanged += OnSettingsChanged;
+            SyncTimerWithSettings();
+        }
+
+        internal void SyncTimerWithSettings()
+        {
+            bool enabled = SettingsService.Instance.Current.AutoStandbyPurgeEnabled;
+            if (_disposed || !_started || !enabled)
+            {
+                Timer? existing = Interlocked.Exchange(ref _timer, null);
+                existing?.Dispose();
+                return;
+            }
+
+            if (_timer == null)
+            {
+                var created = new Timer(_ => Evaluate(), null, EvaluationInterval, EvaluationInterval);
+                if (Interlocked.CompareExchange(ref _timer, created, null) != null)
+                {
+                    created.Dispose();
+                }
+            }
+        }
+
+        private void OnSettingsChanged()
+        {
+            SyncTimerWithSettings();
         }
 
         public static bool ShouldPurge(
@@ -224,8 +252,9 @@ namespace CryoTray.Services
 
             _disposed = true;
             _started = false;
-            _timer?.Dispose();
-            _timer = null;
+            SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
+            Timer? existing = Interlocked.Exchange(ref _timer, null);
+            existing?.Dispose();
         }
     }
 }

@@ -96,7 +96,7 @@ Keyboard focus remains visible with an accent border. Mouse interaction does not
 
 ### Monitoring without constant overhead
 
-CryoTray polls hardware once per second and keeps a 60 minute ring buffer of CPU and GPU samples. Charts read from that buffer, so changing the timeframe does not trigger extra hardware reads. The dashboard and utility windows are created on demand, and the process trims its working set after windows close.
+CryoTray polls hardware once per second (backing off to 2–3 s when windows are closed) and keeps a 60 minute ring buffer of CPU and GPU samples. Charts read from that buffer, so changing the timeframe does not trigger extra hardware reads. Background timers for Autopilot and Automatic Standby Cleanup stay stopped whenever their features are disabled, and idle power-plan checks skip full scheme re-enumeration unless the active Windows plan actually changed. The dashboard and utility windows are created on demand, clear transient chart/row collections on close, and trigger a debounced off-UI memory trim (`MemoryTrimService`) when idle.
 
 The application uses software rendering for predictable text and chart output across systems, including machines with limited or problematic GPU acceleration. Tray badge bitmaps and GDI resources are reused, and native icon handles are destroyed when replaced.
 
@@ -277,7 +277,7 @@ This is a system stress test. Do not run it on a machine with inadequate cooling
 
 ### System Information
 
-System Information reads the machine inventory when the window opens and refreshes the uptime every second. It reports:
+System Information opens immediately using live telemetry and session-cached inventory while deeper WMI, GPU diagnostics, display, network, and event-log details load asynchronously with clear inline loading states (keeping `Copy` and `Save to...` disabled only until the scan completes), and refreshes uptime every second. It reports:
 
 - Computer name.
 - Processor model and core count.
@@ -310,7 +310,7 @@ Reparse points are skipped, every path is checked against its category root, loc
 
 ### Settings
 
-Settings opens as a modeless companion window and includes nine tabs: General, View, Overlay, CPU, Memory, Disk, GPU, Autopilot, and About. The footer can export all settings to JSON, import them back, or reset them to defaults. Changes apply immediately and are saved to disk.
+Settings opens immediately as a modeless companion window while startup task checks, update rollback/download cache size scans, and collapsed Power Profile enumeration complete off the UI thread. It includes nine tabs: General, View, Overlay, CPU, Memory, Disk, GPU, Autopilot, and About. The footer can export all settings to JSON, import them back, or reset them to defaults. Changes apply immediately and are saved to disk.
 
 ## Settings reference
 
@@ -637,7 +637,8 @@ CryoTray.exe
 Key implementation choices:
 
 - **Software rendering.** WPF renders in software to keep text and charts consistent across systems.
-- **On-demand windows.** Companion windows are constructed per open and released on close where practical.
+- **On-demand windows & idle trimming.** Companion windows are constructed per open, cancel in-flight background work cleanly on close, release chart/list buffers when closed, and coalesce compacting GC + working-set trimming off the UI thread via `MemoryTrimService`.
+- **Non-blocking utilities.** `System Information` renders live telemetry immediately while WMI/EventLog queries run in parallel and reuse cached hardware inventory; `Settings` runs startup task checks, backup/cache size scans, and collapsed external-plan enumeration asynchronously without blocking open.
 - **Adaptive telemetry.** Window and service leases choose 1 s, 2 s, or 3 s polling; CPU and GPU always update, while fans and storage are gated and cached. The ring buffer holds up to 3,600 telemetry samples, enough for the 60 minute chart range at 1 s.
 - **Bounded chart work.** Charts reduce to bucket min/max within a point budget near twice the plot width, keep original indices for hover, and coalesce telemetry redraws on a 200 ms timer.
 - **Resource ownership.** GDI objects and HICON handles are retained only as long as needed and destroyed when a badge is replaced or disposed.

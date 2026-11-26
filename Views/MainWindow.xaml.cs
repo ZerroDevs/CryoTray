@@ -204,6 +204,10 @@ namespace CryoTray.Views
         private void MainWindow_Deactivated(object? sender, EventArgs e)
         {
             StopFanAnimation();
+            if (!_isClosing)
+            {
+                MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromSeconds(2));
+            }
         }
 
         private void MainWindow_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -327,6 +331,7 @@ namespace CryoTray.Views
             DrawGpuChart();
             SetRamOptimizingVisualState(MemoryOptimizerService.Instance.IsOptimizing);
             StartFanAnimation();
+            MemoryTrimService.Instance.ScheduleTrim(MemoryTrimService.LoadedDelay);
         }
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -395,6 +400,17 @@ namespace CryoTray.Views
             _chartRenderTimer?.Stop();
             _telemetryLease?.Dispose();
             _telemetryLease = null;
+            _activeHoverDriveRow = null;
+            _ssdRows.Clear();
+            _cpuChartSamples.Clear();
+            _gpuChartSamples.Clear();
+            _cpuChartEvents.Clear();
+            _gpuChartEvents.Clear();
+            CpuChartCanvas?.Children.Clear();
+            CpuChartHoverCanvas?.Children.Clear();
+            GpuChartCanvas?.Children.Clear();
+            GpuChartHoverCanvas?.Children.Clear();
+            SsdRowsContainer?.Children.Clear();
             OptGlyphHost?.BeginAnimation(OpacityProperty, null);
             StopFanAnimation();
             DataContext = null;
@@ -4054,14 +4070,7 @@ namespace CryoTray.Views
             win.OpenSettingsRequested += () => OpenSettingsDialog(false);
             win.OpenSystemInformationRequested += () => OpenSystemInfoDialog();
             _healthCheckWindow = win;
-            win.Closed += (_, _) =>
-            {
-                if (ReferenceEquals(_healthCheckWindow, win))
-                {
-                    _healthCheckWindow = null;
-                }
-                UpdateChildDialogState();
-            };
+            win.Closed += (_, _) => UntrackChildWindow(win);
             UpdateChildDialogState();
             win.Show();
             win.Activate();
@@ -4082,14 +4091,7 @@ namespace CryoTray.Views
             var win = new SessionReportWindow { Owner = this };
             DockSideBySide(win);
             _sessionReportWindow = win;
-            win.Closed += (_, _) =>
-            {
-                if (ReferenceEquals(_sessionReportWindow, win))
-                {
-                    _sessionReportWindow = null;
-                }
-                UpdateChildDialogState();
-            };
+            win.Closed += (_, _) => UntrackChildWindow(win);
             UpdateChildDialogState();
             win.Show();
             win.Activate();
@@ -4106,6 +4108,10 @@ namespace CryoTray.Views
 
             UpdateChildDialogState();
             UpdateTitleIconStates();
+            if (!_isClosing)
+            {
+                MemoryTrimService.Instance.ScheduleTrim();
+            }
         }
 
         private void UpdateChildDialogState()

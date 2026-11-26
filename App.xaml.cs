@@ -26,7 +26,6 @@ namespace CryoTray
         private MainWindow? _mainWindow;
         private OverlayWindow? _overlayWindow;
         private HwndSource? _hotkeySource;
-        private DispatcherTimer? _startupTrimTimer;
         private DispatcherTimer? _powerPlanWatchTimer;
         private DispatcherTimer? _coolingPauseTimer;
         private DispatcherTimer? _updateCheckTimer;
@@ -305,7 +304,9 @@ namespace CryoTray
 
             _powerPlanWatchTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(2)
+                Interval = settings.LaunchInBackground
+                    ? TimeSpan.FromSeconds(4)
+                    : TimeSpan.FromSeconds(2)
             };
             _powerPlanWatchTimer.Tick += (s, args) => PowerPlanService.Instance.SyncCoolingStateFromSystem();
             _powerPlanWatchTimer.Start();
@@ -315,17 +316,7 @@ namespace CryoTray
                 ShowDashboard();
             }
 
-            _startupTrimTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(2)
-            };
-            _startupTrimTimer.Tick += (s, args) =>
-            {
-                _startupTrimTimer?.Stop();
-                _startupTrimTimer = null;
-                TrimWorkingSet();
-            };
-            _startupTrimTimer.Start();
+            MemoryTrimService.Instance.ScheduleTrim(MemoryTrimService.StartupDelay);
 
             ScheduleAutomaticUpdateCheck(checkNow: true);
         }
@@ -1269,6 +1260,12 @@ namespace CryoTray
             }
 
             _dashboardVisible = visible;
+            if (_powerPlanWatchTimer != null)
+            {
+                _powerPlanWatchTimer.Interval = visible
+                    ? TimeSpan.FromSeconds(2)
+                    : TimeSpan.FromSeconds(4);
+            }
             ScheduleAutomaticUpdateCheck();
             if (visible)
             {
@@ -1374,6 +1371,10 @@ namespace CryoTray
             finally
             {
                 _updateCheckInProgress = false;
+                if (!_isExiting)
+                {
+                    MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromSeconds(2));
+                }
             }
         }
 
@@ -1384,11 +1385,7 @@ namespace CryoTray
                 return;
             }
 
-            GC.Collect(2, GCCollectionMode.Aggressive, true, true);
-            GC.WaitForPendingFinalizers();
-
-            using var process = Process.GetCurrentProcess();
-            NativeMethods.EmptyWorkingSet(process.Handle);
+            MemoryTrimService.Instance.ScheduleTrim();
         }
 
         private void ExitApplication()
@@ -1399,8 +1396,7 @@ namespace CryoTray
             }
 
             _isExiting = true;
-            _startupTrimTimer?.Stop();
-            _startupTrimTimer = null;
+            MemoryTrimService.Instance.CancelPending(shuttingDown: true);
             _powerPlanWatchTimer?.Stop();
             _powerPlanWatchTimer = null;
             _coolingPauseTimer?.Stop();
@@ -1682,7 +1678,7 @@ namespace CryoTray
                 ActivitySeverity.Info, "app", "Activity_AppExited");
             DisableCoolingForExit();
             _isExiting = true;
-            _startupTrimTimer?.Stop();
+            MemoryTrimService.Instance.CancelPending(shuttingDown: true);
             _powerPlanWatchTimer?.Stop();
             _coolingPauseTimer?.Stop();
             _coolingPauseTimer = null;

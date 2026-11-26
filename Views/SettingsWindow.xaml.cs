@@ -51,6 +51,12 @@ namespace CryoTray.Views
         private IReadOnlyList<SettingsSearchItem> _settingsSearchResults = Array.Empty<SettingsSearchItem>();
         private bool _settingsSearchPopupOpenPending;
         private IDisposable? _telemetryLease;
+        private int _startupSyncGeneration;
+        private bool _startupCheckboxTouched;
+        private int _rollbackScanGeneration;
+        private int _downloadCacheScanGeneration;
+        private string? _cachedRollbackPath;
+        private long _cachedRollbackSizeBytes;
 
         private sealed class DiskDriveControlRow
         {
@@ -122,6 +128,9 @@ namespace CryoTray.Views
         private void SettingsWindow_Closed(object? sender, EventArgs e)
         {
             _isClosed = true;
+            _startupSyncGeneration++;
+            _rollbackScanGeneration++;
+            _downloadCacheScanGeneration++;
             Activated -= SettingsWindow_Activated;
             PreviewKeyDown -= SettingsWindow_PreviewKeyDown;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnSettingsTelemetryUpdated;
@@ -152,7 +161,7 @@ namespace CryoTray.Views
 
         private void SettingsWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            LoadSettingsIntoUI();
+            LoadSettingsIntoUI(isInitialLoad: true);
             if (OpenAboutOnLoad)
             {
                 TabAbout.IsChecked = true;
@@ -166,18 +175,15 @@ namespace CryoTray.Views
                 TabMemory.IsChecked = true;
             }
 
-            ApplyLocalizedText();
+            ApplyLocalizedText(skipLoadedControls: true);
             RefreshPawnIoBanner();
             RefreshRollbackUi();
-            RefreshActivityUi();
             _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
                 "SettingsWindow", TelemetryDemand.Settings);
             HardwareMonitorService.Instance.TelemetryUpdated += OnSettingsTelemetryUpdated;
             SettingsService.Instance.SettingsChanged += OnExternalSettingsChanged;
             GpuPowerControlService.Instance.StateChanged += OnGpuPowerStateChanged;
             DownloadTimerService.Instance.StatusChanged += OnDownloadTimerStatusChanged;
-            UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
-            UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
             SyncKeepAwakeComboFromService();
             RefreshKeepAwakeUi();
             RefreshTimerResolutionUi();
@@ -394,11 +400,11 @@ namespace CryoTray.Views
             }
         }
 
-        private void LoadSettingsIntoUI()
+        private void LoadSettingsIntoUI(bool isInitialLoad = false)
         {
             var s = SettingsService.Instance.Current;
 
-            LoadPowerProfiles(s);
+            LoadPowerProfiles(s, refreshManageProfiles: !isInitialLoad || ManageProfilesToggle?.IsChecked == true);
 
             // Language
             CmbLanguage.SelectedIndex = s.Language == "العربية" ? 1 : 0;
@@ -411,17 +417,9 @@ namespace CryoTray.Views
 
             // Checkboxes
             ChkShowComputerName.IsChecked = s.ShowComputerName;
-            bool taskConfigured = StartupTaskService.IsStartupConfigured();
-            if (s.LaunchOnStartup && !taskConfigured)
-            {
-                StartupTaskService.EnsureSynchronized(true);
-                taskConfigured = StartupTaskService.IsStartupConfigured();
-                if (!taskConfigured)
-                {
-                    s.LaunchOnStartup = false;
-                }
-            }
-            ChkLaunchStartup.IsChecked = s.LaunchOnStartup && taskConfigured;
+            _startupCheckboxTouched = false;
+            ChkLaunchStartup.IsChecked = s.LaunchOnStartup;
+            VerifyStartupTaskAsync(s.LaunchOnStartup);
             ChkLaunchBackground.IsChecked = s.LaunchInBackground;
             ChkEnableCoolingOnLaunch.IsChecked = s.EnableCoolingOnLaunch;
             ChkEnableCoolingOnBattery.IsChecked = s.EnableCoolingOnBattery;
@@ -504,7 +502,10 @@ namespace CryoTray.Views
             ChkShowCpuClock.IsChecked = s.ShowCpuClock;
             ChkShowCpuBaseSpeed.IsChecked = s.ShowCpuBaseSpeed;
             ChkShowCpuLoad.IsChecked = s.ShowCpuLoad;
-            RefreshCachedBoostPeakUi();
+            if (!isInitialLoad)
+            {
+                RefreshCachedBoostPeakUi();
+            }
             ChkLimitWatch.IsChecked = s.LimitWatchEnabled;
             ChkShowCpuGraph.IsChecked = s.ShowCpuGraph;
             SelectTimeframeCombo(CmbCpuGraphTimeframe, s.CpuGraphTimeframeMinutes);
@@ -596,24 +597,80 @@ namespace CryoTray.Views
             }
         }
 
-        private void ApplyLocalizedText()
+        private void VerifyStartupTaskAsync(bool launchOnStartup)
+        {
+            int generation = ++_startupSyncGeneration;
+            _ = Task.Run(() =>
+            {
+                bool taskConfigured = StartupTaskService.IsStartupConfigured();
+                if (launchOnStartup && !taskConfigured)
+                {
+                    StartupTaskService.EnsureSynchronized(true);
+                    taskConfigured = StartupTaskService.IsStartupConfigured();
+                }
+
+                return taskConfigured;
+            }).ContinueWith(task =>
+            {
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    return;
+                }
+
+                bool taskConfigured = task.Result;
+                if (_isClosed || Dispatcher.HasShutdownStarted)
+                {
+                    return;
+                }
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_isClosed || generation != _startupSyncGeneration || _startupCheckboxTouched)
+                    {
+                        return;
+                    }
+
+                    if (launchOnStartup && !taskConfigured && ChkLaunchStartup != null)
+                    {
+                        SettingsService.Instance.Current.LaunchOnStartup = false;
+                        bool previousBinding = _isBinding;
+                        _isBinding = true;
+                        try
+                        {
+                            ChkLaunchStartup.IsChecked = false;
+                        }
+                        finally
+                        {
+                            _isBinding = previousBinding;
+                        }
+                    }
+                }));
+            }, TaskScheduler.Default);
+        }
+
+        private void ApplyLocalizedText(bool skipLoadedControls = false)
         {
             TxtAboutVersion.Text = LocalizationService.Format("Settings_AboutVersion", UpdateService.CurrentVersion);
-            UpdateThresholdLabels();
-            UpdateTrayBadgeSampleTexts();
             ApplyUpdateState();
-            RefreshLastCheckedText();
             RefreshDownloadCacheUi();
-            RefreshCachedBoostPeakUi();
-            RefreshSleepTimeoutsUi(SettingsService.Instance.Current);
             RefreshActivityUi();
-            RefreshAutopilotWhitelist();
-            RefreshDiskDriveListSafely();
-            RefreshFanAliasListSafely();
-            RefreshHotkeyFeedback();
-            RefreshRamHotkeyFeedback();
-            UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
-            UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
+
+            if (!skipLoadedControls)
+            {
+                UpdateThresholdLabels();
+                UpdateTrayBadgeSampleTexts();
+                RefreshLastCheckedText();
+                RefreshCachedBoostPeakUi();
+                RefreshSleepTimeoutsUi(SettingsService.Instance.Current);
+                RefreshAutopilotWhitelist();
+                RefreshDiskDriveListSafely();
+                RefreshFanAliasListSafely();
+                RefreshHotkeyFeedback();
+                RefreshRamHotkeyFeedback();
+                UpdateGpuPowerUi(GpuPowerControlService.Instance.State);
+                UpdateDownloadTimerUi(DownloadTimerService.Instance.CurrentStatus);
+            }
+
             RebuildSettingsSearchIndex();
             UpdateSettingsSearchResults();
         }
@@ -1428,6 +1485,11 @@ namespace CryoTray.Views
             var entries = whitelist
                 .Where(entry => !string.IsNullOrWhiteSpace(entry))
                 .ToList();
+            var baseChoices = entries.Count > 0
+                ? PowerProfiles.GetVisibleMenuProfiles(SettingsService.Instance.Current)
+                    .Select(CreateProfileChoice)
+                    .ToList()
+                : new List<PowerProfileChoice>();
 
             foreach (string entry in entries)
             {
@@ -1465,9 +1527,6 @@ namespace CryoTray.Views
                 };
                 Grid.SetColumn(nameText, 0);
 
-                var baseChoices = PowerProfiles.GetVisibleMenuProfiles(SettingsService.Instance.Current)
-                    .Select(CreateProfileChoice)
-                    .ToList();
                 string selectedKey = AutopilotService.ResolveProfileKey(
                     entry,
                     SettingsService.Instance.Current.AutopilotAppProfiles,
@@ -3283,7 +3342,7 @@ namespace CryoTray.Views
             public override string ToString() => DisplayName;
         }
 
-        private void LoadPowerProfiles(AppSettings settings)
+        private void LoadPowerProfiles(AppSettings settings, bool refreshManageProfiles = true)
         {
             var coolingChoices = PowerProfiles.GetVisibleCoolingProfiles(settings)
                 .Select(CreateProfileChoice)
@@ -3302,7 +3361,10 @@ namespace CryoTray.Views
                 string.Equals(choice.Key, settings.PreferredGamingProfile, StringComparison.OrdinalIgnoreCase))
                 ?? gamingChoices.First(choice => choice.Key == PowerProfiles.BalancedKey);
             UpdateProfileDescription(TxtGamingProfileDesc, CmbGamingProfile.SelectedItem as PowerProfileChoice);
-            RefreshManageProfilesUi(settings);
+            if (refreshManageProfiles)
+            {
+                RefreshManageProfilesUi(settings);
+            }
         }
 
         private static PowerProfileChoice CreateProfileChoice(PowerProfileDefinition profile)
@@ -4106,6 +4168,8 @@ namespace CryoTray.Views
         private void ChkLaunchStartup_Changed(object sender, RoutedEventArgs e)
         {
             if (_isBinding) return;
+            _startupCheckboxTouched = true;
+            _startupSyncGeneration++;
             bool enable = ChkLaunchStartup.IsChecked == true;
             if (!StartupTaskService.TrySetStartup(enable, out string? errorMessage))
             {
@@ -5228,24 +5292,42 @@ namespace CryoTray.Views
 
         private void RefreshDownloadCacheUi()
         {
-            if (BtnClearDownloads == null || TxtDownloadCacheStatus == null)
+            if (BtnClearDownloads == null || TxtDownloadCacheStatus == null || _isClosed)
             {
                 return;
             }
 
-            long size = UpdateService.GetDownloadCacheSizeBytes();
-            if (size <= 0)
+            int generation = ++_downloadCacheScanGeneration;
+            _ = Task.Run(UpdateService.GetDownloadCacheSizeBytes).ContinueWith(task =>
             {
-                BtnClearDownloads.Visibility = Visibility.Collapsed;
-                TxtDownloadCacheStatus.Visibility = Visibility.Collapsed;
-                return;
-            }
+                if (task.IsFaulted || task.IsCanceled || _isClosed || Dispatcher.HasShutdownStarted)
+                {
+                    return;
+                }
 
-            BtnClearDownloads.Visibility = Visibility.Visible;
-            BtnClearDownloads.IsEnabled = !_updateBusy;
-            TxtDownloadCacheStatus.Text = LocalizationService.Format(
-                "Settings_DownloadCacheSize", FormatByteSize(size));
-            TxtDownloadCacheStatus.Visibility = Visibility.Visible;
+                long size = task.Result;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_isClosed || generation != _downloadCacheScanGeneration ||
+                        BtnClearDownloads == null || TxtDownloadCacheStatus == null)
+                    {
+                        return;
+                    }
+
+                    if (size <= 0)
+                    {
+                        BtnClearDownloads.Visibility = Visibility.Collapsed;
+                        TxtDownloadCacheStatus.Visibility = Visibility.Collapsed;
+                        return;
+                    }
+
+                    BtnClearDownloads.Visibility = Visibility.Visible;
+                    BtnClearDownloads.IsEnabled = !_updateBusy;
+                    TxtDownloadCacheStatus.Text = LocalizationService.Format(
+                        "Settings_DownloadCacheSize", FormatByteSize(size));
+                    TxtDownloadCacheStatus.Visibility = Visibility.Visible;
+                }));
+            }, TaskScheduler.Default);
         }
 
         private void BtnClearDownloads_Click(object sender, RoutedEventArgs e)
@@ -5264,6 +5346,7 @@ namespace CryoTray.Views
 
             try
             {
+                _downloadCacheScanGeneration++;
                 UpdateService.ClearDownloadCache();
                 BtnClearDownloads.Visibility = Visibility.Collapsed;
                 TxtDownloadCacheStatus.Text = LocalizationService.Format(
@@ -5320,14 +5403,17 @@ namespace CryoTray.Views
         private void RefreshRollbackUi()
         {
             if (TxtRollbackStatus == null || BtnRollback == null ||
-                BtnDeleteRollback == null || BtnVerifyRollback == null)
+                BtnDeleteRollback == null || BtnVerifyRollback == null || _isClosed)
             {
                 return;
             }
 
+            int generation = ++_rollbackScanGeneration;
             var backup = UpdateBackupService.GetCurrent();
             if (backup == null)
             {
+                _cachedRollbackPath = null;
+                _cachedRollbackSizeBytes = 0;
                 TxtRollbackStatus.Visibility = Visibility.Collapsed;
                 BtnRollback.Visibility = Visibility.Collapsed;
                 BtnDeleteRollback.Visibility = Visibility.Collapsed;
@@ -5339,12 +5425,15 @@ namespace CryoTray.Views
             string createdText = backup.CreatedUtc == default
                 ? LocalizationService.Get("Common_Unknown")
                 : backup.CreatedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
-            long size = UpdateBackupService.GetSizeBytes(backup);
-            string sizeText = size > 0
-                ? FormatByteSize(size)
+
+            bool hasCachedSize = string.Equals(_cachedRollbackPath, backup.Path, StringComparison.OrdinalIgnoreCase);
+            long initialSize = hasCachedSize ? _cachedRollbackSizeBytes : 0;
+            string initialSizeText = initialSize > 0
+                ? FormatByteSize(initialSize)
                 : LocalizationService.Get("Common_Unknown");
+
             TxtRollbackStatus.Text = LocalizationService.Format(
-                "Settings_RollbackAvailable", backup.Version, createdText, sizeText);
+                "Settings_RollbackAvailable", backup.Version, createdText, initialSizeText);
             TxtRollbackStatus.Visibility = Visibility.Visible;
             BtnRollback.Visibility = Visibility.Visible;
             BtnRollback.IsEnabled = !_updateBusy && !_rollbackVerifyBusy;
@@ -5352,6 +5441,36 @@ namespace CryoTray.Views
             BtnDeleteRollback.IsEnabled = !_updateBusy && !_rollbackVerifyBusy;
             BtnVerifyRollback.Visibility = Visibility.Visible;
             BtnVerifyRollback.IsEnabled = !_updateBusy && !_rollbackVerifyBusy;
+
+            if (hasCachedSize)
+            {
+                return;
+            }
+
+            _ = Task.Run(() => UpdateBackupService.GetSizeBytes(backup)).ContinueWith(task =>
+            {
+                if (task.IsFaulted || task.IsCanceled || _isClosed || Dispatcher.HasShutdownStarted)
+                {
+                    return;
+                }
+
+                long measuredSize = task.Result;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_isClosed || generation != _rollbackScanGeneration || TxtRollbackStatus == null)
+                    {
+                        return;
+                    }
+
+                    _cachedRollbackPath = backup.Path;
+                    _cachedRollbackSizeBytes = measuredSize;
+                    string sizeText = measuredSize > 0
+                        ? FormatByteSize(measuredSize)
+                        : LocalizationService.Get("Common_Unknown");
+                    TxtRollbackStatus.Text = LocalizationService.Format(
+                        "Settings_RollbackAvailable", backup.Version, createdText, sizeText);
+                }));
+            }, TaskScheduler.Default);
         }
 
         private async void BtnVerifyRollback_Click(object sender, RoutedEventArgs e)
@@ -5463,6 +5582,9 @@ namespace CryoTray.Views
 
             try
             {
+                _rollbackScanGeneration++;
+                _cachedRollbackPath = null;
+                _cachedRollbackSizeBytes = 0;
                 BtnRollback.IsEnabled = false;
                 BtnDeleteRollback.IsEnabled = false;
                 if (!UpdateBackupService.DeleteCurrent())
@@ -5514,6 +5636,9 @@ namespace CryoTray.Views
 
             try
             {
+                _rollbackScanGeneration++;
+                _cachedRollbackPath = null;
+                _cachedRollbackSizeBytes = 0;
                 BtnRollback.IsEnabled = false;
                 TxtUpdateStatus.Text = LocalizationService.Get("Settings_RollbackRestarting");
                 ActivityLogService.Instance.Record(
@@ -5580,6 +5705,7 @@ namespace CryoTray.Views
                 SupportBundleService.Create(dialog.FileName);
                 TxtSupportBundleStatus.Text = LocalizationService.Format(
                     "Settings_ActivityBundleSaved", Path.GetFileName(dialog.FileName));
+                MemoryTrimService.Instance.ScheduleTrim();
             }
             catch (Exception ex)
             {

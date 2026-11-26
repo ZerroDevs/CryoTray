@@ -112,6 +112,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -192,8 +193,25 @@
             </Grid>
         </Border>
 
+        <!-- Non-blocking loading bar while WMI/EventLog enrichment finishes -->
+        <Border x:Name="BdrLoadingStatus"
+                Grid.Row="1"
+                Visibility="Collapsed"
+                Background="{DynamicResource PanelAltBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="24,6">
+            <TextBlock x:Name="TxtLoadingStatus"
+                       Text="{DynamicResource System_LoadingStatus}"
+                       Foreground="{DynamicResource TextMutedBrush}"
+                       FontSize="11.5"
+                       TextTrimming="CharacterEllipsis"/>
+        </Border>
+
         <!-- Scrollable Key-Value List -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="InfoScrollViewer"
+                      Grid.Row="2"
+                      VerticalScrollBarVisibility="Auto">
             <StackPanel x:Name="InfoContainer" Margin="12,8,12,8">
             </StackPanel>
         </ScrollViewer>

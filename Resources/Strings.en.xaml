@@ -1047,6 +1047,14 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="System_GpuHeadroomValue">{0} {1} below {2} {1} limit</sys:String>
     <sys:String x:Key="System_GpuHeadroomOver">Over the {0} {1} limit by {2} {1}</sys:String>
     <sys:String x:Key="System_GpuDiagnosticsUnavailable">GPU diagnostics could not be read.</sys:String>
+    <sys:String x:Key="System_LoadingStatus">Reading Windows hardware, drivers &amp; logs…</sys:String>
+    <sys:String x:Key="System_LoadingHardware">Checking Windows details…</sys:String>
+    <sys:String x:Key="System_LoadingBootLog">Checking Windows boot log…</sys:String>
+    <sys:String x:Key="System_LoadingDrivers">Checking driver &amp; PCI IDs…</sys:String>
+    <sys:String x:Key="System_LoadingSystemLog">Scanning Windows System log…</sys:String>
+    <sys:String x:Key="System_LoadingMonitors">Checking monitor EDID…</sys:String>
+    <sys:String x:Key="System_LoadingNetwork">Checking active network adapter…</sys:String>
+    <sys:String x:Key="System_ActionsPendingTooltip">Available once hardware scan finishes</sys:String>
     <sys:String x:Key="Main_GpuDetailsUnavailable">VRAM and clock telemetry unavailable.</sys:String>
     <sys:String x:Key="Main_ActiveTimer_KeepAwake">Keep Awake · {0}</sys:String>
     <sys:String x:Key="Main_ActiveTimer_KeepAwakeOn">Keep Awake · Active</sys:String>

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -8,7 +10,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using System.Threading.Tasks;
 using CryoTray.Models;
 using CryoTray.Services;
 using Microsoft.Win32;
@@ -41,6 +42,11 @@ namespace CryoTray.Views
         private string? _highlightFanKey;
         private bool _highlightScrolled;
         private IDisposable? _telemetryLease;
+        private CancellationTokenSource? _loadCts;
+        private int _loadGeneration;
+        private bool _isClosed;
+        private bool _gpuDiagnosticsPending;
+        private bool _isDataLoading;
 
         public SystemInfoWindow()
         {
@@ -87,6 +93,18 @@ namespace CryoTray.Views
 
         private void SystemInfoWindow_Closed(object? sender, EventArgs e)
         {
+            _isClosed = true;
+            _loadGeneration++;
+            try
+            {
+                _loadCts?.Cancel();
+            }
+            catch
+            {
+            }
+            _loadCts?.Dispose();
+            _loadCts = null;
+
             Loaded -= SystemInfoWindow_Loaded;
             Closed -= SystemInfoWindow_Closed;
             PreviewKeyDown -= SystemInfoWindow_PreviewKeyDown;
@@ -113,45 +131,156 @@ namespace CryoTray.Views
             _telemetryLease = null;
             InfoContainer.Children.Clear();
             _data = new SystemInfoData();
+            _gpuDiagnostics = null;
             Content = null;
             DataContext = null;
 
-            if (System.Windows.Application.Current is App app)
-            {
-                app.TrimWorkingSet();
-            }
+            MemoryTrimService.Instance.ScheduleTrim();
         }
 
         private void SystemInfoWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            _data = SystemInfoQueryService.Instance.QuerySystemInfo();
-            _gpuDiagnostics = GpuDiagnosticsService.Query();
-            _telemetryLease = TelemetryDemandTracker.Instance.Acquire(
+            _telemetryLease ??= TelemetryDemandTracker.Instance.Acquire(
                 "SystemInfoWindow", TelemetryDemand.SystemInfo);
-            RenderRows();
             _uptimeTimer.Start();
+            _ = StartLoadAsync();
         }
 
         private void OnThemeChanged(object? sender, EventArgs e)
         {
+            if (_isClosed)
+            {
+                return;
+            }
+
             if (Dispatcher.CheckAccess())
             {
                 RenderRows();
             }
             else
             {
-                Dispatcher.BeginInvoke(new Action(RenderRows));
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!_isClosed)
+                    {
+                        RenderRows();
+                    }
+                }));
             }
         }
 
         private void OnLanguageChanged()
         {
+            if (_isClosed)
+            {
+                return;
+            }
+
             LocalizationService.Instance.ApplyWindow(this);
             _copyFeedbackTimer?.Stop();
             TxtCopyDiagnostics.Text = LocalizationService.Get("System_Copy");
-            _data = SystemInfoQueryService.Instance.QuerySystemInfo();
-            _gpuDiagnostics = GpuDiagnosticsService.Query();
+            _ = StartLoadAsync();
+        }
+
+        private async Task StartLoadAsync()
+        {
+            if (_isClosed)
+            {
+                return;
+            }
+
+            int generation = ++_loadGeneration;
+            try
+            {
+                _loadCts?.Cancel();
+            }
+            catch
+            {
+            }
+            _loadCts?.Dispose();
+            var cts = new CancellationTokenSource();
+            _loadCts = cts;
+
+            _data = SystemInfoQueryService.Instance.CreateImmediateSnapshotData(out bool needsInfoAsync);
+            _gpuDiagnostics = GpuDiagnosticsService.CreateImmediate(
+                HardwareMonitorService.Instance.CurrentSnapshot,
+                SettingsService.Instance.Current,
+                out bool hasGpuStaticCache);
+
+            _gpuDiagnosticsPending = !hasGpuStaticCache;
+            bool pendingAsync = needsInfoAsync || _gpuDiagnosticsPending;
+            _isDataLoading = pendingAsync;
+            UpdateLoadingBannerState(pendingAsync);
             RenderRows();
+
+            if (!pendingAsync)
+            {
+                return;
+            }
+
+            try
+            {
+                var (fullData, fullGpu) = await SystemInfoQueryService.Instance
+                    .QuerySystemInfoWithGpuAsync(forceRefresh: false, cts.Token);
+                if (_isClosed || cts.Token.IsCancellationRequested || generation != _loadGeneration)
+                {
+                    return;
+                }
+
+                _data = fullData;
+                _gpuDiagnostics = fullGpu;
+                _gpuDiagnosticsPending = false;
+                _isDataLoading = false;
+                UpdateLoadingBannerState(false);
+
+                double scrollOffset = InfoScrollViewer?.VerticalOffset ?? 0;
+                RenderRows();
+                if (InfoScrollViewer != null && scrollOffset > 0)
+                {
+                    InfoScrollViewer.ScrollToVerticalOffset(scrollOffset);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+                if (!_isClosed && generation == _loadGeneration)
+                {
+                    _gpuDiagnosticsPending = false;
+                    _isDataLoading = false;
+                    UpdateLoadingBannerState(false);
+                    RenderRows();
+                }
+            }
+        }
+
+        private void UpdateLoadingBannerState(bool isLoading)
+        {
+            if (BdrLoadingStatus != null)
+            {
+                BdrLoadingStatus.Visibility = isLoading
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            bool ready = !isLoading;
+            string pendingTip = LocalizationService.Get("System_ActionsPendingTooltip");
+            if (BtnCopyDiagnostics != null)
+            {
+                BtnCopyDiagnostics.IsEnabled = ready;
+                BtnCopyDiagnostics.Opacity = ready ? 1.0 : 0.45;
+                BtnCopyDiagnostics.ToolTip = ready
+                    ? LocalizationService.Get("System_CopyDiagnostics")
+                    : pendingTip;
+            }
+
+            if (BtnSaveTo != null)
+            {
+                BtnSaveTo.IsEnabled = ready;
+                BtnSaveTo.Opacity = ready ? 1.0 : 0.45;
+                BtnSaveTo.ToolTip = ready ? null : pendingTip;
+            }
         }
 
         private void RenderRows()
@@ -169,7 +298,7 @@ namespace CryoTray.Views
             _fanHealthRows.Clear();
             int rowIndex = 0;
 
-            void AddRow(string label, string value, string? subtitle = null, bool isUptime = false, string? detail = null)
+            void AddRow(string label, string value, string? subtitle = null, bool isUptime = false, string? detail = null, bool isLoadingValue = false)
             {
                 bool isAlternate = (rowIndex % 2 == 1);
                 var border = new Border
@@ -202,9 +331,9 @@ namespace CryoTray.Views
                 var txtValue = new TextBlock
                 {
                     Text = value,
-                    Foreground = ThemeService.GetBrush("TextPrimaryBrush"),
-                    FontSize = 13,
-                    FontWeight = FontWeights.SemiBold,
+                    Foreground = ThemeService.GetBrush(isLoadingValue ? "TextMutedBrush" : "TextPrimaryBrush"),
+                    FontSize = isLoadingValue ? 12 : 13,
+                    FontWeight = isLoadingValue ? FontWeights.Normal : FontWeights.SemiBold,
                     TextWrapping = TextWrapping.Wrap,
                     FlowDirection = System.Windows.FlowDirection.LeftToRight
                 };
@@ -297,30 +426,42 @@ namespace CryoTray.Views
                     return;
                 }
 
-                AddRow(
-                    LocalizationService.Get("System_GpuDriver"),
-                    string.IsNullOrWhiteSpace(diag.DriverVersion)
-                        ? LocalizationService.Get("Common_NotReported")
-                        : diag.DriverVersion,
-                    string.IsNullOrWhiteSpace(diag.DriverDateText)
-                        ? null
-                        : LocalizationService.Format("System_GpuDriverDate", diag.DriverDateText));
-                AddRow(
-                    LocalizationService.Get("System_GpuBios"),
-                    string.IsNullOrWhiteSpace(diag.VideoBios)
-                        ? LocalizationService.Get("Common_NotReported")
-                        : diag.VideoBios);
-                AddRow(
-                    LocalizationService.Get("System_GpuPciIds"),
-                    string.IsNullOrWhiteSpace(diag.PciIds)
-                        ? LocalizationService.Get("Common_NotReported")
-                        : diag.PciIds,
-                    string.IsNullOrWhiteSpace(diag.PnpDeviceId) ? null : diag.PnpDeviceId);
-                AddRow(
-                    LocalizationService.Get("System_GpuTdr"),
-                    diag.TdrCount.HasValue
-                        ? LocalizationService.Format("System_GpuTdrValue", diag.TdrCount.Value)
-                        : LocalizationService.Get("System_GpuTdrUnavailable"));
+                if (_gpuDiagnosticsPending)
+                {
+                    string driverLoading = LocalizationService.Get("System_LoadingDrivers");
+                    string logLoading = LocalizationService.Get("System_LoadingSystemLog");
+                    AddRow(LocalizationService.Get("System_GpuDriver"), driverLoading, isLoadingValue: true);
+                    AddRow(LocalizationService.Get("System_GpuBios"), driverLoading, isLoadingValue: true);
+                    AddRow(LocalizationService.Get("System_GpuPciIds"), driverLoading, isLoadingValue: true);
+                    AddRow(LocalizationService.Get("System_GpuTdr"), logLoading, isLoadingValue: true);
+                }
+                else
+                {
+                    AddRow(
+                        LocalizationService.Get("System_GpuDriver"),
+                        string.IsNullOrWhiteSpace(diag.DriverVersion)
+                            ? LocalizationService.Get("Common_NotReported")
+                            : diag.DriverVersion,
+                        string.IsNullOrWhiteSpace(diag.DriverDateText)
+                            ? null
+                            : LocalizationService.Format("System_GpuDriverDate", diag.DriverDateText));
+                    AddRow(
+                        LocalizationService.Get("System_GpuBios"),
+                        string.IsNullOrWhiteSpace(diag.VideoBios)
+                            ? LocalizationService.Get("Common_NotReported")
+                            : diag.VideoBios);
+                    AddRow(
+                        LocalizationService.Get("System_GpuPciIds"),
+                        string.IsNullOrWhiteSpace(diag.PciIds)
+                            ? LocalizationService.Get("Common_NotReported")
+                            : diag.PciIds,
+                        string.IsNullOrWhiteSpace(diag.PnpDeviceId) ? null : diag.PnpDeviceId);
+                    AddRow(
+                        LocalizationService.Get("System_GpuTdr"),
+                        diag.TdrCount.HasValue
+                            ? LocalizationService.Format("System_GpuTdrValue", diag.TdrCount.Value)
+                            : LocalizationService.Get("System_GpuTdrUnavailable"));
+                }
 
                 string hotspotValue = diag.HotspotEdgeCurrent.HasValue
                     ? LocalizationService.Format(
@@ -385,12 +526,19 @@ namespace CryoTray.Views
                 AddRow(d.Header, d.Title, d.Subtitle, false, d.FreeSpace);
             }
 
-            AddRow(LocalizationService.Get("System_OperatingSystem"), _data.OperatingSystem);
+            bool isOsLoading = _isDataLoading && string.Equals(_data.OperatingSystem, LocalizationService.Get("System_LoadingHardware"), StringComparison.Ordinal);
+            bool isBootLoading = _isDataLoading && string.Equals(_data.StartupSpeed, LocalizationService.Get("System_LoadingBootLog"), StringComparison.Ordinal);
+            bool isMonitorsLoading = _isDataLoading && string.Equals(_data.Monitors, LocalizationService.Get("System_LoadingMonitors"), StringComparison.Ordinal);
+            bool isNetworkLoading = _isDataLoading && string.Equals(_data.Network, LocalizationService.Get("System_LoadingNetwork"), StringComparison.Ordinal);
+            bool isErrorsLoading = _isDataLoading && string.Equals(_data.SystemErrors, LocalizationService.Get("System_LoadingSystemLog"), StringComparison.Ordinal);
+
+            AddRow(LocalizationService.Get("System_OperatingSystem"), _data.OperatingSystem, isLoadingValue: isOsLoading);
             AddRow(LocalizationService.Get("System_Uptime"), _data.WindowsUptime, null, true);
             AddRow(
                 LocalizationService.Get("System_StartupSpeed"),
                 _data.StartupSpeed,
-                detail: LocalizationService.Get("System_StartupSpeedDetail"));
+                detail: LocalizationService.Get("System_StartupSpeedDetail"),
+                isLoadingValue: isBootLoading);
             AddRow(
                 LocalizationService.Get("System_TempStats"),
                 _data.TempStats,
@@ -406,9 +554,9 @@ namespace CryoTray.Views
                 AddFanHealthSection();
             }
             AddProcessSection();
-            AddRow(LocalizationService.Get("System_Monitors"), _data.Monitors);
-            AddRow(LocalizationService.Get("System_Network"), _data.Network);
-            AddRow(LocalizationService.Get("System_SystemErrors"), _data.SystemErrors);
+            AddRow(LocalizationService.Get("System_Monitors"), _data.Monitors, isLoadingValue: isMonitorsLoading);
+            AddRow(LocalizationService.Get("System_Network"), _data.Network, isLoadingValue: isNetworkLoading);
+            AddRow(LocalizationService.Get("System_SystemErrors"), _data.SystemErrors, isLoadingValue: isErrorsLoading);
         }
 
         private static string FormatSigned(double value) =>
@@ -1041,6 +1189,11 @@ namespace CryoTray.Views
 
         private void BtnCopyDiagnostics_Click(object sender, RoutedEventArgs e)
         {
+            if (_isDataLoading)
+            {
+                return;
+            }
+
             try
             {
                 var statuses = (System.Windows.Application.Current as App)?.FanHealth?.GetStatuses();
@@ -1099,6 +1252,11 @@ namespace CryoTray.Views
 
         private void BtnSaveTo_Click(object sender, RoutedEventArgs e)
         {
+            if (_isDataLoading)
+            {
+                return;
+            }
+
             var sfd = new SaveFileDialog
             {
                 Filter = LocalizationService.Get("Common_TextFilter"),

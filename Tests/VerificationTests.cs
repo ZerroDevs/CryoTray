@@ -95,6 +95,7 @@ namespace CryoTray.Tests
             allPassed &= TestStorageCleanupClosePromptsWhileBusy();
             allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
+            allPassed &= TestIdleTimersMemoryTrimAndFastSystemInfo();
             allPassed &= FollowUpVerificationTests.RunNonElevatedChecks();
 
             Console.WriteLine("==================================================");
@@ -172,6 +173,7 @@ namespace CryoTray.Tests
             allPassed &= TestStorageCleanupClosePromptsWhileBusy();
             allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
+            allPassed &= TestIdleTimersMemoryTrimAndFastSystemInfo();
             allPassed &= FollowUpVerificationTests.RunNonElevatedChecks();
             allPassed &= UpdateVerificationTests.RunNonElevatedChecks();
 
@@ -4851,7 +4853,67 @@ namespace CryoTray.Tests
                     }
                 }
 
-                Console.WriteLine("PASSED (scan and cleanup prompted before close)");
+                // Verify confirming close on a live shown window while busy does not throw
+                // WPF InvalidOperationException from calling Close() inside Closing.
+                Exception? shownCloseEx = null;
+                var staThread = new Thread(() =>
+                {
+                    var liveWindow = new Views.StorageCleanupWindow
+                    {
+                        WindowStartupLocation = WindowStartupLocation.Manual,
+                        Left = -32000,
+                        Top = -32000,
+                        ShowInTaskbar = false
+                    };
+                    using var busyCts = new CancellationTokenSource();
+                    try
+                    {
+                        liveWindow.Show();
+                        var flagsType = typeof(Views.StorageCleanupWindow);
+                        flagsType.GetField("_isScanning", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(liveWindow, true);
+                        flagsType.GetField("_scanCts", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(liveWindow, busyCts);
+                        liveWindow.ClosePromptForTest = _ => true;
+
+                        liveWindow.Close();
+
+                        var frame = new System.Windows.Threading.DispatcherFrame();
+                        var stopTimer = new System.Windows.Threading.DispatcherTimer
+                        {
+                            Interval = TimeSpan.FromMilliseconds(80)
+                        };
+                        stopTimer.Tick += (_, _) =>
+                        {
+                            stopTimer.Stop();
+                            frame.Continue = false;
+                        };
+                        stopTimer.Start();
+                        System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+                        if (!liveWindow.IsClosedForTest || !busyCts.IsCancellationRequested)
+                        {
+                            throw new Exception("Confirmed busy close did not cancel work and close window.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        shownCloseEx = ex;
+                    }
+                    finally
+                    {
+                        liveWindow.ClosePromptForTest = null;
+                        try { liveWindow.Close(); } catch { }
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                staThread.SetApartmentState(ApartmentState.STA);
+                staThread.Start();
+                staThread.Join();
+                if (shownCloseEx != null)
+                {
+                    throw shownCloseEx;
+                }
+
+                Console.WriteLine("PASSED (scan and cleanup prompted and closed cleanly)");
                 return true;
             }
             catch (Exception ex)
@@ -5006,14 +5068,20 @@ namespace CryoTray.Tests
                     throw new Exception("StorageCleanup catalog count or concise browser title mismatch.");
                 }
 
+                if (!new AppSettings().CleanTempSkipRecent24h)
+                {
+                    throw new Exception("AppSettings.CleanTempSkipRecent24h default should be true.");
+                }
+
                 Exception? staEx = null;
+                bool expectedSkip24h = SettingsService.Instance.Current.CleanTempSkipRecent24h;
                 var staThread = new Thread(() =>
                 {
                     var w = new Views.StorageCleanupWindow();
                     try
                     {
                         if (w.FindName("ChkSkipRecentTemp") is not System.Windows.Controls.CheckBox chk ||
-                            chk.IsChecked != true ||
+                            chk.IsChecked != expectedSkip24h ||
                             w.TryFindResource("CleanupScrollBarStyle") is not Style)
                         {
                             throw new Exception("StorageCleanupWindow missing 24h guard checkbox or dark scrollbar style.");
@@ -6405,6 +6473,259 @@ namespace CryoTray.Tests
             {
                 Console.WriteLine($"FAILED: {ex.Message}");
                 return false;
+            }
+        }
+
+        private static bool TestIdleTimersMemoryTrimAndFastSystemInfo()
+        {
+            Console.Write("[TEST] Idle Timers, MemoryTrimService, Logo Decode & Instant SystemInfo... ");
+            var settings = SettingsService.Instance.Current;
+            bool origAutopilot = settings.AutopilotEnabled;
+            bool origPurge = settings.AutoStandbyPurgeEnabled;
+            try
+            {
+                // 1. PowerPlanService skips redundant GetInstalledSchemes on unchanged scheme.
+                var pps = PowerPlanService.Instance;
+                pps.RefreshState(forceSchemeEnumeration: true);
+                int beforeEnumCount = pps.RefreshStateSchemeEnumerationCountForTest;
+                pps.SyncCoolingStateFromSystem();
+                pps.SyncCoolingStateFromSystem();
+                if (pps.RefreshStateSchemeEnumerationCountForTest != beforeEnumCount)
+                {
+                    throw new Exception("PowerPlanService.RefreshState enumerated schemes when active GUID did not change.");
+                }
+
+                // 2. Autopilot & StandbyPurge idle timers stay off when features are disabled.
+                settings.AutopilotEnabled = false;
+                AutopilotService.Instance.Start();
+                AutopilotService.Instance.SyncTimerWithSettings();
+                if (AutopilotService.Instance.IsTimerRunningForTest)
+                {
+                    throw new Exception("AutopilotService timer started while AutopilotEnabled is false.");
+                }
+                settings.AutopilotEnabled = true;
+                AutopilotService.Instance.SyncTimerWithSettings();
+                if (!AutopilotService.Instance.IsTimerRunningForTest)
+                {
+                    throw new Exception("AutopilotService timer did not start when enabled.");
+                }
+                settings.AutopilotEnabled = false;
+                AutopilotService.Instance.SyncTimerWithSettings();
+                if (AutopilotService.Instance.IsTimerRunningForTest)
+                {
+                    throw new Exception("AutopilotService timer failed to stop when disabled.");
+                }
+                AutopilotService.Instance.Stop();
+
+                settings.AutoStandbyPurgeEnabled = false;
+                StandbyPurgeService.Instance.Start();
+                StandbyPurgeService.Instance.SyncTimerWithSettings();
+                if (StandbyPurgeService.Instance.IsTimerRunningForTest)
+                {
+                    throw new Exception("StandbyPurgeService timer started while AutoStandbyPurgeEnabled is false.");
+                }
+                settings.AutoStandbyPurgeEnabled = true;
+                StandbyPurgeService.Instance.SyncTimerWithSettings();
+                if (!StandbyPurgeService.Instance.IsTimerRunningForTest)
+                {
+                    throw new Exception("StandbyPurgeService timer did not start when enabled.");
+                }
+                settings.AutoStandbyPurgeEnabled = false;
+                StandbyPurgeService.Instance.SyncTimerWithSettings();
+                if (StandbyPurgeService.Instance.IsTimerRunningForTest)
+                {
+                    throw new Exception("StandbyPurgeService timer failed to stop when disabled.");
+                }
+
+                // 3. MemoryTrimService debounces rapid schedule calls and honors CancelPending.
+                MemoryTrimService.Instance.ResetForTest();
+                int trimExecutions = 0;
+                using (var trimEvent = new ManualResetEventSlim(false))
+                {
+                    MemoryTrimService.Instance.TrimExecutorForTest = () =>
+                    {
+                        Interlocked.Increment(ref trimExecutions);
+                        trimEvent.Set();
+                    };
+
+                    MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromMilliseconds(120));
+                    MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromMilliseconds(120));
+                    if (!MemoryTrimService.Instance.HasPendingTrim ||
+                        MemoryTrimService.Instance.ScheduledCountForTest != 2)
+                    {
+                        throw new Exception("MemoryTrimService did not track pending debounced schedules.");
+                    }
+
+                    if (!trimEvent.Wait(TimeSpan.FromSeconds(3)))
+                    {
+                        throw new Exception("MemoryTrimService did not fire within timeout.");
+                    }
+
+                    Thread.Sleep(150);
+                    if (trimExecutions != 1)
+                    {
+                        throw new Exception($"MemoryTrimService expected 1 coalesced execution, saw {trimExecutions}.");
+                    }
+
+                    MemoryTrimService.Instance.CancelPending(shuttingDown: true);
+                    MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromMilliseconds(60));
+                    if (MemoryTrimService.Instance.HasPendingTrim)
+                    {
+                        throw new Exception("MemoryTrimService accepted schedule while shutting down.");
+                    }
+                }
+                MemoryTrimService.Instance.ResetForTest();
+
+                // 4. Instant SystemInfo immediate snapshot, network helper, GPU cache split, and async fill.
+                SystemInfoQueryService.Instance.InvalidateCacheForTest();
+                GpuDiagnosticsService.InvalidateCacheForTest();
+                var immediate = SystemInfoQueryService.Instance.CreateImmediateSnapshotData(out bool needsAsync);
+                if (!needsAsync ||
+                    string.IsNullOrEmpty(immediate.PcName) ||
+                    string.IsNullOrEmpty(immediate.WindowsUptime) ||
+                    !string.Equals(immediate.OperatingSystem, LocalizationService.Get("System_LoadingHardware"), StringComparison.Ordinal) ||
+                    !string.Equals(immediate.StartupSpeed, LocalizationService.Get("System_LoadingBootLog"), StringComparison.Ordinal))
+                {
+                    throw new Exception("CreateImmediateSnapshotData did not emit instant fields + loading copy.");
+                }
+
+                var immediateGpu = GpuDiagnosticsService.CreateImmediate(
+                    new HardwareSnapshot
+                    {
+                        GpuName = "Test RTX",
+                        GpuTemp = 50,
+                        GpuHotspotTemp = 64
+                    },
+                    settings,
+                    out bool hasGpuCache);
+                if (hasGpuCache ||
+                    !immediateGpu.HotspotEdgeCurrent.HasValue ||
+                    Math.Abs(immediateGpu.HotspotEdgeCurrent.Value - 14.0) > 0.1 ||
+                    !immediateGpu.ThermalHeadroom.HasValue)
+                {
+                    throw new Exception("GpuDiagnosticsService.CreateImmediate failed live thermal math.");
+                }
+
+                string? netSummary = SystemInfoQueryService.SelectActiveNetworkSummary(new[]
+                {
+                    ("VPN0", "Cloudflare WARP Virtual Adapter"),
+                    ("Ethernet", "Realtek PCIe GbE Family Controller")
+                });
+                if (string.IsNullOrEmpty(netSummary) || !netSummary.Contains("Realtek", StringComparison.Ordinal))
+                {
+                    throw new Exception($"SelectActiveNetworkSummary did not prefer physical adapter: '{netSummary}'.");
+                }
+
+                var (asyncData, asyncGpu) = SystemInfoQueryService.Instance
+                    .QuerySystemInfoWithGpuAsync(forceRefresh: false, CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult();
+                if (string.IsNullOrEmpty(asyncData.OperatingSystem) ||
+                    string.Equals(asyncData.OperatingSystem, LocalizationService.Get("System_LoadingHardware"), StringComparison.Ordinal) ||
+                    !GpuDiagnosticsService.HasFreshStaticCache())
+                {
+                    throw new Exception("QuerySystemInfoWithGpuAsync did not resolve OS/GPU static caches.");
+                }
+
+                var warmImmediate = SystemInfoQueryService.Instance.CreateImmediateSnapshotData(out _);
+                if (string.Equals(warmImmediate.OperatingSystem, LocalizationService.Get("System_LoadingHardware"), StringComparison.Ordinal))
+                {
+                    throw new Exception("Cached OS identity was not reused on second CreateImmediateSnapshotData call.");
+                }
+                _ = asyncGpu;
+
+                // 5. STA checks for SystemInfoWindow loading controls and SettingsWindow bounded logo decode.
+                Exception? staEx = null;
+                var staThread = new Thread(() =>
+                {
+                    try
+                    {
+                        var sysWin = new Views.SystemInfoWindow();
+                        try
+                        {
+                            if (sysWin.FindName("BdrLoadingStatus") is not System.Windows.Controls.Border ||
+                                sysWin.FindName("InfoScrollViewer") is not System.Windows.Controls.ScrollViewer ||
+                                sysWin.FindName("BtnCopyDiagnostics") is not System.Windows.Controls.Button ||
+                                sysWin.FindName("BtnSaveTo") is not System.Windows.Controls.Button)
+                            {
+                                throw new Exception("SystemInfoWindow missing loading banner or scroll/action elements.");
+                            }
+                        }
+                        finally
+                        {
+                            sysWin.Close();
+                        }
+
+                        var settingsWin = new Views.SettingsWindow();
+                        try
+                        {
+                            if (settingsWin.FindName("PanelAbout") is not System.Windows.Controls.StackPanel aboutPanel ||
+                                aboutPanel.Children.OfType<System.Windows.Controls.Image>().FirstOrDefault() is not { } logoImg ||
+                                logoImg.Source is not System.Windows.Media.Imaging.BitmapImage bmpImg ||
+                                bmpImg.DecodePixelWidth != 144)
+                            {
+                                throw new Exception("SettingsWindow About logo missing DecodePixelWidth=144 BitmapImage.");
+                            }
+
+                            var loadMethod = typeof(Views.SettingsWindow).GetMethod(
+                                "LoadSettingsIntoUI",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                            var applyLocaleMethod = typeof(Views.SettingsWindow).GetMethod(
+                                "ApplyLocalizedText",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                            loadMethod!.Invoke(settingsWin, new object[] { true });
+                            applyLocaleMethod!.Invoke(settingsWin, new object[] { true });
+
+                            if (settingsWin.FindName("ChkLaunchStartup") is not System.Windows.Controls.CheckBox chkStartup ||
+                                chkStartup.IsChecked != SettingsService.Instance.Current.LaunchOnStartup ||
+                                settingsWin.FindName("TxtAboutVersion") is not System.Windows.Controls.TextBlock txtVer ||
+                                string.IsNullOrWhiteSpace(txtVer.Text) ||
+                                settingsWin.SettingsSearchIndex.Count == 0 ||
+                                (settingsWin.FindName("ManageProfilesToggle") is System.Windows.Controls.Primitives.ToggleButton mpt && mpt.IsChecked == true))
+                            {
+                                throw new Exception("SettingsWindow initial deduplicated load/search state mismatch.");
+                            }
+                        }
+                        finally
+                        {
+                            settingsWin.Close();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                staThread.SetApartmentState(ApartmentState.STA);
+                staThread.Start();
+                staThread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.AutopilotEnabled = origAutopilot;
+                AutopilotService.Instance.SyncTimerWithSettings();
+                AutopilotService.Instance.Stop();
+                settings.AutoStandbyPurgeEnabled = origPurge;
+                StandbyPurgeService.Instance.SyncTimerWithSettings();
+                MemoryTrimService.Instance.ResetForTest();
+                SystemInfoQueryService.Instance.InvalidateCacheForTest();
+                GpuDiagnosticsService.InvalidateCacheForTest();
             }
         }
     }

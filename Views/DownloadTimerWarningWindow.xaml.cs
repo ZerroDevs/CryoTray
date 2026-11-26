@@ -19,6 +19,12 @@ namespace CryoTray.Views
                 : FlowDirection.LeftToRight;
             LocalizationService.Instance.ApplyWindow(this);
             Loaded += (_, _) => PositionNearTaskbar();
+            Closed += (_, _) =>
+            {
+                Content = null;
+                DataContext = null;
+                MemoryTrimService.Instance.ScheduleTrim();
+            };
         }
 
         public void UpdateStatus(DownloadTimerStatus status)

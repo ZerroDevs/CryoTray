@@ -100,13 +100,13 @@ Never remove or bypass `DestroyIcon`.
 ### 3. One-Second Telemetry Budget
 Hardware polling runs on an adaptive 1/2/3-second interval from `TelemetryPollPolicy`, driven by the leases in `TelemetryDemandTracker`.
 - Never perform blocking file I/O, heavy WMI queries, or network calls inside `PollingLoop`.
-- Static system inventory (WMI) is queried once on startup or when explicitly opening the System Information window.
+- Static system inventory (WMI) and heavy folder/task checks stay off the UI thread, cached with short-lived scopes or run asynchronously when opening `SystemInfoWindow` or `SettingsWindow`.
 
 ### 4. Modeless Utility Windows
 `SettingsWindow`, `SystemInfoWindow`, `StressTestWindow`, and `StorageCleanupWindow` open as modeless, independently tracked windows:
 - They must dock adjacent to `MainWindow` above the taskbar via `DockSideBySide()`.
 - They must not lock the main dashboard or cause it to hide on deactivation.
-- Storage Cleanup opens once as a 392 x 660 side panel, activates on reopen, and closes cleanly with Cancel or Escape.
+- Storage Cleanup opens once as a 392 x 660 side panel, activates on reopen, and confirms cancellation cleanly when closing during an active scan or clean.
 
 ### 5. Localization & RTL Rules
 - Add new strings to `Resources/Strings.en.xaml` and `Resources/Strings.ar.xaml`.
@@ -133,8 +133,8 @@ fix(tray): prevent tooltip cutoff when merged badge is active
 
 ### 8. Versioning Scheme (`VERSION`)
 CryoTray uses three-part semantic versioning rooted at `0.0.100`:
-- **Current Baseline**: `0.0.108` (defined in the root `VERSION` file).
-- **Subsequent Updates**: Increment sequentially (`0.0.108`, `0.0.109`, `0.0.110`, etc.).
+- **Current Baseline**: `0.0.109` (defined in the root `VERSION` file).
+- **Subsequent Updates**: Increment sequentially (`0.0.109`, `0.0.110`, `0.0.111`, etc.).
 - **Automatic Stamping**: `CryoTray.csproj` dynamically reads `VERSION` to stamp `AssemblyVersion`, `FileVersion`, and `InformationalVersion` on build.
 - **Automated Releases**: The release workflow (`.github/workflows/release.yml`) monitors changes to `VERSION` on `main` and creates matching tags (e.g., `v0.0.100`, `v0.0.101`) and release artifacts with SHA-256 digests.
 
