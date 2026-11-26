@@ -1,9 +1,9 @@
 # CONTEXT
 
-## v0.0.108 release bump, docs update & release notes (2026-11-26)
+## v0.0.108 release published (2026-11-26)
 
-- Release stamps set to `0.0.108` across `VERSION`, `app.manifest` (`0.0.108.0`), and `Installer/CryoTray.iss`; Release binary reports `FileVersion=0.0.108` and `ProductVersion=0.0.108+d4d41bf8b1d4bc0fcb4fcc426d30e980741f8b58`.
-- `docs/js/i18n.js` holds `240` aligned EN and AR keys (`missing=0`) covering all `194` `data-i18n` / `data-i18n-aria` bindings in `docs/index.html` (`missingHtml=0`); `docs/js/config.js` `SEED_RELEASE` targets `CryoTray-Setup-0.0.108.exe` and `CryoTray-0.0.108-win-x64.zip`.
+- Release commit `b3c436e` published tag `v0.0.108` via Release workflow run `45859061526` (`2026-11-26T16:31:08Z`): `CryoTray-Setup-0.0.108.exe` (`55,172,002` bytes), `CryoTray-0.0.108-win-x64.zip` (`82,600,065` bytes), `CryoTray-Update-0.0.108-win-x64.zip` (`82,624,212` bytes), and `.sha256` files.
+- `docs/js/config.js` `SEED_RELEASE` mirrors the exact live `v0.0.108` `publishedAt` and asset byte sizes; `docs/js/i18n.js` holds `240` aligned EN and AR keys (`missing=0`) matching all `194` `data-i18n` / `data-i18n-aria` bindings (`missingHtml=0`) in `docs/index.html`.
 - `release-notes/0.0.108.md` follows `0.0.107.md` format (user-facing changes only, no test mentions); `CONTRIBUTING.md` and `SECURITY.md` track `0.0.108` as baseline.
 
 ## CPU Temperature Test UI, Auto A/B compare, load modes, copy summary & thermal cutoff (2026-11-26)
