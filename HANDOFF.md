@@ -1,5 +1,12 @@
 # HANDOFF
 
+## v0.0.106 release (2026-11-26)
+
+- Bumped `VERSION`, `app.manifest`, and the Inno `AppVersion` to `0.0.106`; aligned the `CONTRIBUTING.md` and `SECURITY.md` baselines. Custom notes are in `release-notes/0.0.106.md` and deliberately do not mention tests.
+- Release commit `332a840`; tag `v0.0.106`; Release run `45727528403` completed successfully in `2m44s` and published at `2026-11-26T00:18:57Z`.
+- Assets: setup `CryoTray-Setup-0.0.106.exe` (`55,129,716` bytes), portable `CryoTray-0.0.106-win-x64.zip` (`82,540,457` bytes), update `CryoTray-Update-0.0.106-win-x64.zip` (`82,564,596` bytes), and matching `.sha256` files. Signing was skipped because repository secrets are unset, so the assets are unsigned and SHA-256 verification is required.
+- Verification: Release build `0 Warning(s), 0 Error(s)`; `/test` exit 0 with `67` PASSED; `/test-updates` exit 0; workflow passed its build and verification steps. The static docs fallback is seeded with `v0.0.106`, the publish time, and the real asset sizes.
+
 ## GPU load source corrected to the busiest engine (2026-11-26)
 
 - The dashboard load was using LibreHardwareMonitor's driver `GPU Core` load, which read `12-32%` while Task Manager's busiest engine read `3-4%`. Windows reports the busiest GPU engine, not the driver's utilization figure.

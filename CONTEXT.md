@@ -1,5 +1,11 @@
 # CONTEXT
 
+## v0.0.106 release (2026-11-26)
+
+- Tag `v0.0.106` points at commit `332a840`; Release run `45727528403` published successfully at `2026-11-26T00:18:57Z`. The release uses `release-notes/0.0.106.md` as its body, with no test mentions.
+- Version stamps are `VERSION=0.0.106`, `app.manifest=0.0.106.0`, and Inno `AppVersion=0.0.106`. `CONTRIBUTING.md` and `SECURITY.md` carry the same baseline.
+- Assets are unsigned because signing secrets are unset. The setup is `55,129,716` bytes, portable ZIP `82,540,457` bytes, and update ZIP `82,564,596` bytes, with SHA-256 companions. The docs fallback is seeded to these values.
+
 ## GPU load source (2026-11-26)
 
 - `HardwareSnapshot.GpuLoad` is the busiest `D3D` engine load, not the driver's `GPU Core` figure. `HardwareMonitorService.IsGpuEngineLoadSensor` recognizes `D3D` and `D3D *`; `ResolveGpuLoad(driverLoad, engineLoad)` prefers the engine maximum and falls back to `GPU Core` only when the driver publishes no D3D engine sensors. Do not restore the old `GPU Core` priority.
