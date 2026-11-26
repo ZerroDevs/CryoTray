@@ -1,8 +1,9 @@
 # CONTEXT
 
-## v0.0.109 release preparation: bug fixes, stability & lighter runtime (2026-11-26)
+## v0.0.109 release published (2026-11-26)
 
-- Bumped `VERSION`, `app.manifest`, `Installer/CryoTray.iss`, `CONTRIBUTING.md`, `SECURITY.md`, `README.md`, `docs/index.html`, `docs/js/config.js`, and `docs/js/i18n.js` to `0.0.109` / `v0.0.109` with user-facing `release-notes/0.0.109.md` (no test mentions).
+- Release commit `9afe9a8` published tag `v0.0.109` via Release workflow run `45901573329` (`2026-11-26T22:00:36Z`): `CryoTray-Setup-0.0.109.exe` (`55,184,025` bytes), `CryoTray-0.0.109-win-x64.zip` (`82,611,972` bytes), `CryoTray-Update-0.0.109-win-x64.zip` (`82,636,117` bytes), and `.sha256` files.
+- `docs/js/config.js` `SEED_RELEASE` mirrors the exact live `v0.0.109` `publishedAt` and asset byte sizes; `docs/js/i18n.js` holds `240` aligned EN and AR keys (`missing=0/0`) matching all `194` HTML bindings (`missingHtml=0`).
 
 ## Fix StorageCleanupWindow crash on confirmed close while busy (2026-11-26)
 
