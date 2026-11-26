@@ -48,6 +48,18 @@ namespace CryoTray.Services
         public event Action<bool>? CoolingModeChanged;
         public event Action? ProfileChanged;
 
+        /// <summary>Raised when the active plan changes away from a CryoTray profile by something else.</summary>
+        public event Action<PowerPlanDrift>? PlanDrifted;
+
+        public sealed class PowerPlanDrift
+        {
+            public string PreviousName { get; init; } = "";
+            public string NewName { get; init; } = "";
+            public Guid NewSchemeGuid { get; init; }
+        }
+
+        private bool _suppressDrift;
+
         public PowerProfileDefinition? ActiveProfile { get; private set; }
 
         public bool IsCoolingModeActive { get; private set; }
@@ -200,7 +212,24 @@ namespace CryoTray.Services
                 }
             }
 
+            if (!_suppressDrift && IsExternalDrift(ActiveProfile, activeGuid))
+            {
+                PlanDrifted?.Invoke(new PowerPlanDrift
+                {
+                    PreviousName = ActiveProfile!.SchemeName,
+                    NewName = activeScheme?.Name ?? activeGuid.ToString(),
+                    NewSchemeGuid = activeGuid
+                });
+            }
+
             SetActiveProfile(PowerProfiles.FromSchemeGuid(activeGuid));
+        }
+
+        internal static bool IsExternalDrift(PowerProfileDefinition? previous, Guid activeGuid)
+        {
+            return previous != null &&
+                CryoTraySchemeGuids.Contains(previous.SchemeGuid) &&
+                activeGuid != previous.SchemeGuid;
         }
 
         public void SyncCoolingStateFromSystem()
@@ -368,9 +397,17 @@ namespace CryoTray.Services
         /// <summary>Restores the user's captured non-CryoTray plan, used when the app exits.</summary>
         public void RestoreOriginalPowerPlan()
         {
-            Guid target = GetNormalPowerPlanGuid();
-            NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref target);
-            RefreshState();
+            _suppressDrift = true;
+            try
+            {
+                Guid target = GetNormalPowerPlanGuid();
+                NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref target);
+                RefreshState();
+            }
+            finally
+            {
+                _suppressDrift = false;
+            }
         }
 
         public void ApplyCpuCoolingParameters(int maxThrottlePercent, int perfBoostMode)
@@ -400,20 +437,28 @@ namespace CryoTray.Services
         /// <summary>Restores a non-CryoTray power plan and removes every CryoTray-owned scheme on uninstall.</summary>
         public void CleanupForUninstall()
         {
-            var schemes = GetInstalledSchemes();
-            Guid fallback = GetNormalPowerPlanGuid();
-
-            NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref fallback);
-
-            foreach (var scheme in schemes)
+            _suppressDrift = true;
+            try
             {
-                if (IsOwnedCryoTrayScheme(scheme))
-                {
-                    DeleteScheme(scheme.Guid);
-                }
-            }
+                var schemes = GetInstalledSchemes();
+                Guid fallback = GetNormalPowerPlanGuid();
 
-            SetActiveProfile(null);
+                NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref fallback);
+
+                foreach (var scheme in schemes)
+                {
+                    if (IsOwnedCryoTrayScheme(scheme))
+                    {
+                        DeleteScheme(scheme.Guid);
+                    }
+                }
+
+                SetActiveProfile(null);
+            }
+            finally
+            {
+                _suppressDrift = false;
+            }
         }
 
         private void CaptureOriginalPlan()

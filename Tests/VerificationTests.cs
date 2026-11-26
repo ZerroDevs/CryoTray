@@ -58,6 +58,8 @@ namespace CryoTray.Tests
             allPassed &= TestSsdRowFormatting();
             allPassed &= TestTimedCoolingPause();
             allPassed &= TestStressCoolingDelta();
+            allPassed &= TestLimitWatch();
+            allPassed &= TestSensorAndPlanDriftWatches();
             allPassed &= TestMemoryBreakdownTelemetry();
             allPassed &= TestDynamicByteFormatting();
             allPassed &= TestCpuIdleGetSystemTimesMath();
@@ -130,6 +132,8 @@ namespace CryoTray.Tests
             allPassed &= TestStartupTaskXmlAndSync();
             allPassed &= TestSsdRowFormatting();
             allPassed &= TestStressCoolingDelta();
+            allPassed &= TestLimitWatch();
+            allPassed &= TestSensorAndPlanDriftWatches();
             allPassed &= TestMemoryBreakdownTelemetry();
             allPassed &= TestDynamicByteFormatting();
             allPassed &= TestCpuIdleGetSystemTimesMath();
@@ -1949,6 +1953,207 @@ namespace CryoTray.Tests
             }
         }
 
+        private static bool TestLimitWatch()
+        {
+            Console.Write("[TEST] Limit watch below-nominal detection... ");
+            var failures = new System.Collections.Generic.List<string>();
+
+            if (LimitWatch.IsBelowNominal(3.70, 3.80, 80))
+            {
+                failures.Add("a 99% cap at 3.70 GHz was flagged");
+            }
+
+            if (!LimitWatch.IsBelowNominal(3.40, 3.80, 80))
+            {
+                failures.Add("3.40 GHz under load was not flagged");
+            }
+
+            if (LimitWatch.IsBelowNominal(3.40, 3.80, 20))
+            {
+                failures.Add("an idle sample was flagged");
+            }
+
+            if (LimitWatch.IsBelowNominal(double.NaN, 3.80, 80) ||
+                LimitWatch.IsBelowNominal(3.40, double.NaN, 80))
+            {
+                failures.Add("a missing clock or base was flagged");
+            }
+
+            if (new CryoTray.Models.AppSettings().LimitWatchEnabled)
+            {
+                failures.Add("the feature did not default to off");
+            }
+
+            var samples = new System.Collections.Generic.List<CryoTray.Models.TelemetrySample>
+            {
+                new() { Timestamp = new DateTime(2026, 1, 1, 10, 0, 0), CpuBelowNominal = true, CpuTemp = 88.5 },
+                new() { Timestamp = new DateTime(2026, 1, 1, 10, 0, 1), CpuBelowNominal = true, CpuTemp = 90.0 },
+                new() { Timestamp = new DateTime(2026, 1, 1, 10, 0, 2), CpuBelowNominal = false, CpuTemp = 80.0 },
+                new() { Timestamp = new DateTime(2026, 1, 1, 10, 0, 3), CpuBelowNominal = true, CpuTemp = 87.0 },
+                new() { Timestamp = new DateTime(2026, 1, 1, 10, 0, 4), CpuBelowNominal = false, CpuTemp = 80.0 }
+            };
+            var summary = SessionReportService.SummarizeBelowNominal(samples);
+            if (summary.Periods != 2)
+            {
+                failures.Add($"expected 2 periods, got {summary.Periods}");
+            }
+
+            if (Math.Abs(summary.Total.TotalSeconds - 3) > 0.01)
+            {
+                failures.Add($"expected 3 s total, got {summary.Total.TotalSeconds:F2}");
+            }
+
+            if (Math.Abs(summary.Longest.TotalSeconds - 2) > 0.01)
+            {
+                failures.Add($"expected 2 s longest, got {summary.Longest.TotalSeconds:F2}");
+            }
+
+            if (Math.Abs(summary.PeakTemp - 90.0) > 0.01)
+            {
+                failures.Add($"expected 90 C peak, got {summary.PeakTemp:F1}");
+            }
+
+            if (failures.Count == 0)
+            {
+                Console.WriteLine("PASSED (boundaries, off by default, 2 periods, 3 s total, 2 s longest)");
+                return true;
+            }
+
+            Console.WriteLine("FAILED");
+            foreach (string failure in failures)
+            {
+                Console.WriteLine($"  -> {failure}");
+            }
+
+            return false;
+        }
+
+        private static bool TestSensorAndPlanDriftWatches()
+        {
+            Console.Write("[TEST] Sensor dropout and power-plan drift watches... ");
+            var failures = new List<string>();
+
+            var watch = new SensorDropoutWatch();
+            DateTime t0 = new(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
+            if (watch.Observe(true, true, t0) != SensorDropoutKind.None)
+            {
+                failures.Add("a healthy sample was reported");
+            }
+
+            if (watch.Observe(false, true, t0.AddSeconds(10)) != SensorDropoutKind.None)
+            {
+                failures.Add("CPU loss fired on its first missing sample");
+            }
+
+            if (watch.Observe(false, true, t0.AddSeconds(39)) != SensorDropoutKind.None)
+            {
+                failures.Add("CPU loss fired before 30 s");
+            }
+
+            if (watch.Observe(false, true, t0.AddSeconds(41)) != SensorDropoutKind.Cpu)
+            {
+                failures.Add("CPU loss with a live GPU was not reported as CPU only");
+            }
+
+            if (watch.Observe(false, false, t0.AddMinutes(10)) != SensorDropoutKind.None)
+            {
+                failures.Add("a second entry fired inside the 30 min window");
+            }
+
+            if (watch.Observe(true, false, t0.AddMinutes(11)) != SensorDropoutKind.None)
+            {
+                failures.Add("a missing GPU alone was reported");
+            }
+
+            if (watch.Observe(false, false, t0.AddMinutes(41)) != SensorDropoutKind.None)
+            {
+                failures.Add("total loss fired before 30 s");
+            }
+
+            if (watch.Observe(false, false, t0.AddMinutes(42)) != SensorDropoutKind.All)
+            {
+                failures.Add("total loss was not reported after the window elapsed");
+            }
+
+            if (watch.Observe(false, false, t0.AddMinutes(43)) != SensorDropoutKind.None)
+            {
+                failures.Add("total loss repeated inside its own window");
+            }
+
+            if (!SensorDropoutWatch.HasCpuReadings(new HardwareSnapshot { CpuTemp = 64 }) ||
+                !SensorDropoutWatch.HasCpuReadings(new HardwareSnapshot { CpuMeasuredGhz = 3.6 }))
+            {
+                failures.Add("a CPU temperature or measured clock was treated as missing");
+            }
+
+            if (SensorDropoutWatch.HasCpuReadings(new HardwareSnapshot { CpuGhz = 3.7 }))
+            {
+                failures.Add("the PDH clock fallback counted as a CPU reading");
+            }
+
+            if (!SensorDropoutWatch.HasGpuReadings(new HardwareSnapshot
+                {
+                    Gpus = new List<GpuTelemetry> { new() { Temperature = 55 } }
+                }))
+            {
+                failures.Add("a GPU temperature was treated as missing");
+            }
+
+            if (SensorDropoutWatch.HasCpuReadings(new HardwareSnapshot()) ||
+                SensorDropoutWatch.HasGpuReadings(new HardwareSnapshot()))
+            {
+                failures.Add("an empty snapshot counted as healthy");
+            }
+
+            var cooling = PowerProfiles.GetCooling(null);
+            if (PowerPlanService.IsExternalDrift(cooling, cooling.SchemeGuid))
+            {
+                failures.Add("an unchanged plan was treated as drift");
+            }
+
+            if (PowerPlanService.IsExternalDrift(null, cooling.SchemeGuid))
+            {
+                failures.Add("a null previous profile was treated as drift");
+            }
+
+            if (PowerPlanService.IsExternalDrift(
+                    PowerProfiles.BalancedProfile, PowerProfiles.GamingHighProfile.SchemeGuid))
+            {
+                failures.Add("a non-CryoTray previous plan was treated as drift");
+            }
+
+            if (!PowerPlanService.IsExternalDrift(cooling, PowerProfiles.BalancedProfile.SchemeGuid))
+            {
+                failures.Add("Cooling to Balanced was not treated as drift");
+            }
+
+            if (!PowerPlanService.IsExternalDrift(cooling, PowerProfiles.GamingHighProfile.SchemeGuid))
+            {
+                failures.Add("a CryoTray profile swap by another process was not treated as drift");
+            }
+
+            var defaults = new AppSettings();
+            if (!defaults.SensorDropoutLogEnabled || !defaults.PowerPlanDriftNoticeEnabled)
+            {
+                failures.Add("one of the watches did not default to on");
+            }
+
+            if (failures.Count == 0)
+            {
+                Console.WriteLine("PASSED (CPU and total loss, 30 s window, 30 min cap, drift rule)");
+                return true;
+            }
+
+            Console.WriteLine("FAILED");
+            foreach (string failure in failures)
+            {
+                Console.WriteLine($"  -> {failure}");
+            }
+
+            return false;
+        }
+
         private static bool TestStressCoolingDelta()
         {
             Console.Write("[TEST] Stress Test Cooling Delta, Throughput & FPS Impact... ");
@@ -2481,6 +2686,8 @@ namespace CryoTray.Tests
                     !defaults.StorageHealthAlertsEnabled ||
                     !defaults.SaveRollbackOnUpdate ||
                     defaults.Theme != "Dark" ||
+                    !defaults.ShowCpuLoad ||
+                    !defaults.ShowGpuLoad ||
                     !defaults.CleanTemp ||
                     defaults.CleanBrowserCache ||
                     defaults.CleanGpuShaderCache ||
@@ -4378,10 +4585,20 @@ namespace CryoTray.Tests
                     throw new Exception("EscapeWqlValue did not escape backslashes and single quotes.");
                 }
 
-                if (HardwareMonitorService.ScoreGpuLoadSensor("GPU Core") <= HardwareMonitorService.ScoreGpuLoadSensor("D3D 3D") ||
-                    HardwareMonitorService.ScoreGpuLoadSensor("D3D 3D") <= HardwareMonitorService.ScoreGpuLoadSensor("GPU Memory"))
+                if (!HardwareMonitorService.IsGpuEngineLoadSensor("D3D 3D") ||
+                    !HardwareMonitorService.IsGpuEngineLoadSensor("D3D Video Decode") ||
+                    HardwareMonitorService.IsGpuEngineLoadSensor("GPU Core") ||
+                    HardwareMonitorService.IsGpuEngineLoadSensor("GPU Memory") ||
+                    HardwareMonitorService.ScoreGpuLoadSensor("GPU Core") <= HardwareMonitorService.ScoreGpuLoadSensor("GPU Memory"))
                 {
-                    throw new Exception("GPU load sensor priority scoring is inverted.");
+                    throw new Exception("GPU load sensor selection is incorrect.");
+                }
+
+                if (HardwareMonitorService.ResolveGpuLoad(17, 8) != 8 ||
+                    HardwareMonitorService.ResolveGpuLoad(17, null) != 17 ||
+                    HardwareMonitorService.ResolveGpuLoad(null, 0) != 0)
+                {
+                    throw new Exception("GPU load did not prefer the busiest engine.");
                 }
 
                 if (HardwareMonitorService.IsValidDriveTemperature(0) ||

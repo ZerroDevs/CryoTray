@@ -950,6 +950,11 @@
                         <TextBlock Grid.Column="1" x:Name="TxtGpuDeltaThreshold" Text="25°C" Foreground="{DynamicResource AccentTextBrush}" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight"/>
                     </Grid>
 
+                    <CheckBox x:Name="ChkSensorDropoutLog" Content="{DynamicResource Settings_SensorDropoutLog}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_SensorDropoutLogDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,10"/>
+                    <CheckBox x:Name="ChkPowerPlanDriftNotice" Content="{DynamicResource Settings_PowerPlanDriftNotice}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <TextBlock Text="{DynamicResource Settings_PowerPlanDriftNoticeDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,10"/>
+
                     <!-- Checkboxes -->
                     <CheckBox x:Name="ChkShowComputerName" Content="{DynamicResource Settings_ShowComputerName}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkLaunchStartup" Content="{DynamicResource Settings_LaunchStartup}" Checked="ChkLaunchStartup_Changed" Unchecked="ChkLaunchStartup_Changed"/>
@@ -1290,7 +1295,10 @@
                 <StackPanel x:Name="PanelCpu" Visibility="Collapsed">
                     <CheckBox x:Name="ChkShowCpuPower" Content="{DynamicResource Settings_ShowCpuPower}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkShowCpuClock" Content="{DynamicResource Settings_ShowCpuClock}" Checked="ChkCpuDisplay_Changed" Unchecked="ChkCpuDisplay_Changed" Margin="0,0,0,6"/>
-                    <CheckBox x:Name="ChkShowCpuBaseSpeed" Content="{DynamicResource Settings_ShowCpuBaseSpeed}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,10"/>
+                    <CheckBox x:Name="ChkShowCpuBaseSpeed" Content="{DynamicResource Settings_ShowCpuBaseSpeed}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,6"/>
+                    <CheckBox x:Name="ChkShowCpuLoad" Content="{DynamicResource Settings_ShowCpuLoad}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,10"/>
+                    <CheckBox x:Name="ChkLimitWatch" Content="{DynamicResource Settings_LimitWatch}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,0,0,0"/>
+                    <TextBlock Text="{DynamicResource Settings_LimitWatchDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,10"/>
 
                     <Grid Margin="0,2,0,4">
                         <Grid.ColumnDefinitions>
@@ -1703,6 +1711,7 @@
 
                     <TextBlock Text="{DynamicResource Settings_DashboardReadouts}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,10"/>
                     <CheckBox x:Name="ChkShowGpuPower" Content="{DynamicResource Settings_ShowGpuPower}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <CheckBox x:Name="ChkShowGpuLoad" Content="{DynamicResource Settings_ShowGpuLoad}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowGpuTemp" Content="{DynamicResource Settings_ShowGpuTemp}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowGpuName" Content="{DynamicResource Settings_ShowGpuName}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkShowGpuHotspot" Content="{DynamicResource Settings_ShowGpuHotspot}" Checked="SettingChanged" Unchecked="SettingChanged"/>

@@ -37,6 +37,10 @@
     <sys:String x:Key="Main_GpuHotspotLabel">النقطة الساخنة</sys:String>
     <sys:String x:Key="Main_GpuVramLabel">VRAM</sys:String>
     <sys:String x:Key="Main_GpuFanLabel">المروحة</sys:String>
+    <sys:String x:Key="Main_GpuTempTooltip">درجة حرارة كرت الرسومات</sys:String>
+    <sys:String x:Key="Main_GpuPowerTooltip">استهلاك طاقة كرت الرسومات</sys:String>
+    <sys:String x:Key="Main_GpuLoadTooltip">حمل كرت الرسومات</sys:String>
+    <sys:String x:Key="Main_GpuFanTooltip">سرعة مروحة كرت الرسومات. 0 دورة/دقيقة طبيعي عندما يكون الكرت باردًا؛ تنبّه مراقبة المراوح إذا بقيت متوقفة تحت الحمل.</sys:String>
     <sys:String x:Key="Main_RpmUnit">RPM</sys:String>
     <sys:String x:Key="Main_CpuChartValue">المعالج {0}{1}</sys:String>
     <sys:String x:Key="Main_TooltipStressTest">اختبار حرارة المعالج</sys:String>
@@ -73,7 +77,10 @@
     <sys:String x:Key="PowerProfile_GamingUltimate_Badge">بدون تأخير</sys:String>
     <sys:String x:Key="PowerProfile_GamingUltimate_Description">أقصى استجابة وصفر تأخير في التردد. يثبّت تردد المعالج عند 100% مع أقصى تعزيز للألعاب التنافسية والبنشمارك (أعلى حرارة واستهلاك طاقة).</sys:String>
     <sys:String x:Key="Main_LabelCpuSpeed">سرعة المعالج</sys:String>
-    <sys:String x:Key="Main_LabelGhz">GHZ</sys:String>
+    <sys:String x:Key="Main_LabelGhz">GHz</sys:String>
+    <sys:String x:Key="Main_CpuClockTooltip">التردد الحالي / الحد الأقصى</sys:String>
+    <sys:String x:Key="Main_CpuLoadTooltip">حمل المعالج</sys:String>
+    <sys:String x:Key="Main_CpuPowerTooltip">طاقة المعالج</sys:String>
     <sys:String x:Key="Main_LabelRam">الذاكرة</sys:String>
     <sys:String x:Key="Main_LabelGb">GB</sys:String>
     <sys:String x:Key="Ram_OptimizeButtonTooltip">تحسين الذاكرة (انقر باليمين للخيارات)</sys:String>
@@ -196,6 +203,8 @@
     <sys:String x:Key="Main_Timeframe10">10 دقائق</sys:String>
     <sys:String x:Key="Main_Timeframe30">30 دقيقة</sys:String>
     <sys:String x:Key="Main_Timeframe60">60 دقيقة</sys:String>
+    <sys:String x:Key="Main_ProfileDurationMinutes">{0} د</sys:String>
+    <sys:String x:Key="Main_ProfileDurationHours">{0} س {1} د</sys:String>
     <sys:String x:Key="Main_TimeframeAutomation">النطاق الزمني للرسم</sys:String>
     <sys:String x:Key="Main_CpuTemperatureAutomation">تفاصيل درجة حرارة المعالج</sys:String>
     <sys:String x:Key="Main_AboutTitle">حول CryoTray</sys:String>
@@ -245,6 +254,10 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_MuteAlerts">كتم تنبيهات الحرارة</sys:String>
     <sys:String x:Key="Settings_FanHealthAlerts">تنبيه عند توقف مروحة كانت تعمل</sys:String>
     <sys:String x:Key="Settings_FanHealthAlertsDesc">ينبه عندما تهبط مروحة كانت تدور إلى 0 دورة/د أثناء حمل النظام. يتم تجاهل منحنيات التبريد في وضع الخمول.</sys:String>
+    <sys:String x:Key="Settings_SensorDropoutLog">سجّل توقف قراءات المستشعرات</sys:String>
+    <sys:String x:Key="Settings_SensorDropoutLogDesc">يسجّل فقدان مستشعرات المعالج بعد 30 ثانية بدون قراءة، ويسجّل فقدان كل المستشعرات عندما لا يرسل أي منها شيئاً. سجل واحد كل 30 دقيقة على الأكثر. التسجيل فقط ولا يغيّر شيئاً.</sys:String>
+    <sys:String x:Key="Settings_PowerPlanDriftNotice">نبّه عند تغيير تطبيق آخر لخطة الطاقة</sys:String>
+    <sys:String x:Key="Settings_PowerPlanDriftNoticeDesc">أثناء تفعيل ملف CryoTray، يظهر إشعار واحد في صينية النظام إذا تغيّرت الخطة النشطة. لا يعيد التطبيق الخطة تلقائياً. إشعار واحد كل 10 دقائق على الأكثر.</sys:String>
     <sys:String x:Key="Settings_FanNames">أسماء المراوح</sys:String>
     <sys:String x:Key="Settings_FanNamesDesc">أعد تسمية المراوح لهذا التطبيق. اتركه فارغاً لاستخدام اسم المستشعر.</sys:String>
     <sys:String x:Key="Settings_FanNameAutomation">اسم {0}</sys:String>
@@ -263,7 +276,14 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_ColorCoolingOff">لون الإطار لوضع "التبريد متوقف":</sys:String>
     <sys:String x:Key="Settings_ResetColorTooltip">استعادة اللون الافتراضي</sys:String>
     <sys:String x:Key="Settings_ShowCpuClock">إظهار سرعة ساعة المعالج</sys:String>
+    <sys:String x:Key="Settings_ShowCpuLoad">إظهار حمل المعالج</sys:String>
     <sys:String x:Key="Settings_ShowCpuBaseSpeed">إظهار السرعة الأساسية</sys:String>
+    <sys:String x:Key="Settings_LimitWatch">مراقبة انخفاض سرعة المعالج عن السرعة الاسمية</sys:String>
+    <sys:String x:Key="Settings_LimitWatchDesc">تسجيل فقط: يظهر وقت الانشغال تحت السرعة الأساسية في تقرير الجلسة. متوقف افتراضياً ولا يغيّر أي إعداد في النظام.</sys:String>
+    <sys:String x:Key="Session_BelowNominal">أقل من السرعة الاسمية</sys:String>
+    <sys:String x:Key="Session_BelowNominalValue">{0} إجمالاً · {1} فترة · أطولها {2} · الذروة {3}</sys:String>
+    <sys:String x:Key="Session_BelowNominalOff">متوقف - فعّله من الإعدادات، تبويب المعالج</sys:String>
+    <sys:String x:Key="Session_BelowNominalEvent">سرعة المعالج أقل من الاسمية</sys:String>
     <sys:String x:Key="Settings_ShowCpuGraph">إظهار مخطط حرارة المعالج</sys:String>
     <sys:String x:Key="Settings_GraphLarge">كبير</sys:String>
     <sys:String x:Key="Settings_GraphSmall">صغير</sys:String>
@@ -295,6 +315,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_ShowCpuPower">إظهار استهلاك طاقة المعالج</sys:String>
     <sys:String x:Key="Settings_ShowRamRow">إظهار صف استخدام الذاكرة</sys:String>
     <sys:String x:Key="Settings_ShowGpuPower">إظهار استهلاك طاقة كرت الرسومات</sys:String>
+    <sys:String x:Key="Settings_ShowGpuLoad">إظهار حمل كرت الرسومات</sys:String>
     <sys:String x:Key="Settings_ShowGpuTemp">إظهار درجة حرارة كرت الرسومات</sys:String>
     <sys:String x:Key="Settings_ShowGpuName">إظهار اسم كرت الرسومات (متوقف افتراضياً)</sys:String>
     <sys:String x:Key="Settings_ShowGpuHotspot">إظهار درجة حرارة النقطة الساخنة لكرت الرسومات</sys:String>
@@ -466,6 +487,9 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Activity_TemperatureAlert">تم رفع تنبيه حرارة.</sys:String>
     <sys:String x:Key="Activity_FanStopped">توقف المروحة: {0}.</sys:String>
     <sys:String x:Key="Activity_DriveHealth">تنبيه صحة القرص: {0} عند {1}%.</sys:String>
+    <sys:String x:Key="Activity_CpuSensorsLost">لا توجد بيانات من مستشعرات المعالج منذ 30 ثانية بينما تستمر المستشعرات الأخرى.</sys:String>
+    <sys:String x:Key="Activity_SensorDropout">لا توجد بيانات من مستشعرات المعالج أو كرت الشاشة منذ 30 ثانية.</sys:String>
+    <sys:String x:Key="Activity_PowerPlanDrift">تغيّرت خطة الطاقة من {0} إلى {1}.</sys:String>
     <sys:String x:Key="Activity_UpdateAvailable">التحديث {0} متاح.</sys:String>
     <sys:String x:Key="Activity_UpdateFailed">فشل التحقق من التحديث.</sys:String>
     <sys:String x:Key="Activity_UpdateSucceeded">تم التحديث إلى {0}.</sys:String>
@@ -600,6 +624,8 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Alert_FanTitle">تنبيه مروحة CryoTray</sys:String>
     <sys:String x:Key="Alert_FanStopped">كانت {0} تدور بسرعة {1} دورة/د ثم توقفت الآن.</sys:String>
     <sys:String x:Key="Alert_FanTestBody">هذا اختبار لإشعار صحة المراوح.</sys:String>
+    <sys:String x:Key="Alert_PowerPlanDriftTitle">إشعار خطة الطاقة من CryoTray</sys:String>
+    <sys:String x:Key="Alert_PowerPlanDriftBody">تغيّرت الخطة النشطة من {0} إلى {1}. تركها CryoTray كما هي.</sys:String>
     <sys:String x:Key="FanHealth_GpuFan">مروحة كرت الرسومات</sys:String>
     <sys:String x:Key="Alert_DriveHealthTitle">تنبيه صحة قرص CryoTray</sys:String>
     <sys:String x:Key="Alert_DriveHealthBody">صحة {0} هي {1}% ({2}).</sys:String>

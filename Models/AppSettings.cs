@@ -70,8 +70,10 @@ namespace CryoTray.Models
         public List<string> DiskGraphDrives { get; set; } = new();
         public Dictionary<string, int> DiskGraphTimeframes { get; set; } = new();
         public bool ShowCpuPower { get; set; } = true;
+        public bool ShowCpuLoad { get; set; } = true;
         public bool ShowRamRow { get; set; } = true;
         public bool ShowGpuPower { get; set; } = true;
+        public bool ShowGpuLoad { get; set; } = true;
         public bool ShowGpuTemp { get; set; } = true;
         public bool ShowGpuName { get; set; } = false;
         public bool ShowGpuHotspot { get; set; } = true;
@@ -146,11 +148,16 @@ namespace CryoTray.Models
         public bool FanHealthAlertsEnabled { get; set; } = true;
         public Dictionary<string, string> FanAliases { get; set; } = new();
         public bool StorageHealthAlertsEnabled { get; set; } = true;
+        public bool SensorDropoutLogEnabled { get; set; } = true;
+        public bool PowerPlanDriftNoticeEnabled { get; set; } = true;
 
         // Opt-in GPU power limit control (off for fresh installs and upgrades)
         public bool GpuPowerControlEnabled { get; set; } = false;
         public double GpuLastPowerLimitPercent { get; set; } = 100;
         public bool GpuReapplyPowerLimitOnStartup { get; set; } = false;
+
+        // Opt-in CPU clock watch (records only; off for fresh installs and upgrades)
+        public bool LimitWatchEnabled { get; set; } = false;
 
         // Opt-in download-completion power timer (disarmed for fresh installs and upgrades)
         public bool DownloadTimerEnabled { get; set; } = false;

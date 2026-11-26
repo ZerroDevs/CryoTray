@@ -1,5 +1,56 @@
 # CONTEXT
 
+## GPU load source (2026-11-26)
+
+- `HardwareSnapshot.GpuLoad` is the busiest `D3D` engine load, not the driver's `GPU Core` figure. `HardwareMonitorService.IsGpuEngineLoadSensor` recognizes `D3D` and `D3D *`; `ResolveGpuLoad(driverLoad, engineLoad)` prefers the engine maximum and falls back to `GPU Core` only when the driver publishes no D3D engine sensors. Do not restore the old `GPU Core` priority.
+- Task Manager's overall GPU number is the busiest engine, not an average and not NVIDIA's driver utilization. LibreHardwareMonitor's D3D sensors are the Windows engine counters, so taking their maximum matches Task Manager. This was the cause of the `12-32%` app versus `3-4%` Task Manager mismatch.
+- `ScoreGpuLoadSensor` is now only a fallback ranking for driver sensors (`GPU Core` above memory/video/copy/bus). Engine sensors bypass it. Keep the engine helper test current if LHM changes sensor names.
+
+## GPU load, GHz, and value tooltips (2026-11-26)
+
+- `AppSettings.ShowGpuLoad` defaults true. `TxtGpuLoad` is written from `snapshot.GpuLoad` and hides independently of temperature and power; `double.NaN` renders `--%`. No new poll, service, or sample was added.
+- The GPU row is intentionally three lines because the dashboard is 444 px wide: label plus vendor, then temperature/power/load, then GPU name. The older vendor-on-value-line layout needs roughly 140 px, while the text area is about 116 px; do not move the vendor back without measuring.
+- Tooltips are localized `DynamicResource` keys bound in XAML (`Main_CpuClockTooltip`, `Main_CpuLoadTooltip`, `Main_CpuPowerTooltip`, `Main_GpuTempTooltip`, `Main_GpuPowerTooltip`, `Main_GpuLoadTooltip`, `Main_GpuFanTooltip`) so a language change applies without touching telemetry. The fan copy separates normal zero-fan idle from a stopped fan under load.
+- `Main_LabelGhz` now reads `GHz` in both locales.
+
+## CPU load, chart labels, and cooling duration (2026-11-26)
+
+- `ShowCpuLoad` defaults true and is the only switch for the percentage; the row keeps power independent. It is disabled in Settings when clock speed is hidden.
+- `AddChartScaleLabel` is the only chart-scale drawing path: chip background, max on top, min on bottom, drawn after the series. CPU range is fixed 25-90 C; GPU ranges follow its metric.
+- Cooling duration is derived from `_profileStartedUtc` and formatted at most once per minute by `RefreshProfileDurationText`, called from the existing telemetry update. Do not add a timer or a second poll for it. It resets on profile change and restart, and it is hidden when no profile is active.
+
+## Small UI detail candidates (2026-11-26, not approved)
+
+- Planning only, no code. Grounded gaps: chart canvases have no text labels, `CpuLoad` never appears on the dashboard, drive rows omit free space, and the active profile has no live duration.
+- Shortlist: load beside CPU speed, chart min/max labels, cooling duration under the profile, free space in the SSD tooltip, session peak in the tray tooltip, and copy-visible-values for support.
+
+## CPU temperature popup and focus ring (2026-11-26)
+
+- The white box on click came from a template trigger on `IsKeyboardFocused`, which a mouse click satisfies. The trigger is gone and `UpdateCpuTempFocusRing` gates the ring on `ShowKeyboardFocusCues`, preserving the Tab cue without the click artifact.
+- `PositionCorePopup` and `ApplyCorePopupAt` are the only placement path. The popup targets `BtnCpuTempCores`, uses absolute screen coordinates, clamps to the monitor work area, and shows the downward caret. Do not go back to `PlacementMode.Top` with offsets, which let the bubble clip.
+
+## Sensor dropout log and power-plan drift notice (2026-11-26)
+
+- Both default on with switches in Settings > General. `SensorDropoutLogEnabled` and `PowerPlanDriftNoticeEnabled` are new `AppSettings` fields with `true` defaults.
+- `SensorDropoutWatch` is the only dropout rule. `Observe(cpuReadings, gpuReadings, nowUtc)` returns `Cpu` when only the CPU is missing and `All` when nothing reports; `HasCpuReadings` uses CPU temperature or the measured clock, `HasGpuReadings` uses GPU temperature or load, and the PDH clock/load fallbacks do not count. One gap timer starts on the first missing CPU sample and one 30 min cap covers both kinds, so a single outage logs once. `App` records `Activity_CpuSensorsLost` or `Activity_SensorDropout` and shows no toast.
+- `PowerPlanService.PlanDrifted` fires only when the previous active profile was a CryoTray scheme and the GUID changed. `RestoreOriginalPowerPlan` and `CleanupForUninstall` suppress it. `App.OnPowerPlanDrifted` records `Activity_PowerPlanDrift` and shows one tray note, at most once per 10 min. Nothing is ever switched back.
+- Live test on the Release build: external switch from Cooling to Balanced produced one `power` event with the old and new names, and the UI followed to Cooling OFF. The balloon was not visible, but the built-in test notification is also suppressed in this Windows session, so the environment hides balloons.
+
+## Default-on candidates (2026-11-26, proposed, not approved)
+
+- Current default-on alerting covers storage SMART wear, GPU hotspot delta, fan stop, disk temperature, and the fan-speed row. Nothing below is implemented; this pass was planning only and changed no code.
+- Proposed: full-drive watch (system drive under `10%` free or `15 GB` for `10 min`, once per `24 h`, notification only), memory pressure watch (available RAM under `1 GB` for `5 min` during a game, once per session, no purge), chart peak and threshold markers from the existing ring buffer, power-plan drift notice (activity event plus one tray notice per `10 min`, never auto re-apply), battery wear/runtime rows in System Information, and a sensor dropout activity event (`30 s` gap, one per `30 min`).
+- Rule for any of these: read-only, hysteresis, capped frequency, and a visible switch. System-changing utilities stay opt-in, and Limit Watch stays off by default by request.
+
+## Limit Watch (2026-11-25)
+
+- `Services/LimitWatch.cs` holds the only trigger rule: measured clock below `95%` of the nominal base clock while load is at least `50%`. `HardwareSnapshot.CpuMeasuredGhz` is the measured average clock.
+- `CpuGhz` now reports the measured clock. The `% Processor Performance` override runs only when no clock sensor is available, because the counter tracks the power-plan cap rather than the silicon.
+- `CpuMeasuredGhz` is the mean of the raw per-core clock sensors, not LibreHardwareMonitor's `Cores (Average Effective)` value. Effective clock is weighted by how long each core actually runs, so it reads about `0.4 GHz` at idle and roughly tracks utilization; using it would flag every partially loaded session. The live dashboard therefore reads `3.0`-`3.3 GHz` at idle, `3.5 GHz` loaded, and `0.9 GHz` at a forced 50 cap, instead of a flat `3.7`.
+- The PDH counter was rejected as a trigger after measurement: it follows `PROCTHROTTLEMAX` (`49.5%` at a 50 cap, `98.7%` at 99) in both idle and load, while the measured clock moves from about `0.4 GHz` idle to `3.7 GHz` loaded. Do not rebuild the rule on that counter.
+- `AppSettings.LimitWatchEnabled` defaults to `false`. `HardwareMonitorService` only evaluates the rule when the setting is on, so disabled sessions record nothing, and the feature never writes to the system.
+- `TelemetrySample.CpuBelowNominal` carries the result per sample. `SessionReportService.SummarizeBelowNominal` aggregates total time, period count, longest period, and peak temperature; `FormatBelowNominal` is the single formatter for the window and the copied report. Chart markers use kind `heldback`.
+
 ## .NET runtime support (2026-11-25)
 
 - The project targets `net10.0-windows` (LTS, supported to 2028-11-14), retargeted from `net8.0-windows` after .NET 8 left support on 2026-11-10. .NET 11 is STS and ends on the same date, so it was rejected.
@@ -20,7 +71,7 @@
 - Windows high contrast and a 150% text scale were enabled for this pass and then restored to the saved original state. English and Arabic checks covered the dashboard, Settings, health check, session report, Settings search popup, CPU core popup, combo dropdowns, and keyboard focus.
 - `TextScaleService` is the app's WPF text-scale bridge. It reads `HKCU\Software\Microsoft\Accessibility\TextScaleFactor` once at startup, clamps the value to 100-225%, and attaches a `LayoutTransform` to the content and popup roots plus scaled window/minimum dimensions. This preserves the app's existing fixed-width layouts at large text sizes without a second layout system; `MainWindow.UpdateWindowHeight` applies the same factor to its dynamic height. The transform is not font-only and is not reapplied live after startup; restart the app after changing the Windows setting.
 - `ThemeService.IsHighContrast` lets code choose system-aware surfaces outside resource lookups. High contrast now drives the CPU hero background from `SystemColors.WindowColor`, and `AccentButtonBrush`/`AccentButtonTextBrush` cover text-bearing accent surfaces such as the cooling toggle, checked boxes, selected dropdown rows, and update-banner action. Focus borders and selected-tab underlines use theme resources.
-- `SettingsDarkComboBoxTemplate` and the main timeframe combo popup are explicitly `LeftToRight`; without that, Arabic RTL placement put dropdowns off-screen under the 1.5x layout transform. `SessionReportWindow.CreateTimelineRow` uses Auto timestamp/kind columns with spacing and leaves Arabic text RTL while forcing update text with no Arabic characters to LTR. The Settings close target has a 32 px unscaled minimum, and the CPU core popup is anchored below the temperature control and closes on Escape.
+- `SettingsDarkComboBoxTemplate` and the main timeframe combo popup are explicitly `LeftToRight`; without that, Arabic RTL placement put dropdowns off-screen under the 1.5x layout transform. `SessionReportWindow.CreateTimelineRow` uses Auto timestamp/kind columns with spacing and leaves Arabic text RTL while forcing update text with no Arabic characters to LTR. The Settings close target has a 32 px unscaled minimum, and the CPU core popup is anchored above the temperature digits and closes on Escape.
 - Verification: Release build 0 warnings/0 errors; `/test-unit` passed all 59 checks. At 150% high contrast, window sizes were dashboard `666x873`, Settings `720x930`, health `840x954`, and session `840x990`, all inside the current work area. English/Arabic screenshots showed no clipped labels or timeline overlap; Settings footer actions stayed visible with body scrolling; focus rings were visible; dropdowns and the CPU core popup stayed on-screen. The Windows accessibility state was restored afterward.
 - Not verified: 200%/225% text scaling, real screen-reader speech, and a fresh light-theme visual pass. The changes are included in the `v0.0.104` release commit.
 
@@ -41,7 +92,7 @@
 
 ## Remaining candidate feature direction (2026-11-24, not approved)
 
-- Health check, session report, GPU diagnostics, and accessibility are implemented; see the section above. Remaining candidates are chart peak/threshold insights, scheduled quiet hours, battery health/runtime, native tray hosting, and tray layout self-check. These are not current behavior.
+- Health check, session report, GPU diagnostics, and accessibility are implemented; see the section above. Remaining candidates are chart peak/threshold insights, scheduled quiet hours, battery health/runtime, native tray hosting, and tray layout self-check. These are not current behavior. Limit Watch is implemented (2026-11-25): an opt-in, record-only watch for measured CPU clocks below nominal while busy, surfaced in the session report and chart markers.
 - Reuse existing contracts from `FUNCTIONS.md` when any candidate is approved: `HardwareMonitorService`, `TelemetryRingBuffer`, `ActivityLogService`, `TemperatureAlertService`, `BatteryTelemetryService`, `SystemInfoQueryService`, `StartupTaskService`, and the existing notification paths. Do not add a second telemetry poll, a parallel notification system, or another top-level tab without an approved design.
 
 ## Settings search upgrade (2026-11-24)

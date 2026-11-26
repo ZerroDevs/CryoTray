@@ -1007,12 +1007,6 @@
                                             <Border x:Name="TempFocusBorder" Background="Transparent" CornerRadius="4" Padding="2,0">
                                                 <ContentPresenter/>
                                             </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                                    <Setter TargetName="TempFocusBorder" Property="BorderBrush" Value="{DynamicResource TextPrimaryBrush}"/>
-                                                    <Setter TargetName="TempFocusBorder" Property="BorderThickness" Value="2"/>
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Button.Template>
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" FlowDirection="LeftToRight">
@@ -1036,9 +1030,9 @@
                                 <!-- Per-Core Speech-Bubble Popup on Hover -->
                                 <Popup x:Name="CpuCoresPopup"
                                        AllowsTransparency="True"
-                                       Placement="Bottom"
-                                       PlacementTarget="{Binding ElementName=CpuTempHoverZone}"
-                                       VerticalOffset="6"
+                                       Placement="Top"
+                                       PlacementTarget="{Binding ElementName=BtnCpuTempCores}"
+                                       VerticalOffset="-6"
                                        PopupAnimation="Fade"
                                        IsHitTestVisible="False">
                                     <Grid Margin="6" IsHitTestVisible="False">
@@ -1046,6 +1040,12 @@
                                             <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.18" Color="#000000"/>
                                         </Grid.Effect>
                                         <StackPanel HorizontalAlignment="Right">
+                                            <!-- Upward caret, used when the bubble sits above the temperature -->
+                                            <Canvas x:Name="CpuCoresCaretUp" Height="6" Width="14" Margin="0,0,42,-1" HorizontalAlignment="Right" Visibility="Collapsed">
+                                                <Polygon Points="0,6 7,0 14,6" Fill="#FFFFFF" Stroke="#CCCCCC" StrokeThickness="1"/>
+                                                <Line X1="1" Y1="6" X2="13" Y2="6" Stroke="#FFFFFF" StrokeThickness="1.5"/>
+                                            </Canvas>
+
                                             <!-- White Speech Bubble Box -->
                                             <Border Background="#FFFFFF"
                                                     BorderBrush="#E2E2E2"
@@ -1106,7 +1106,7 @@
                                             </Border>
 
                                             <!-- Downward Triangle Caret pointing directly down over digits -->
-                                            <Canvas Height="6" Width="14" Margin="0,-1,42,0" HorizontalAlignment="Right">
+                                            <Canvas x:Name="CpuCoresCaretDown" Height="6" Width="14" Margin="0,-1,42,0" HorizontalAlignment="Right">
                                                 <Polygon Points="0,0 7,6 14,0" Fill="#FFFFFF" Stroke="#CCCCCC" StrokeThickness="1"/>
                                                 <Line X1="1" Y1="0" X2="13" Y2="0" Stroke="#FFFFFF" StrokeThickness="1.5"/>
                                             </Canvas>
@@ -1374,7 +1374,7 @@
                                                Foreground="{DynamicResource TextSecondaryBrush}"
                                                FontSize="10.5"
                                                TextTrimming="CharacterEllipsis"
-                                               MaxWidth="250"
+                                               MaxWidth="270"
                                                VerticalAlignment="Center"/>
                                     <Path Data="M0,0 L3.2,3.2 L6.4,0"
                                           Stroke="{DynamicResource TextTertiaryBrush}"
@@ -1483,11 +1483,20 @@
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" FlowDirection="LeftToRight">
                             <Border Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="3" Padding="10,4" Margin="0,0,6,0">
-                                <TextBlock x:Name="TxtCpuClockRatio" Text="-- / --" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="TxtCpuClockRatio" Text="-- / --" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12" FontWeight="SemiBold" ToolTip="{DynamicResource Main_CpuClockTooltip}"/>
                             </Border>
                             <Border Background="Transparent" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="7,4">
                                 <TextBlock Text="{DynamicResource Main_LabelGhz}" Foreground="{DynamicResource TextTertiaryBrush}" FontSize="11" FontWeight="SemiBold"/>
                             </Border>
+                            <TextBlock x:Name="TxtCpuLoad"
+                                       Text="--%"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       FlowDirection="LeftToRight"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       ToolTip="{DynamicResource Main_CpuLoadTooltip}"/>
                             <TextBlock x:Name="TxtCpuPackageWatts"
                                        Text="--W"
                                        Foreground="{DynamicResource TextTertiaryBrush}"
@@ -1495,7 +1504,8 @@
                                        FontWeight="SemiBold"
                                        FlowDirection="LeftToRight"
                                        VerticalAlignment="Center"
-                                       Margin="8,0,0,0"/>
+                                       Margin="8,0,0,0"
+                                       ToolTip="{DynamicResource Main_CpuPowerTooltip}"/>
                         </StackPanel>
                     </Grid>
 
@@ -1992,15 +2002,18 @@
                                       Stroke="{DynamicResource TextTitleBrush}" StrokeThickness="1.2" StrokeLineJoin="Round" Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock x:Name="TxtGpuLabel" Text="{DynamicResource Main_GpuLabel}" Foreground="{DynamicResource TextTitleBrush}" FontSize="12.5" FontWeight="SemiBold"/>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,1,0,0">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtGpuLabel" Text="{DynamicResource Main_GpuLabel}" Foreground="{DynamicResource TextTitleBrush}" FontSize="12.5" FontWeight="SemiBold"/>
                                     <TextBlock x:Name="TxtGpuVendor"
                                                Text=""
                                                Foreground="{DynamicResource TextTertiaryBrush}"
                                                FontSize="10.5"
                                                FlowDirection="LeftToRight"
                                                VerticalAlignment="Center"
+                                               Margin="8,0,0,0"
                                                Visibility="Collapsed"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,1,0,0">
                                     <TextBlock x:Name="TxtGpuTemp"
                                                Text="--°C"
                                                Foreground="{DynamicResource TextTertiaryBrush}"
@@ -2008,7 +2021,7 @@
                                                FontWeight="SemiBold"
                                                FlowDirection="LeftToRight"
                                                VerticalAlignment="Center"
-                                               Margin="8,0,0,0"/>
+                                               ToolTip="{DynamicResource Main_GpuTempTooltip}"/>
                                     <TextBlock x:Name="TxtGpuPower"
                                                Text="--W"
                                                Foreground="{DynamicResource TextTertiaryBrush}"
@@ -2016,7 +2029,17 @@
                                                FontWeight="SemiBold"
                                                FlowDirection="LeftToRight"
                                                VerticalAlignment="Center"
-                                               Margin="6,0,0,0"/>
+                                               Margin="6,0,0,0"
+                                               ToolTip="{DynamicResource Main_GpuPowerTooltip}"/>
+                                    <TextBlock x:Name="TxtGpuLoad"
+                                               Text="--%"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                               FontSize="10.5"
+                                               FontWeight="SemiBold"
+                                               FlowDirection="LeftToRight"
+                                               VerticalAlignment="Center"
+                                               Margin="6,0,0,0"
+                                               ToolTip="{DynamicResource Main_GpuLoadTooltip}"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TxtGpuName"
                                            Text=""
@@ -2067,7 +2090,7 @@
                             </StackPanel>
                             <StackPanel x:Name="GpuFanGroup" Orientation="Horizontal">
                                 <TextBlock Text="{DynamicResource Main_GpuFanLabel}" Foreground="{DynamicResource TextMutedBrush}" FontSize="10"/>
-                                <TextBlock x:Name="TxtGpuFan" Text="--" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                                <TextBlock x:Name="TxtGpuFan" Text="--" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" Margin="4,0,0,0" ToolTip="{DynamicResource Main_GpuFanTooltip}"/>
                             </StackPanel>
                         </StackPanel>
                     </Grid>

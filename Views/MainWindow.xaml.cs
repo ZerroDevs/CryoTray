@@ -64,6 +64,11 @@ namespace CryoTray.Views
         private IDisposable? _telemetryLease;
         private DispatcherTimer? _chartRenderTimer;
         private SsdRowView? _activeHoverDriveRow;
+        private string _profileDurationKey = "";
+        private DateTime _profileStartedUtc;
+        private string _profileBaseText = "";
+        private string _profileDurationText = "";
+        private int _lastProfileDurationMinutes = -1;
 
         private readonly List<SsdRowView> _ssdRows = new();
         private string? _ssdRowSignature;
@@ -673,12 +678,54 @@ namespace CryoTray.Views
                 return;
             }
 
-            TxtActivePowerProfile.Text = profile == null
+            string key = profile?.Key ?? "";
+            if (!string.Equals(_profileDurationKey, key, StringComparison.Ordinal))
+            {
+                _profileDurationKey = key;
+                _profileStartedUtc = DateTime.UtcNow;
+                _profileDurationText = "";
+                _lastProfileDurationMinutes = -1;
+            }
+
+            _profileBaseText = profile == null
                 ? ""
                 : $"{LocalizationService.Get(profile.NameKey)} · {LocalizationService.Get(profile.BadgeKey)}";
+            _lastProfileDurationMinutes = -1;
+            RefreshProfileDurationText();
             TxtActivePowerProfile.ToolTip = profile == null
                 ? null
                 : LocalizationService.Get(profile.DescriptionKey);
+        }
+
+        /// <summary>
+        /// Appends how long the current profile has been active. Formatting runs once per
+        /// minute, not per telemetry tick, and no timer or extra poll is involved.
+        /// </summary>
+        private void RefreshProfileDurationText()
+        {
+            if (TxtActivePowerProfile == null ||
+                _profileStartedUtc == default ||
+                string.IsNullOrEmpty(_profileDurationKey))
+            {
+                return;
+            }
+
+            int minutes = (int)(DateTime.UtcNow - _profileStartedUtc).TotalMinutes;
+            if (minutes == _lastProfileDurationMinutes)
+            {
+                return;
+            }
+
+            _lastProfileDurationMinutes = minutes;
+            _profileDurationText = minutes <= 0
+                ? ""
+                : minutes < 60
+                    ? LocalizationService.Format("Main_ProfileDurationMinutes", minutes)
+                    : LocalizationService.Format("Main_ProfileDurationHours", minutes / 60, minutes % 60);
+
+            TxtActivePowerProfile.Text = _profileDurationText.Length == 0
+                ? _profileBaseText
+                : $"{_profileBaseText} · {_profileDurationText}";
         }
 
         private void BtnPowerProfileMenu_Click(object sender, RoutedEventArgs e)
@@ -1072,6 +1119,10 @@ namespace CryoTray.Views
             TxtCpuSmallLabel.Text = FormatCpuSmallRowLabel(snapshot.CpuName, snapshot.CpuVendor);
             TxtCpuClockRatio.Text = FormatCpuClockReadout(
                 snapshot.CpuGhz, snapshot.CpuBaseGhz, snapshot.CpuMaxGhz, s.ShowCpuBaseSpeed);
+            TxtCpuLoad.Text = double.IsFinite(snapshot.CpuLoad)
+                ? $"{Math.Round(snapshot.CpuLoad)}%"
+                : "--%";
+            RefreshProfileDurationText();
             TxtCpuPackageWatts.Text = snapshot.CpuPackageWatts.HasValue
                 ? $"{snapshot.CpuPackageWatts.Value}W"
                 : "--W";
@@ -1112,6 +1163,9 @@ namespace CryoTray.Views
             TxtGpuPower.Text = snapshot.GpuPowerWatts.HasValue
                 ? $"{snapshot.GpuPowerWatts.Value}W"
                 : "--W";
+            TxtGpuLoad.Text = double.IsFinite(snapshot.GpuLoad)
+                ? $"{Math.Round(snapshot.GpuLoad)}%"
+                : "--%";
             TxtGpuVendor.Text = snapshot.GpuVendor?.Trim() ?? "";
             TxtGpuVendor.Visibility = string.IsNullOrWhiteSpace(TxtGpuVendor.Text)
                 ? Visibility.Collapsed
@@ -1982,9 +2036,17 @@ namespace CryoTray.Views
 
             unavailableText.Visibility = Visibility.Collapsed;
 
-            double minT = 25;
+                        double minT = 25;
             double maxT = 90;
             double padY = isSmall ? 4.0 : 8.0;
+
+            if (!isSmall)
+            {
+                // Scale tags sit under the series, so the fill tints them instead of boxing them in.
+                bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+                AddChartScaleLabel(plotCanvas, FormatScaleTemperature(maxT, isFahrenheit), 1);
+                AddChartScaleLabel(plotCanvas, FormatScaleTemperature(minT, isFahrenheit), plotH - 13);
+            }
 
             int n = samples.Count;
             double stepX = w / Math.Max(1, n - 1);
@@ -2023,6 +2085,28 @@ namespace CryoTray.Views
             {
                 CpuChartTooltip.IsOpen = false;
             }
+        }
+
+        private static string FormatScaleTemperature(double celsius, bool isFahrenheit)
+        {
+            double value = isFahrenheit ? (celsius * 9 / 5) + 32 : celsius;
+            return $"{Math.Round(value)}°";
+        }
+
+        /// <summary>Small muted scale tag drawn inside a chart canvas. No layout cost beyond redraw.</summary>
+        private static void AddChartScaleLabel(Canvas canvas, string text, double top)
+        {
+            var label = new TextBlock
+            {
+                Text = text,
+                FontSize = 9,
+                Opacity = 0.7,
+                IsHitTestVisible = false,
+                Foreground = ThemeService.GetBrush("TextTertiaryBrush")
+            };
+            Canvas.SetLeft(label, 4);
+            Canvas.SetTop(label, top);
+            canvas.Children.Add(label);
         }
 
         private static PowerProfileDefinition GetCpuSampleProfile(TelemetrySample sample)
@@ -2272,6 +2356,15 @@ namespace CryoTray.Views
             _gpuChartMinimum = minValue;
             _gpuChartMaximum = maxValue;
 
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            string GpuScaleText(double value) => metric switch
+            {
+                "Temperature" => FormatScaleTemperature(value, isFahrenheit),
+                "Load" => $"{Math.Round(value)}%",
+                _ => $"{Math.Round(value)}W"
+            };
+
+
             double stepX = w / Math.Max(1, samples.Count - 1);
             int maxPoints = Math.Max(16, (int)Math.Ceiling(w * 2));
             var reducedIndices = ChartSampleReducer.ReduceRange(
@@ -2284,6 +2377,9 @@ namespace CryoTray.Views
                     TryGetGpuChartValue(sample, metric, activeGpuId, out double value);
                     return value;
                 });
+
+            AddChartScaleLabel(GpuChartCanvas, GpuScaleText(maxValue), 1);
+            AddChartScaleLabel(GpuChartCanvas, GpuScaleText(minValue), h - 13);
 
             var areaPoints = new PointCollection { new Point(0, h) };
             var linePoints = new PointCollection();
@@ -2647,6 +2743,7 @@ namespace CryoTray.Views
                 "update" => "SuccessTextBrush",
                 "profile" => "AccentBrush",
                 "cooling" => "CoolingOnTextBrush",
+                "heldback" => "WarningTextBrush",
                 _ => "TextSecondaryBrush"
             };
             Brush brush = ThemeService.GetBrush(key);
@@ -3371,6 +3468,7 @@ namespace CryoTray.Views
         private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
             ShowKeyboardFocusCues = false;
+            UpdateCpuTempFocusRing();
             if (_ramTooltipPinned && e.OriginalSource is DependencyObject source && !IsDescendantOf(source, BtnRamBreakdown))
             {
                 CloseRamBreakdownToolTip();
@@ -3852,6 +3950,7 @@ namespace CryoTray.Views
 
         private void BtnCpuTempCores_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
+            UpdateCpuTempFocusRing();
             if (!ShowKeyboardFocusCues)
             {
                 return;
@@ -3863,7 +3962,31 @@ namespace CryoTray.Views
 
         private void BtnCpuTempCores_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
+            UpdateCpuTempFocusRing();
             CpuCoresPopup.IsOpen = false;
+        }
+
+        /// <summary>
+        /// The ring marks keyboard focus only. A mouse click also focuses the button, but the
+        /// white outline there reads as a stray border, so cues stay keyboard-only.
+        /// </summary>
+        private void UpdateCpuTempFocusRing()
+        {
+            if (BtnCpuTempCores.Template?.FindName("TempFocusBorder", BtnCpuTempCores) is not Border ring)
+            {
+                return;
+            }
+
+            if (ShowKeyboardFocusCues && BtnCpuTempCores.IsKeyboardFocused)
+            {
+                ring.BorderThickness = new Thickness(2);
+                ring.SetResourceReference(Border.BorderBrushProperty, "TextPrimaryBrush");
+            }
+            else
+            {
+                ring.BorderThickness = new Thickness(0);
+                ring.ClearValue(Border.BorderBrushProperty);
+            }
         }
 
         private void UpdateCpuCoreItems(HardwareSnapshot snapshot)
@@ -3962,6 +4085,9 @@ namespace CryoTray.Views
             TxtCpuPackageWatts.Visibility = settings.ShowCpuPower
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+            TxtCpuLoad.Visibility = settings.ShowCpuLoad
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             CpuPackagePowerFooter.Visibility = settings.ShowCpuPower
                 ? Visibility.Visible
                 : Visibility.Collapsed;
@@ -3969,6 +4095,9 @@ namespace CryoTray.Views
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             TxtGpuPower.Visibility = settings.ShowGpuPower
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            TxtGpuLoad.Visibility = settings.ShowGpuLoad
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             TxtGpuName.Visibility = settings.ShowGpuName &&
@@ -4017,13 +4146,12 @@ namespace CryoTray.Views
                 return;
             }
 
-            double desiredOffsetX = CpuTempHoverZone.ActualWidth - popupWidth;
-            var placement = PlacementMode.Bottom;
+            double desiredOffsetX = BtnCpuTempCores.ActualWidth - popupWidth;
 
             if (TryGetMonitorWorkArea(out Rect workArea))
             {
                 var dpi = VisualTreeHelper.GetDpi(this);
-                Point targetScreen = CpuTempHoverZone.PointToScreen(new Point(0, 0));
+                Point targetScreen = BtnCpuTempCores.PointToScreen(new Point(0, 0));
                 double targetLeft = targetScreen.X / dpi.DpiScaleX;
                 double targetTop = targetScreen.Y / dpi.DpiScaleY;
 
@@ -4032,15 +4160,33 @@ namespace CryoTray.Views
                 double maxLeft = Math.Max(minLeft, workArea.Right - popupWidth - 4);
                 popupLeft = Math.Clamp(popupLeft, minLeft, maxLeft);
 
-                CpuCoresPopup.Placement = placement;
-                CpuCoresPopup.HorizontalOffset = popupLeft - targetLeft;
-                CpuCoresPopup.VerticalOffset = 6;
+                // The bubble sits above the digits. When the dashboard is docked at the top of the
+                // screen there is no room for it, so shift it down just enough to stay on screen.
+                double popupTop = targetTop - popupHeight - 6;
+                double minTop = workArea.Top + 4;
+                double maxTop = Math.Max(minTop, workArea.Bottom - popupHeight - 4);
+                popupTop = Math.Clamp(popupTop, minTop, maxTop);
+
+                ApplyCorePopupAt(popupLeft, popupTop);
                 return;
             }
 
-            CpuCoresPopup.Placement = PlacementMode.Bottom;
-            CpuCoresPopup.HorizontalOffset = desiredOffsetX;
-            CpuCoresPopup.VerticalOffset = 6;
+            double fallbackTop = BtnCpuTempCores.PointToScreen(new Point(0, 0)).Y -
+                popupHeight - 6;
+            ApplyCorePopupAt(
+                BtnCpuTempCores.PointToScreen(new Point(0, 0)).X + desiredOffsetX,
+                Math.Max(0, fallbackTop));
+        }
+
+        /// <summary>Absolute placement in screen pixels, so the bubble never flips or clips.</summary>
+        private void ApplyCorePopupAt(double left, double top)
+        {
+            CpuCoresPopup.Placement = PlacementMode.Absolute;
+            CpuCoresPopup.HorizontalOffset = left;
+            CpuCoresPopup.VerticalOffset = top;
+            // The bubble sits above the digits, so the tail points down at them.
+            CpuCoresCaretUp.Visibility = Visibility.Collapsed;
+            CpuCoresCaretDown.Visibility = Visibility.Visible;
         }
 
         private bool TryGetMonitorWorkArea(out Rect workArea)

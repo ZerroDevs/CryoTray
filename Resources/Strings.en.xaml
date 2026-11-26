@@ -37,6 +37,10 @@
     <sys:String x:Key="Main_GpuHotspotLabel">Hotspot</sys:String>
     <sys:String x:Key="Main_GpuVramLabel">VRAM</sys:String>
     <sys:String x:Key="Main_GpuFanLabel">Fan</sys:String>
+    <sys:String x:Key="Main_GpuTempTooltip">GPU temperature</sys:String>
+    <sys:String x:Key="Main_GpuPowerTooltip">GPU power usage</sys:String>
+    <sys:String x:Key="Main_GpuLoadTooltip">GPU load</sys:String>
+    <sys:String x:Key="Main_GpuFanTooltip">GPU fan speed. 0 RPM is normal when the GPU is cool; Fan Health warns if it stays stopped under load.</sys:String>
     <sys:String x:Key="Main_RpmUnit">RPM</sys:String>
     <sys:String x:Key="Main_CpuChartValue">CPU {0}{1}</sys:String>
     <sys:String x:Key="Main_TooltipStressTest">CPU Temperature Test</sys:String>
@@ -73,7 +77,10 @@
     <sys:String x:Key="PowerProfile_GamingUltimate_Badge">Zero Latency</sys:String>
     <sys:String x:Key="PowerProfile_GamingUltimate_Description">Maximum responsiveness &amp; zero clock-ramp delay. Locks CPU clocks at 100% minimum state with Aggressive Boost for competitive play and benchmarks (highest heat/power).</sys:String>
     <sys:String x:Key="Main_LabelCpuSpeed">CPU SPEED</sys:String>
-    <sys:String x:Key="Main_LabelGhz">GHZ</sys:String>
+    <sys:String x:Key="Main_LabelGhz">GHz</sys:String>
+    <sys:String x:Key="Main_CpuClockTooltip">Current clock / maximum clock</sys:String>
+    <sys:String x:Key="Main_CpuLoadTooltip">CPU load</sys:String>
+    <sys:String x:Key="Main_CpuPowerTooltip">Package power</sys:String>
     <sys:String x:Key="Main_LabelRam">RAM</sys:String>
     <sys:String x:Key="Main_LabelGb">GB</sys:String>
     <sys:String x:Key="Ram_OptimizeButtonTooltip">Optimize RAM (right-click for options)</sys:String>
@@ -196,6 +203,8 @@
     <sys:String x:Key="Main_Timeframe10">10 min</sys:String>
     <sys:String x:Key="Main_Timeframe30">30 min</sys:String>
     <sys:String x:Key="Main_Timeframe60">60 min</sys:String>
+    <sys:String x:Key="Main_ProfileDurationMinutes">{0}m</sys:String>
+    <sys:String x:Key="Main_ProfileDurationHours">{0}h {1}m</sys:String>
     <sys:String x:Key="Main_TimeframeAutomation">Graph time range</sys:String>
     <sys:String x:Key="Main_CpuTemperatureAutomation">CPU temperature details</sys:String>
     <sys:String x:Key="Main_AboutTitle">About CryoTray</sys:String>
@@ -245,6 +254,10 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_MuteAlerts">Mute temperature alerts</sys:String>
     <sys:String x:Key="Settings_FanHealthAlerts">Warn when a running fan stops</sys:String>
     <sys:String x:Key="Settings_FanHealthAlertsDesc">Alerts after a fan that was spinning drops to 0 RPM while the system is under load. Idle fan curves are ignored.</sys:String>
+    <sys:String x:Key="Settings_SensorDropoutLog">Log when sensor readings stop</sys:String>
+    <sys:String x:Key="Settings_SensorDropoutLogDesc">Logs CPU sensor loss after 30 seconds without a reading, and logs total sensor loss when nothing reports. At most one entry every 30 minutes. This records only and changes nothing.</sys:String>
+    <sys:String x:Key="Settings_PowerPlanDriftNotice">Warn when another app changes the power plan</sys:String>
+    <sys:String x:Key="Settings_PowerPlanDriftNoticeDesc">While a CryoTray profile is active, shows one tray notice if the active plan changes. The plan is never switched back automatically. At most one notice every 10 minutes.</sys:String>
     <sys:String x:Key="Settings_FanNames">Fan names</sys:String>
     <sys:String x:Key="Settings_FanNamesDesc">Rename fans for this app. Leave blank to use the sensor name.</sys:String>
     <sys:String x:Key="Settings_FanNameAutomation">{0} name</sys:String>
@@ -263,7 +276,14 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_ColorCoolingOff">Color frame for "Cooling OFF" mode:</sys:String>
     <sys:String x:Key="Settings_ResetColorTooltip">Reset to default color</sys:String>
     <sys:String x:Key="Settings_ShowCpuClock">Show CPU clock speed</sys:String>
+    <sys:String x:Key="Settings_ShowCpuLoad">Show CPU load</sys:String>
     <sys:String x:Key="Settings_ShowCpuBaseSpeed">Show base speed</sys:String>
+    <sys:String x:Key="Settings_LimitWatch">Watch for CPU clock below nominal</sys:String>
+    <sys:String x:Key="Settings_LimitWatchDesc">Records only: busy time under the base clock appears in the session report. Off by default, and it changes no system settings.</sys:String>
+    <sys:String x:Key="Session_BelowNominal">Below nominal clock</sys:String>
+    <sys:String x:Key="Session_BelowNominalValue">{0} total · {1} periods · longest {2} · peak {3}</sys:String>
+    <sys:String x:Key="Session_BelowNominalOff">Off - enable it in Settings, CPU tab</sys:String>
+    <sys:String x:Key="Session_BelowNominalEvent">CPU clock below nominal</sys:String>
     <sys:String x:Key="Settings_ShowCpuGraph">Show CPU temperature graph</sys:String>
     <sys:String x:Key="Settings_GraphLarge">Large</sys:String>
     <sys:String x:Key="Settings_GraphSmall">Small</sys:String>
@@ -295,6 +315,7 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Settings_ShowCpuPower">Show CPU power usage</sys:String>
     <sys:String x:Key="Settings_ShowRamRow">Show RAM usage row</sys:String>
     <sys:String x:Key="Settings_ShowGpuPower">Show GPU power usage</sys:String>
+    <sys:String x:Key="Settings_ShowGpuLoad">Show GPU load</sys:String>
     <sys:String x:Key="Settings_ShowGpuTemp">Show GPU temperature</sys:String>
     <sys:String x:Key="Settings_ShowGpuName">Show GPU name (off by default)</sys:String>
     <sys:String x:Key="Settings_ShowGpuHotspot">Show GPU hotspot temperature</sys:String>
@@ -466,6 +487,9 @@ https://github.com/ZerroDevs/CryoTray</sys:String>
     <sys:String x:Key="Activity_TemperatureAlert">Temperature alert raised.</sys:String>
     <sys:String x:Key="Activity_FanStopped">Fan stopped: {0}.</sys:String>
     <sys:String x:Key="Activity_DriveHealth">Drive health alert: {0} at {1}%.</sys:String>
+    <sys:String x:Key="Activity_CpuSensorsLost">No CPU sensor data for 30 seconds while other sensors still report.</sys:String>
+    <sys:String x:Key="Activity_SensorDropout">No CPU or GPU sensor data for 30 seconds.</sys:String>
+    <sys:String x:Key="Activity_PowerPlanDrift">Power plan changed from {0} to {1}.</sys:String>
     <sys:String x:Key="Activity_UpdateAvailable">Update {0} is available.</sys:String>
     <sys:String x:Key="Activity_UpdateFailed">Update check failed.</sys:String>
     <sys:String x:Key="Activity_UpdateSucceeded">Updated to {0}.</sys:String>
@@ -600,6 +624,8 @@ Cooling Mode on</sys:String>
     <sys:String x:Key="Alert_FanTitle">CryoTray fan alert</sys:String>
     <sys:String x:Key="Alert_FanStopped">{0} was spinning at {1} RPM and is now stopped.</sys:String>
     <sys:String x:Key="Alert_FanTestBody">This is a test of the fan health notification.</sys:String>
+    <sys:String x:Key="Alert_PowerPlanDriftTitle">CryoTray power plan notice</sys:String>
+    <sys:String x:Key="Alert_PowerPlanDriftBody">The active plan changed from {0} to {1}. CryoTray left it alone.</sys:String>
     <sys:String x:Key="FanHealth_GpuFan">GPU fan</sys:String>
     <sys:String x:Key="Alert_DriveHealthTitle">CryoTray drive health alert</sys:String>
     <sys:String x:Key="Alert_DriveHealthBody">{0} health is {1}% ({2}).</sys:String>

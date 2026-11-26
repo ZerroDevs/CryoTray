@@ -542,6 +542,7 @@ namespace CryoTray.Services
                 PeakCpuTemp = source.PeakCpuTemp,
                 MaxCoreTemp = source.MaxCoreTemp,
                 CpuGhz = source.CpuGhz,
+                CpuMeasuredGhz = source.CpuMeasuredGhz,
                 CpuBaseGhz = source.CpuBaseGhz,
                 CpuMaxGhz = source.CpuMaxGhz,
                 CpuLoad = source.CpuLoad,
@@ -656,8 +657,14 @@ namespace CryoTray.Services
                     CurrentSnapshot = snapshot;
 
                     // Add to RingBuffer
-                    _ringBuffer.AddSample(TelemetrySample.FromSnapshot(
-                        snapshot, PowerPlanService.Instance.ActiveProfile?.Key));
+                    var sample = TelemetrySample.FromSnapshot(
+                        snapshot, PowerPlanService.Instance.ActiveProfile?.Key);
+                    if (SettingsService.Instance.Current.LimitWatchEnabled)
+                    {
+                        sample.CpuBelowNominal = LimitWatch.IsBelowNominal(snapshot);
+                    }
+
+                    _ringBuffer.AddSample(sample);
 
                     // Notify subscribers
                     TelemetryUpdated?.Invoke(snapshot);
@@ -850,8 +857,16 @@ namespace CryoTray.Services
                 .Where(value => double.IsFinite(value) && value > 100)
                 .ToList();
             double? currentClock = clockValues.Count > 0 ? clockValues.Average() : null;
+            double measuredClock = currentClock.HasValue &&
+                double.IsFinite(currentClock.Value) &&
+                currentClock.Value > 0
+                    ? currentClock.Value
+                    : double.NaN;
 
-            if (_processorPerformance.TryRead(out double performancePercent) &&
+            // Measured sensors win. The PDH counter follows the power-plan cap, so it may only
+            // fill in when the hardware exposes no clock sensor at all.
+            if (!double.IsFinite(measuredClock) &&
+                _processorPerformance.TryRead(out double performancePercent) &&
                 performancePercent > 0 &&
                 _cpuBaseGhz > 0)
             {
@@ -874,6 +889,9 @@ namespace CryoTray.Services
                 : (_cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN);
             snapshot.CpuGhz = currentClock.HasValue && double.IsFinite(currentClock.Value) && currentClock.Value > 0
                 ? Math.Round(currentClock.Value / 1000.0, 2)
+                : double.NaN;
+            snapshot.CpuMeasuredGhz = double.IsFinite(measuredClock) && measuredClock > 0
+                ? Math.Round(measuredClock / 1000.0, 2)
                 : double.NaN;
 
             snapshot.Gpus = gpus;
@@ -1024,6 +1042,17 @@ namespace CryoTray.Services
             }
         }
 
+        internal static bool IsGpuEngineLoadSensor(string sensorName)
+        {
+            string lower = sensorName.Trim().ToLowerInvariant();
+            return lower == "d3d" || lower.StartsWith("d3d ", StringComparison.Ordinal);
+        }
+
+        internal static double? ResolveGpuLoad(double? driverLoad, double? engineLoad)
+        {
+            return engineLoad ?? driverLoad;
+        }
+
         internal static int ScoreGpuLoadSensor(string sensorName)
         {
             string lower = sensorName.ToLowerInvariant();
@@ -1061,6 +1090,7 @@ namespace CryoTray.Services
             double? gpuVramTemp = null;
             int? gpuFanRpm = null;
             double? gpuLoad = null;
+            double? gpuEngineLoad = null;
             int gpuLoadPriority = -1;
             double? gpuPower = null;
             double? gpuPowerFallback = null;
@@ -1110,11 +1140,22 @@ namespace CryoTray.Services
                         double value = sensor.Value.Value;
                         if (double.IsFinite(value) && value >= 0 && value <= 100)
                         {
-                            int priority = ScoreGpuLoadSensor(sensorName);
-                            if (priority > gpuLoadPriority)
+                            // Task Manager reports the busiest GPU engine. The driver's "GPU Core" load can sit above the engine counters, so keep it as the fallback.
+                            if (IsGpuEngineLoadSensor(sensorName))
                             {
-                                gpuLoadPriority = priority;
-                                gpuLoad = value;
+                                if (!gpuEngineLoad.HasValue || value > gpuEngineLoad.Value)
+                                {
+                                    gpuEngineLoad = value;
+                                }
+                            }
+                            else
+                            {
+                                int priority = ScoreGpuLoadSensor(sensorName);
+                                if (priority > gpuLoadPriority)
+                                {
+                                    gpuLoadPriority = priority;
+                                    gpuLoad = value;
+                                }
                             }
                         }
                     }
@@ -1208,6 +1249,7 @@ namespace CryoTray.Services
 
             double? effectiveTemp = gpuTemp ?? gpuTempFallback;
             double? effectivePower = gpuPower ?? gpuPowerFallback;
+            double? effectiveLoad = ResolveGpuLoad(gpuLoad, gpuEngineLoad);
 
             return new GpuTelemetry
             {
@@ -1218,8 +1260,8 @@ namespace CryoTray.Services
                 Temperature = effectiveTemp.HasValue && effectiveTemp.Value > 0
                     ? Math.Round(effectiveTemp.Value, 1)
                     : double.NaN,
-                Load = gpuLoad.HasValue && double.IsFinite(gpuLoad.Value)
-                    ? Math.Round(gpuLoad.Value, 1)
+                Load = effectiveLoad.HasValue && double.IsFinite(effectiveLoad.Value)
+                    ? Math.Round(effectiveLoad.Value, 1)
                     : double.NaN,
                 PowerWatts = effectivePower.HasValue ? (int)Math.Round(effectivePower.Value) : null,
                 HotspotTemp = gpuHotspotTemp,

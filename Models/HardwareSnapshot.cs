@@ -94,6 +94,7 @@ namespace CryoTray.Models
         public double PeakCpuTemp { get; set; } = double.NaN;
         public double MaxCoreTemp { get; set; } = double.NaN;
         public double CpuGhz { get; set; } = double.NaN;
+        public double CpuMeasuredGhz { get; set; } = double.NaN;
         public double CpuBaseGhz { get; set; } = double.NaN;
         public double CpuMaxGhz { get; set; } = double.NaN;
         public double CpuLoad { get; set; } = double.NaN;

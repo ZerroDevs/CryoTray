@@ -23,6 +23,14 @@ namespace CryoTray.Services
         public ActivitySeverity Severity { get; init; } = ActivitySeverity.Info;
     }
 
+    public readonly struct BelowNominalSummary
+    {
+        public TimeSpan Total { get; init; }
+        public TimeSpan Longest { get; init; }
+        public int Periods { get; init; }
+        public double PeakTemp { get; init; }
+    }
+
     public sealed class SessionReport
     {
         public DateTime StartLocal { get; init; }
@@ -48,6 +56,11 @@ namespace CryoTray.Services
         public int ProfileChanges { get; init; }
         public int AlertCount { get; init; }
         public int FanEventCount { get; init; }
+        public bool LimitWatchEnabled { get; init; }
+        public TimeSpan BelowNominalTime { get; init; }
+        public int BelowNominalPeriods { get; init; }
+        public TimeSpan BelowNominalLongest { get; init; }
+        public double BelowNominalPeakTemp { get; init; }
         public IReadOnlyList<SessionTimelineEvent> Timeline { get; init; } =
             Array.Empty<SessionTimelineEvent>();
         public IReadOnlyList<SessionTimelineEvent> Updates { get; init; } =
@@ -82,6 +95,7 @@ namespace CryoTray.Services
                     CpuThreshold = settings.HighTempThresholdCpu,
                     GpuThreshold = settings.HighTempThresholdGpu,
                     HotspotDeltaThreshold = settings.GpuHotspotDeltaThresholdCelsius,
+                    LimitWatchEnabled = settings.LimitWatchEnabled,
                     Updates = BuildUpdateHistory(activity)
                 };
             }
@@ -102,6 +116,8 @@ namespace CryoTray.Services
                 .Select(sample => (double?)sample.GpuHotspotTemp!.Value)
                 .OrderByDescending(value => value)
                 .FirstOrDefault();
+
+            BelowNominalSummary belowNominal = SummarizeBelowNominal(samples);
 
             var timeline = new List<SessionTimelineEvent>();
             int coolingChanges = 0;
@@ -195,10 +211,15 @@ namespace CryoTray.Services
                 CpuThreshold = settings.HighTempThresholdCpu,
                 GpuThreshold = settings.HighTempThresholdGpu,
                 HotspotDeltaThreshold = settings.GpuHotspotDeltaThresholdCelsius,
+                LimitWatchEnabled = settings.LimitWatchEnabled,
                 CoolingChanges = coolingChanges,
                 ProfileChanges = profileChanges,
                 AlertCount = alertCount,
                 FanEventCount = fanEventCount,
+                BelowNominalTime = belowNominal.Total,
+                BelowNominalPeriods = belowNominal.Periods,
+                BelowNominalLongest = belowNominal.Longest,
+                BelowNominalPeakTemp = belowNominal.PeakTemp,
                 Timeline = orderedTimeline,
                 Updates = BuildUpdateHistory(activity)
             };
@@ -244,6 +265,16 @@ namespace CryoTray.Services
                         Kind = "profile",
                         Text = LocalizationService.Format(
                             "Activity_ProfileChanged", ProfileName(currentProfile))
+                    });
+                }
+
+                if (current.CpuBelowNominal && !previous.CpuBelowNominal)
+                {
+                    events.Add(new SessionChartEvent
+                    {
+                        TimestampLocal = current.Timestamp,
+                        Kind = "heldback",
+                        Text = LocalizationService.Get("Session_BelowNominalEvent")
                     });
                 }
             }
@@ -336,6 +367,8 @@ namespace CryoTray.Services
                     : "—",
                 FormatDuration(report.HotspotDeltaAboveThreshold),
                 FormatDeltaThreshold(report.HotspotDeltaThreshold, report.IsFahrenheit)));
+            builder.AppendLine(LocalizationService.Get("Session_BelowNominal") + ": " +
+                FormatBelowNominal(report));
             builder.AppendLine(LocalizationService.Get("Session_Changes"));
             builder.AppendLine(LocalizationService.Format(
                 "Session_ChangesValue",
@@ -393,6 +426,83 @@ namespace CryoTray.Services
                     Severity = item.Severity
                 })
                 .ToList();
+        }
+
+        public static string FormatBelowNominal(SessionReport report)
+        {
+            if (!report.LimitWatchEnabled)
+            {
+                return LocalizationService.Get("Session_BelowNominalOff");
+            }
+
+            if (report.BelowNominalPeriods == 0)
+            {
+                return LocalizationService.Get("Session_None");
+            }
+
+            return LocalizationService.Format(
+                "Session_BelowNominalValue",
+                FormatDuration(report.BelowNominalTime),
+                report.BelowNominalPeriods,
+                FormatDuration(report.BelowNominalLongest),
+                FormatTemp(report.BelowNominalPeakTemp, report.IsFahrenheit));
+        }
+
+        public static BelowNominalSummary SummarizeBelowNominal(
+            IReadOnlyList<TelemetrySample> samples)
+        {
+            var total = TimeSpan.Zero;
+            var longest = TimeSpan.Zero;
+            var run = TimeSpan.Zero;
+            int periods = 0;
+            double peak = 0;
+            bool wasBelow = false;
+
+            for (int i = 0; i < samples.Count; i++)
+            {
+                TelemetrySample sample = samples[i];
+                if (!sample.CpuBelowNominal)
+                {
+                    wasBelow = false;
+                    continue;
+                }
+
+                if (!wasBelow)
+                {
+                    periods++;
+                    run = TimeSpan.Zero;
+                }
+
+                wasBelow = true;
+                if (i + 1 < samples.Count)
+                {
+                    double deltaSeconds =
+                        (samples[i + 1].Timestamp - sample.Timestamp).TotalSeconds;
+                    if (deltaSeconds > 0.25 && deltaSeconds < 60)
+                    {
+                        total += TimeSpan.FromSeconds(deltaSeconds);
+                        run += TimeSpan.FromSeconds(deltaSeconds);
+                    }
+                }
+
+                if (double.IsFinite(sample.CpuTemp) && sample.CpuTemp > peak)
+                {
+                    peak = sample.CpuTemp;
+                }
+
+                if (run > longest)
+                {
+                    longest = run;
+                }
+            }
+
+            return new BelowNominalSummary
+            {
+                Total = total,
+                Longest = longest,
+                Periods = periods,
+                PeakTemp = peak
+            };
         }
 
         private static TimeSpan DurationAbove(

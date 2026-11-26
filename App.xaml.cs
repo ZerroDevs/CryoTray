@@ -33,6 +33,8 @@ namespace CryoTray
         private TemperatureAlertService? _temperatureAlertService;
         private FanHealthService? _fanHealthService;
         private StorageHealthAlertService? _storageHealthAlertService;
+        private readonly SensorDropoutWatch _sensorDropoutWatch = new();
+        private DateTime _lastPowerPlanDriftNoticeUtc = DateTime.MinValue;
         private DownloadTimerWarningWindow? _downloadTimerWarningWindow;
         private bool _gpuPowerStartupRefreshStarted;
         private static readonly TimeSpan DashboardUpdateInterval = TimeSpan.FromMinutes(5);
@@ -273,6 +275,7 @@ namespace CryoTray
 
             _storageHealthAlertService = new StorageHealthAlertService();
             _storageHealthAlertService.AlertRaised += OnStorageHealthAlertRaised;
+            PowerPlanService.Instance.PlanDrifted += OnPowerPlanDrifted;
 
             RefreshTelemetryDemandBaseline();
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
@@ -943,6 +946,29 @@ namespace CryoTray
             _temperatureAlertService?.Observe(snapshot);
             _fanHealthService?.Observe(snapshot);
             _storageHealthAlertService?.Observe(snapshot);
+
+            if (SettingsService.Instance.Current.SensorDropoutLogEnabled)
+            {
+                SensorDropoutKind dropout = _sensorDropoutWatch.Observe(
+                    SensorDropoutWatch.HasCpuReadings(snapshot),
+                    SensorDropoutWatch.HasGpuReadings(snapshot),
+                    DateTime.UtcNow);
+
+                if (dropout != SensorDropoutKind.None)
+                {
+                    ActivityLogService.Instance.Record(
+                        ActivitySeverity.Warning,
+                        "sensors",
+                        dropout == SensorDropoutKind.All
+                            ? "Activity_SensorDropout"
+                            : "Activity_CpuSensorsLost");
+                }
+            }
+            else
+            {
+                // Do not let a gap that started while the feature was off fire on re-enable.
+                _sensorDropoutWatch.Reset();
+            }
         }
 
         private void OnSettingsChanged()
@@ -1029,6 +1055,42 @@ namespace CryoTray
                         LocalizationService.Health(alert.StatusText)),
                     () => ShowDashboard(),
                     System.Windows.Forms.ToolTipIcon.Warning);
+            }));
+        }
+
+        private void OnPowerPlanDrifted(PowerPlanService.PowerPlanDrift drift)
+        {
+            if (!SettingsService.Instance.Current.PowerPlanDriftNoticeEnabled)
+            {
+                return;
+            }
+
+            DateTime nowUtc = DateTime.UtcNow;
+            if (_lastPowerPlanDriftNoticeUtc != DateTime.MinValue &&
+                nowUtc - _lastPowerPlanDriftNoticeUtc < TimeSpan.FromMinutes(10))
+            {
+                return;
+            }
+
+            _lastPowerPlanDriftNoticeUtc = nowUtc;
+
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Warning,
+                "power",
+                "Activity_PowerPlanDrift",
+                drift.PreviousName,
+                drift.NewName);
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                ShowTrayNotification(
+                    LocalizationService.Get("Alert_PowerPlanDriftTitle"),
+                    LocalizationService.Format(
+                        "Alert_PowerPlanDriftBody",
+                        drift.PreviousName,
+                        drift.NewName),
+                    () => ShowDashboard(),
+                    System.Windows.Forms.ToolTipIcon.Info);
             }));
         }
 

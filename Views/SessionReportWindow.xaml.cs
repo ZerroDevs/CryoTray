@@ -203,6 +203,10 @@ namespace CryoTray.Views
                     FormatDuration(report.HotspotDeltaAboveThreshold)));
             AddDetailRow(
                 ThermalPanel,
+                LocalizationService.Get("Session_BelowNominal"),
+                SessionReportService.FormatBelowNominal(report));
+            AddDetailRow(
+                ThermalPanel,
                 LocalizationService.Get("Session_Changes"),
                 LocalizationService.Format(
                     "Session_ChangesValue",

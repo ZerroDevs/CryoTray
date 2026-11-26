@@ -429,6 +429,8 @@ namespace CryoTray.Views
             ChkGpuDeltaAlerts.IsChecked = s.GpuDeltaAlertsEnabled;
             SldGpuDeltaThreshold.Value = Math.Clamp(s.GpuHotspotDeltaThresholdCelsius, 15, 40);
             ChkStorageHealthAlerts.IsChecked = s.StorageHealthAlertsEnabled;
+            ChkSensorDropoutLog.IsChecked = s.SensorDropoutLogEnabled;
+            ChkPowerPlanDriftNotice.IsChecked = s.PowerPlanDriftNoticeEnabled;
             ChkShowBatteryStatus.IsChecked = s.ShowBatteryStatus;
             PnlBatterySetting.Visibility = BatteryTelemetryService.Read().HasBattery
                 ? Visibility.Visible
@@ -474,6 +476,7 @@ namespace CryoTray.Views
             TxtOverlayOpacity.Text = $"{(int)Math.Round(SldOverlayOpacity.Value)}%";
             ChkShowCpuPower.IsChecked = s.ShowCpuPower;
             ChkShowGpuPower.IsChecked = s.ShowGpuPower;
+            ChkShowGpuLoad.IsChecked = s.ShowGpuLoad;
             ChkShowGpuTemp.IsChecked = s.ShowGpuTemp;
             ChkShowGpuName.IsChecked = s.ShowGpuName;
             ChkShowGpuHotspot.IsChecked = s.ShowGpuHotspot;
@@ -486,6 +489,8 @@ namespace CryoTray.Views
             // CPU Tab - Display & Cooling Controls
             ChkShowCpuClock.IsChecked = s.ShowCpuClock;
             ChkShowCpuBaseSpeed.IsChecked = s.ShowCpuBaseSpeed;
+            ChkShowCpuLoad.IsChecked = s.ShowCpuLoad;
+            ChkLimitWatch.IsChecked = s.LimitWatchEnabled;
             ChkShowCpuGraph.IsChecked = s.ShowCpuGraph;
             SelectTimeframeCombo(CmbCpuGraphTimeframe, s.CpuGraphTimeframeMinutes);
             RdoCpuGraphLarge.IsChecked = !s.CpuGraphSmall;
@@ -2159,6 +2164,8 @@ namespace CryoTray.Views
             s.GpuDeltaAlertsEnabled = ChkGpuDeltaAlerts.IsChecked == true;
             s.GpuHotspotDeltaThresholdCelsius = (int)SldGpuDeltaThreshold.Value;
             s.StorageHealthAlertsEnabled = ChkStorageHealthAlerts.IsChecked == true;
+            s.SensorDropoutLogEnabled = ChkSensorDropoutLog.IsChecked == true;
+            s.PowerPlanDriftNoticeEnabled = ChkPowerPlanDriftNotice.IsChecked == true;
             s.ShowBatteryStatus = ChkShowBatteryStatus.IsChecked == true;
             s.AutomaticUpdateChecks = ChkAutomaticUpdates.IsChecked == true;
             s.SaveRollbackOnUpdate = ChkSaveRollbackOnUpdate.IsChecked == true;
@@ -2192,6 +2199,7 @@ namespace CryoTray.Views
             s.OverlayOpacityPercent = (int)Math.Round(SldOverlayOpacity.Value);
             s.ShowCpuPower = ChkShowCpuPower.IsChecked == true;
             s.ShowGpuPower = ChkShowGpuPower.IsChecked == true;
+            s.ShowGpuLoad = ChkShowGpuLoad.IsChecked == true;
             s.ShowGpuTemp = ChkShowGpuTemp.IsChecked == true;
             s.ShowGpuName = ChkShowGpuName.IsChecked == true;
             s.ShowGpuHotspot = ChkShowGpuHotspot.IsChecked == true;
@@ -2203,6 +2211,8 @@ namespace CryoTray.Views
 
             s.ShowCpuClock = ChkShowCpuClock.IsChecked == true;
             s.ShowCpuBaseSpeed = ChkShowCpuBaseSpeed.IsChecked == true;
+            s.ShowCpuLoad = ChkShowCpuLoad.IsChecked == true;
+            s.LimitWatchEnabled = ChkLimitWatch.IsChecked == true;
             s.ShowCpuGraph = ChkShowCpuGraph.IsChecked == true;
             s.CpuGraphSmall = RdoCpuGraphSmall.IsChecked == true;
             s.CpuGraphTimeframeMinutes = ReadSelectedTimeframeMinutes(CmbCpuGraphTimeframe);
@@ -2620,13 +2630,14 @@ namespace CryoTray.Views
 
         private void UpdateCpuDisplayControlStates()
         {
-            if (ChkShowCpuClock == null || ChkShowCpuBaseSpeed == null ||
+            if (ChkShowCpuClock == null || ChkShowCpuBaseSpeed == null || ChkShowCpuLoad == null ||
                 ChkShowCpuGraph == null || CmbCpuGraphTimeframe == null || PnlCpuGraphSize == null)
             {
                 return;
             }
 
             ChkShowCpuBaseSpeed.IsEnabled = ChkShowCpuClock.IsChecked == true;
+            ChkShowCpuLoad.IsEnabled = ChkShowCpuClock.IsChecked == true;
             bool graphEnabled = ChkShowCpuGraph.IsChecked == true;
             CmbCpuGraphTimeframe.IsEnabled = graphEnabled;
             PnlCpuGraphSize.IsEnabled = graphEnabled;

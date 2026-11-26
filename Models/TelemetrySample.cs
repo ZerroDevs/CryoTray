@@ -14,6 +14,11 @@ namespace CryoTray.Models
         public double? GpuVramTemp { get; set; }
         public int? GpuFanRpm { get; set; }
         public double CpuGhz { get; set; }
+        public double CpuMeasuredGhz { get; set; } = double.NaN;
+
+        /// <summary>Set only while the opt-in Limit Watch setting is on.</summary>
+        public bool CpuBelowNominal { get; set; }
+
         public double CpuLoad { get; set; }
         public int? CpuPowerWatts { get; set; }
         public double GpuLoad { get; set; }
@@ -75,6 +80,7 @@ namespace CryoTray.Models
                 GpuVramTemp = snapshot.GpuVramTemp,
                 GpuFanRpm = snapshot.GpuFanRpm,
                 CpuGhz = snapshot.CpuGhz,
+                CpuMeasuredGhz = snapshot.CpuMeasuredGhz,
                 CpuLoad = snapshot.CpuLoad,
                 CpuPowerWatts = snapshot.CpuPackageWatts,
                 GpuLoad = snapshot.GpuLoad,
