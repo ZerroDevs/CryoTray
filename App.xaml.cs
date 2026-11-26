@@ -57,6 +57,7 @@ namespace CryoTray
         public ReleaseInfo? AvailableUpdate { get; private set; }
         public UpdateCompletionInfo? PendingUpdateSuccess { get; private set; }
         public event Action? UpdateAvailabilityChanged;
+        public event Action? CoolingPauseChanged;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -599,6 +600,7 @@ namespace CryoTray
             CoolingPausedUntilUtc = DateTime.UtcNow.Add(duration);
             _coolingEnabledByBattery = false;
             _trayManager?.SetCoolingPauseUntil(CoolingPausedUntilUtc);
+            CoolingPauseChanged?.Invoke();
 
             if (PowerPlanService.Instance.IsCoolingModeActive)
             {
@@ -619,9 +621,14 @@ namespace CryoTray
 
         public void CancelCoolingPause(bool resumeCooling = true, bool forceResume = false)
         {
+            bool wasPaused = CoolingPausedUntilUtc.HasValue;
             _coolingPauseTimer?.Stop();
             CoolingPausedUntilUtc = null;
             _trayManager?.SetCoolingPauseUntil(null);
+            if (wasPaused)
+            {
+                CoolingPauseChanged?.Invoke();
+            }
 
             if (!resumeCooling || _isExiting)
             {

@@ -47,6 +47,7 @@ namespace CryoTray.Views
         private readonly Dictionary<string, TextBox> _fanAliasBoxes = new(StringComparer.OrdinalIgnoreCase);
         private readonly DispatcherTimer _gpuSliderApplyTimer;
         private readonly List<SettingsSearchItem> _settingsSearchIndex = new();
+        internal IReadOnlyList<SettingsSearchItem> SettingsSearchIndex => _settingsSearchIndex;
         private IReadOnlyList<SettingsSearchItem> _settingsSearchResults = Array.Empty<SettingsSearchItem>();
         private bool _settingsSearchPopupOpenPending;
         private IDisposable? _telemetryLease;
@@ -348,6 +349,7 @@ namespace CryoTray.Views
                     {
                         SldAutoPurgeCooldown.Value = Math.Clamp(s.AutoPurgeCooldownMinutes, 1, 60);
                     }
+                    RefreshSleepTimeoutsUi(s);
                 }
                 finally
                 {
@@ -513,6 +515,7 @@ namespace CryoTray.Views
             CmbPerfBoostMode.SelectedIndex = s.PerfBoostMode == 1 ? 1 : 0;
             SldThrottle.Value = s.MaxCpuThrottlePercent;
             TxtThrottleVal.Text = $"{s.MaxCpuThrottlePercent}%";
+            RefreshSleepTimeoutsUi(s);
 
             // Memory Tab
             ChkRamFreeWorkingSets.IsChecked = s.RamFreeWorkingSets;
@@ -602,6 +605,7 @@ namespace CryoTray.Views
             RefreshLastCheckedText();
             RefreshDownloadCacheUi();
             RefreshCachedBoostPeakUi();
+            RefreshSleepTimeoutsUi(SettingsService.Instance.Current);
             RefreshActivityUi();
             RefreshAutopilotWhitelist();
             RefreshDiskDriveListSafely();
@@ -614,7 +618,7 @@ namespace CryoTray.Views
             UpdateSettingsSearchResults();
         }
 
-        private void RebuildSettingsSearchIndex()
+        internal void RebuildSettingsSearchIndex()
         {
             _settingsSearchIndex.Clear();
             AddSearchItems(PanelGeneral, "Settings_TabGeneral");
@@ -634,25 +638,37 @@ namespace CryoTray.Views
             for (int i = 0; i < count; i++)
             {
                 DependencyObject child = VisualTreeHelper.GetChild(root, i);
-                if (child is FrameworkElement { Name: "PnlFanAliases" or "PnlDiskDrives" or
-                    "PnlAutopilotWhitelist" or "PnlActivity" or "PnlSettingsSearchResults" or
-                    "PnlBuiltInProfileVisibility" or "PnlExternalPowerProfiles" })
+                if (child is FrameworkElement element &&
+                    (element.Visibility != Visibility.Visible ||
+                     element.Name is "PnlFanAliases" or "PnlDiskDrives" or
+                     "PnlAutopilotWhitelist" or "PnlActivity" or "PnlSettingsSearchResults" or
+                     "PnlBuiltInProfileVisibility" or "PnlExternalPowerProfiles" or
+                     "PnlFanNamesContent" or "PnlManageProfilesContent" or
+                     "PnlSleepTimeoutsContent" or "PnlActivityContent"))
                 {
                     continue;
                 }
 
                 if (child is TextBlock text &&
-                    !string.IsNullOrWhiteSpace(text.Text) &&
-                    text.Visibility == Visibility.Visible)
+                    !string.IsNullOrWhiteSpace(text.Text))
                 {
                     AddSearchItem(text.Text, text, tabKey, text.Name);
                 }
-                else if (child is ContentControl content &&
-                         content.Content is string label &&
-                         !string.IsNullOrWhiteSpace(label))
+                else if (child is ContentControl content)
                 {
-                    AddSearchItem(label, content, tabKey, content.Name);
-                    continue;
+                    if (content.Content is string label &&
+                        !string.IsNullOrWhiteSpace(label))
+                    {
+                        AddSearchItem(label, content, tabKey, content.Name);
+                        continue;
+                    }
+
+                    if (VisualTreeHelper.GetChildrenCount(content) == 0 &&
+                        content.Content is DependencyObject contentRoot)
+                    {
+                        AddSearchItems(contentRoot, tabKey);
+                        continue;
+                    }
                 }
 
                 AddSearchItems(child, tabKey);
@@ -708,6 +724,10 @@ namespace CryoTray.Views
             if (name.Contains("CachedBoostPeak", StringComparison.OrdinalIgnoreCase))
             {
                 words.Add("boost peak cache clear ghz pbo overclock reset");
+            }
+            if (name.Contains("SleepTimeouts", StringComparison.OrdinalIgnoreCase))
+            {
+                words.Add("sleep display screen timeout idle monitor turn off never plugged battery power");
             }
 
             return string.Join(" ", words);
@@ -1211,7 +1231,7 @@ namespace CryoTray.Views
             }));
         }
 
-        private static Control? FindFocusableTarget(FrameworkElement target)
+        internal static Control? FindFocusableTarget(FrameworkElement target)
         {
             if (target is Control control &&
                 control.Focusable && control.IsEnabled && target.Visibility == Visibility.Visible)
@@ -1220,9 +1240,18 @@ namespace CryoTray.Views
             }
 
             DependencyObject? current = target;
-            for (int depth = 0; depth < 5 && current != null; depth++)
+            for (int depth = 0; depth < 6 && current != null; depth++)
             {
-                current = VisualTreeHelper.GetParent(current);
+                current = VisualTreeHelper.GetParent(current) ?? LogicalTreeHelper.GetParent(current);
+                if (current is Control parentControl &&
+                    parentControl is not ScrollViewer &&
+                    parentControl is not Window &&
+                    parentControl.Focusable && parentControl.IsEnabled &&
+                    parentControl.Visibility == Visibility.Visible)
+                {
+                    return parentControl;
+                }
+
                 if (current is DependencyObject parent)
                 {
                     Control? found = FindFocusableDescendant(parent);
@@ -2264,6 +2293,7 @@ namespace CryoTray.Views
 
             s.PerfBoostMode = CmbPerfBoostMode.SelectedIndex == 1 ? 1 : 0;
             s.MaxCpuThrottlePercent = (int)SldThrottle.Value;
+            SaveSleepTimeoutsIntoSettings(s);
 
             s.RamFreeWorkingSets = ChkRamFreeWorkingSets.IsChecked == true;
             s.RamClearStandby = ChkRamClearStandby.IsChecked == true;
@@ -2337,8 +2367,8 @@ namespace CryoTray.Views
 
             SettingsService.Instance.Save();
 
-            // Apply live power profile changes
-            PowerPlanService.Instance.RefreshActiveProfile();
+            // Reapply active CryoTray scheme settings without overriding Tray/Game Mode plans
+            PowerPlanService.Instance.ReapplyActiveProfileValues();
         }
 
         private void CmbLanguage_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2812,13 +2842,29 @@ namespace CryoTray.Views
         private void CmbCoolingProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateProfileDescription(TxtCoolingProfileDesc, CmbCoolingProfile.SelectedItem as PowerProfileChoice);
-            if (!_isBinding) SaveUiIntoSettings();
+            if (!_isBinding)
+            {
+                SaveUiIntoSettings();
+                if (PowerPlanService.Instance.ActiveProfile?.IsCooling == true &&
+                    !AutopilotService.Instance.CurrentState.IsActive)
+                {
+                    PowerPlanService.Instance.RefreshActiveProfile();
+                }
+            }
         }
 
         private void CmbGamingProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateProfileDescription(TxtGamingProfileDesc, CmbGamingProfile.SelectedItem as PowerProfileChoice);
-            if (!_isBinding) SaveUiIntoSettings();
+            if (!_isBinding)
+            {
+                SaveUiIntoSettings();
+                if (PowerPlanService.Instance.ActiveProfile?.IsCooling == false &&
+                    !AutopilotService.Instance.CurrentState.IsActive)
+                {
+                    PowerPlanService.Instance.RefreshActiveProfile();
+                }
+            }
         }
 
         private void CmbPrimaryGpu_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -3303,6 +3349,218 @@ namespace CryoTray.Views
             }
         }
 
+        private static readonly int[] SleepTimeoutPresetMinutes =
+            { -1, 0, 1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 120 };
+
+        private (ComboBox? Combo, Func<AppSettings, int> Get, Action<AppSettings, int> Set)[] GetSleepTimeoutBindings()
+        {
+            return new (ComboBox?, Func<AppSettings, int>, Action<AppSettings, int>)[]
+            {
+                (CmbCoolingDisplayOffAc, s => s.CoolingDisplayOffAcMinutes, (s, v) => s.CoolingDisplayOffAcMinutes = v),
+                (CmbCoolingDisplayOffDc, s => s.CoolingDisplayOffDcMinutes, (s, v) => s.CoolingDisplayOffDcMinutes = v),
+                (CmbCoolingSleepAfterAc, s => s.CoolingSleepAfterAcMinutes, (s, v) => s.CoolingSleepAfterAcMinutes = v),
+                (CmbCoolingSleepAfterDc, s => s.CoolingSleepAfterDcMinutes, (s, v) => s.CoolingSleepAfterDcMinutes = v),
+                (CmbOffDisplayOffAc, s => s.OffDisplayOffAcMinutes, (s, v) => s.OffDisplayOffAcMinutes = v),
+                (CmbOffDisplayOffDc, s => s.OffDisplayOffDcMinutes, (s, v) => s.OffDisplayOffDcMinutes = v),
+                (CmbOffSleepAfterAc, s => s.OffSleepAfterAcMinutes, (s, v) => s.OffSleepAfterAcMinutes = v),
+                (CmbOffSleepAfterDc, s => s.OffSleepAfterDcMinutes, (s, v) => s.OffSleepAfterDcMinutes = v)
+            };
+        }
+
+        private void SleepTimeoutsToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            bool expanded = SleepTimeoutsToggle?.IsChecked == true;
+            if (PnlSleepTimeoutsContent != null)
+            {
+                PnlSleepTimeoutsContent.Visibility = expanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (TxtSleepTimeoutsChevron != null)
+            {
+                TxtSleepTimeoutsChevron.Text = expanded ? "▾" : "›";
+            }
+
+            if (expanded && !_isBinding)
+            {
+                RefreshSleepTimeoutsUi(SettingsService.Instance.Current);
+                Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Loaded,
+                    new Action(() =>
+                    {
+                        if (!_isClosed && SleepTimeoutsToggle?.IsChecked == true)
+                        {
+                            PnlSleepTimeoutsContent?.BringIntoView();
+                        }
+                    }));
+            }
+        }
+
+        private void SleepTimeoutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isBinding)
+            {
+                return;
+            }
+
+            SaveUiIntoSettings();
+            UpdateResetSleepTimeoutsButton(SettingsService.Instance.Current);
+        }
+
+        private void BtnResetSleepTimeouts_Click(object sender, RoutedEventArgs e)
+        {
+            bool previous = _isBinding;
+            _isBinding = true;
+            try
+            {
+                foreach (var (combo, _, _) in GetSleepTimeoutBindings())
+                {
+                    if (combo != null)
+                    {
+                        SelectComboByTag(combo, "-1");
+                    }
+                }
+            }
+            finally
+            {
+                _isBinding = previous;
+            }
+
+            SaveUiIntoSettings();
+            UpdateResetSleepTimeoutsButton(SettingsService.Instance.Current);
+        }
+
+        private void RefreshSleepTimeoutsUi(AppSettings settings)
+        {
+            bool previous = _isBinding;
+            _isBinding = true;
+            try
+            {
+                UpdateSleepTimeoutBatteryVisibility();
+                foreach (var (combo, get, _) in GetSleepTimeoutBindings())
+                {
+                    if (combo != null)
+                    {
+                        int minutes = get(settings);
+                        PopulateSleepTimeoutCombo(combo, minutes < -1 ? -1 : minutes);
+                    }
+                }
+                UpdateResetSleepTimeoutsButton(settings);
+            }
+            finally
+            {
+                _isBinding = previous;
+            }
+        }
+
+        private void SaveSleepTimeoutsIntoSettings(AppSettings settings)
+        {
+            foreach (var (combo, _, set) in GetSleepTimeoutBindings())
+            {
+                if (combo != null)
+                {
+                    set(settings, ReadComboInt(combo, -1));
+                }
+            }
+        }
+
+        private void UpdateSleepTimeoutBatteryVisibility()
+        {
+            bool hasBattery = BatteryTelemetryService.Read().HasBattery;
+            Visibility acHeaderVisibility = hasBattery ? Visibility.Visible : Visibility.Collapsed;
+            Visibility dcPanelVisibility = hasBattery ? Visibility.Visible : Visibility.Collapsed;
+            GridLength dcWidth = hasBattery ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+
+            if (TxtCoolingDisplayOffAcLabel != null) TxtCoolingDisplayOffAcLabel.Visibility = acHeaderVisibility;
+            if (TxtCoolingSleepAfterAcLabel != null) TxtCoolingSleepAfterAcLabel.Visibility = acHeaderVisibility;
+            if (TxtOffDisplayOffAcLabel != null) TxtOffDisplayOffAcLabel.Visibility = acHeaderVisibility;
+            if (TxtOffSleepAfterAcLabel != null) TxtOffSleepAfterAcLabel.Visibility = acHeaderVisibility;
+
+            if (PnlCoolingDisplayOffDc != null) PnlCoolingDisplayOffDc.Visibility = dcPanelVisibility;
+            if (PnlCoolingSleepAfterDc != null) PnlCoolingSleepAfterDc.Visibility = dcPanelVisibility;
+            if (PnlOffDisplayOffDc != null) PnlOffDisplayOffDc.Visibility = dcPanelVisibility;
+            if (PnlOffSleepAfterDc != null) PnlOffSleepAfterDc.Visibility = dcPanelVisibility;
+
+            if (ColCoolingDisplayOffDc != null) ColCoolingDisplayOffDc.Width = dcWidth;
+            if (ColCoolingSleepAfterDc != null) ColCoolingSleepAfterDc.Width = dcWidth;
+            if (ColOffDisplayOffDc != null) ColOffDisplayOffDc.Width = dcWidth;
+            if (ColOffSleepAfterDc != null) ColOffSleepAfterDc.Width = dcWidth;
+        }
+
+        private void UpdateResetSleepTimeoutsButton(AppSettings settings)
+        {
+            if (BtnResetSleepTimeouts != null)
+            {
+                BtnResetSleepTimeouts.Visibility = PowerPlanService.HasCustomTimeoutOverrides(settings)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+        }
+
+        private static void PopulateSleepTimeoutCombo(ComboBox combo, int selectedMinutes)
+        {
+            var options = new List<int>(SleepTimeoutPresetMinutes);
+            if (selectedMinutes >= 0 && !options.Contains(selectedMinutes))
+            {
+                int insertAt = options.FindIndex(m => m > selectedMinutes);
+                if (insertAt < 0)
+                {
+                    options.Add(selectedMinutes);
+                }
+                else
+                {
+                    options.Insert(insertAt, selectedMinutes);
+                }
+            }
+
+            combo.Items.Clear();
+            foreach (int minutes in options)
+            {
+                combo.Items.Add(new ComboBoxItem
+                {
+                    Content = FormatSleepTimeoutLabel(minutes),
+                    Tag = minutes.ToString(CultureInfo.InvariantCulture)
+                });
+            }
+
+            SelectComboByTag(combo, selectedMinutes.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static string FormatSleepTimeoutLabel(int minutes)
+        {
+            if (minutes < 0)
+            {
+                return LocalizationService.Get("Settings_SleepTimeoutsFollowWindows");
+            }
+            if (minutes == 0)
+            {
+                return LocalizationService.Get("Settings_SleepTimeoutsNever");
+            }
+            if (minutes == 1)
+            {
+                return LocalizationService.Get("Settings_SleepTimeoutsOneMinute");
+            }
+            if (minutes == 2)
+            {
+                return LocalizationService.Get("Settings_SleepTimeoutsTwoMinutes");
+            }
+            if (minutes == 60)
+            {
+                return LocalizationService.Get("Settings_SleepTimeoutsOneHour");
+            }
+            if (minutes == 120)
+            {
+                return LocalizationService.Get("Settings_SleepTimeoutsHours");
+            }
+
+            return LocalizationService.Format(
+                minutes is >= 3 and <= 10
+                    ? "Settings_SleepTimeoutsMinutesFew"
+                    : "Settings_SleepTimeoutsMinutesMany",
+                minutes);
+        }
+
         private void RefreshManageProfilesUi(AppSettings settings)
         {
             if (PnlBuiltInProfileVisibility == null || PnlExternalPowerProfiles == null ||
@@ -3674,7 +3932,7 @@ namespace CryoTray.Views
                 entry.AccentColor = hex;
                 RefreshPowerProfileChoices();
                 RefreshAutopilotWhitelist();
-                PowerPlanService.Instance.RefreshActiveProfile();
+                PowerPlanService.Instance.ReapplyActiveProfileValues();
             });
         }
 
@@ -3721,7 +3979,7 @@ namespace CryoTray.Views
             SettingsService.Instance.Save();
             RefreshPowerProfileChoices();
             RefreshAutopilotWhitelist();
-            PowerPlanService.Instance.RefreshActiveProfile();
+            PowerPlanService.Instance.ReapplyActiveProfileValues();
         }
 
         private void ExternalPlanMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -4469,6 +4727,7 @@ namespace CryoTray.Views
             {
                 SettingsService.Instance.Import(ofd.FileName);
                 StartupTaskService.TrySetStartup(SettingsService.Instance.Current.LaunchOnStartup, out _);
+                PowerPlanService.Instance.RefreshActiveProfile();
                 _isBinding = true;
                 LoadSettingsIntoUI();
                 _isBinding = false;
@@ -4483,8 +4742,9 @@ namespace CryoTray.Views
             _ = GpuPowerControlService.Instance.DisableAsync();
             StartupTaskService.TrySetStartup(SettingsService.Instance.Current.LaunchOnStartup, out _);
 
-            // Restore CryoTray Cooling Windows power scheme to exact baseline .pow state
+            // Restore CryoTray Cooling Windows power scheme defaults and reapply active plan
             PowerPlanService.Instance.ResetCryoTraySchemeToDefault();
+            PowerPlanService.Instance.RefreshActiveProfile();
 
             _isBinding = true;
             LoadSettingsIntoUI();

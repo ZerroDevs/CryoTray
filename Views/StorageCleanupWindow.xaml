@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{DynamicResource StorageCleanup_Title}"
         Width="392"
-        Height="630"
+        Height="660"
         WindowStartupLocation="Manual"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -225,12 +225,108 @@
             </Setter>
         </Style>
 
+        <Style x:Key="CleanupScrollBarStyle" TargetType="ScrollBar">
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="MinWidth" Value="8"/>
+            <Setter Property="Margin" Value="0,4,2,4"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                  Focusable="False"
+                                                  Opacity="0"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb MinHeight="24" Cursor="Hand">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbSurface"
+                                                        Width="5"
+                                                        Background="{DynamicResource TextMutedBrush}"
+                                                        CornerRadius="3"
+                                                        HorizontalAlignment="Center"/>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="{DynamicResource TextTertiaryBrush}"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsDragging" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                  Focusable="False"
+                                                  Opacity="0"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CleanupFolderToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0,2"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="ToggleSurface" Background="Transparent" CornerRadius="2" Padding="{TemplateBinding Padding}">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Path x:Name="Chevron"
+                                      Data="M1,0 L5,4 L1,8"
+                                      Stroke="{DynamicResource TextTertiaryBrush}"
+                                      StrokeThickness="1.3"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Width="6"
+                                      Height="8"
+                                      Margin="0,1,5,0"
+                                      VerticalAlignment="Center"
+                                      RenderTransformOrigin="0.5,0.5"/>
+                                <ContentPresenter VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chevron" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="90"/>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter TargetName="Chevron" Property="Stroke" Value="{DynamicResource AccentTextBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chevron" Property="Stroke" Value="{DynamicResource TextPrimaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ToggleSurface" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <DataTemplate x:Key="CleanupCategoryTemplate">
             <Border BorderBrush="{DynamicResource DividerBrush}"
                     BorderThickness="0,0,0,1"
-                    Padding="12,8">
+                    Padding="11,7">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
@@ -254,17 +350,18 @@
                             </Grid.ColumnDefinitions>
                             <Ellipse Width="6"
                                      Height="6"
-                                     Fill="{DynamicResource RamAccentBrush}"
-                                     Opacity="{Binding AccentOpacity}"
-                                     Margin="0,0,6,0"
-                                     VerticalAlignment="Center"/>
+                                     Fill="{Binding DotBrush}"
+                                     Opacity="{Binding DotOpacity}"
+                                     Margin="0,6,6,0"
+                                     VerticalAlignment="Top"/>
                             <TextBlock Grid.Column="1"
                                        Text="{Binding Title}"
                                        Foreground="{DynamicResource TextPrimaryBrush}"
                                        FontSize="12.5"
                                        FontWeight="SemiBold"
+                                       LineHeight="16"
                                        TextWrapping="Wrap"
-                                       VerticalAlignment="Center"/>
+                                       VerticalAlignment="Top"/>
                             <Border Grid.Column="2"
                                     Background="Transparent"
                                     BorderBrush="{DynamicResource BorderStrongBrush}"
@@ -308,6 +405,49 @@
                                LineHeight="13.5"
                                TextWrapping="Wrap"
                                Margin="22,3,0,0"/>
+
+                    <StackPanel Grid.Row="2"
+                                Grid.ColumnSpan="2"
+                                Margin="22,3,0,0"
+                                Visibility="{Binding FoldersToggleVisibility}">
+                        <ToggleButton Style="{StaticResource CleanupFolderToggleStyle}"
+                                      IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                                      AutomationProperties.Name="{Binding FoldersToggleText}">
+                            <TextBlock Text="{Binding FoldersToggleText}"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"/>
+                        </ToggleButton>
+                        <ItemsControl ItemsSource="{Binding TargetRows}"
+                                      Visibility="{Binding FoldersListVisibility}"
+                                      Margin="11,2,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,1.5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding DisplayPath}"
+                                                   ToolTip="{Binding FullPath}"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   FontSize="9.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FlowDirection="LeftToRight"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding SummaryText}"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                                   FontSize="9.5"
+                                                   Margin="8,0,0,0"
+                                                   FlowDirection="LeftToRight"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -359,6 +499,7 @@
 
             <Grid Grid.Row="1">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
@@ -511,7 +652,30 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="2"
+                <Border x:Name="TempAgeOptionBar"
+                        Grid.Row="2"
+                        Background="{DynamicResource PanelAltBackgroundBrush}"
+                        BorderBrush="{DynamicResource DividerBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Margin="12,7,12,0"
+                        Padding="10,5">
+                    <CheckBox x:Name="ChkSkipRecentTemp"
+                              Style="{StaticResource CleanupCheckBox}"
+                              IsChecked="True"
+                              Checked="ChkSkipRecentTemp_Changed"
+                              Unchecked="ChkSkipRecentTemp_Changed"
+                              ToolTip="{DynamicResource StorageCleanup_SkipRecentTempTooltip}"
+                              AutomationProperties.Name="{DynamicResource StorageCleanup_SkipRecentTemp}">
+                        <TextBlock Text="{DynamicResource StorageCleanup_SkipRecentTemp}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   FontSize="10.5"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"/>
+                    </CheckBox>
+                </Border>
+
+                <Border Grid.Row="3"
                         Background="{DynamicResource PanelBackgroundBrush}"
                         BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="1"
@@ -520,13 +684,16 @@
                         SnapsToDevicePixels="True">
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
+                        <ScrollViewer.Resources>
+                            <Style TargetType="ScrollBar" BasedOn="{StaticResource CleanupScrollBarStyle}"/>
+                        </ScrollViewer.Resources>
                         <ItemsControl x:Name="CategoriesItems"
                                       ItemTemplate="{StaticResource CleanupCategoryTemplate}"/>
                     </ScrollViewer>
                 </Border>
 
                 <Border x:Name="BrowserHint"
-                        Grid.Row="3"
+                        Grid.Row="4"
                         Background="{DynamicResource PanelAltBackgroundBrush}"
                         BorderBrush="{DynamicResource DividerBrush}"
                         BorderThickness="1"
@@ -542,7 +709,7 @@
                 </Border>
 
                 <Border x:Name="ConfirmBanner"
-                        Grid.Row="4"
+                        Grid.Row="5"
                         Background="{DynamicResource PanelAltBackgroundBrush}"
                         BorderBrush="{DynamicResource AccentTextBrush}"
                         BorderThickness="1"
@@ -574,7 +741,7 @@
                 </Border>
 
                 <Border x:Name="ResultBanner"
-                        Grid.Row="5"
+                        Grid.Row="6"
                         Background="{DynamicResource PanelAltBackgroundBrush}"
                         BorderBrush="{DynamicResource SuccessTextBrush}"
                         BorderThickness="1"

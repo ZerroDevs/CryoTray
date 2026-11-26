@@ -233,9 +233,14 @@ namespace CryoTray.Tests
                     using var reader = new StreamReader(settingsEntry!.Open());
                     string settings = reader.ReadToEnd();
                     Assert(settings.Contains("\"UpdateChannel\""));
+                    Assert(settings.Contains("\"PreferredCoolingProfile\""));
+                    Assert(settings.Contains("\"SyncCpuTrayBadgeColor\""));
+                    Assert(settings.Contains("\"CoolingDisplayOffAcMinutes\""));
                     Assert(!settings.Contains("AutopilotWhitelist"));
                     Assert(!settings.Contains("AutopilotAppProfiles"));
                     Assert(!settings.Contains("HotkeyKey"));
+                    Assert(!settings.Contains("FanAliases"));
+                    Assert(!settings.Contains("ExternalPowerProfiles"));
                 }
 
                 Console.WriteLine("PASSED");

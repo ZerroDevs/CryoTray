@@ -99,18 +99,20 @@ namespace CryoTray.Services
 
         public static Task<StorageCleanupScan> ScanAsync(
             CancellationToken cancellationToken = default,
-            IProgress<StorageCleanupProgress>? progress = null)
+            IProgress<StorageCleanupProgress>? progress = null,
+            bool skipRecentTempFiles = false)
         {
-            return Task.Run(() => ScanCore(cancellationToken, progress), cancellationToken);
+            return Task.Run(() => ScanCore(cancellationToken, progress, skipRecentTempFiles), cancellationToken);
         }
 
         public static Task<StorageCleanupRunResult> CleanAsync(
             IEnumerable<StorageCleanupCategory> categories,
             CancellationToken cancellationToken = default,
-            IProgress<StorageCleanupProgress>? progress = null)
+            IProgress<StorageCleanupProgress>? progress = null,
+            bool skipRecentTempFiles = false)
         {
             ArgumentNullException.ThrowIfNull(categories);
-            return Task.Run(() => CleanCore(categories, cancellationToken, progress), cancellationToken);
+            return Task.Run(() => CleanCore(categories, cancellationToken, progress, skipRecentTempFiles), cancellationToken);
         }
 
         public static string FormatBytes(long bytes)
@@ -243,11 +245,22 @@ namespace CryoTray.Services
             return BuildTempTargets().Select(target => target.RootPath).ToList();
         }
 
+        internal static IReadOnlyList<string> GetCrashDumpRootsForTest()
+        {
+            return BuildCrashDumpTargets().Select(target => target.RootPath).ToList();
+        }
+
+        internal static bool ShouldSkipRecentFile(DateTime lastWriteUtc, DateTime? maxModifiedUtc)
+        {
+            return maxModifiedUtc.HasValue && lastWriteUtc > maxModifiedUtc.Value;
+        }
+
         internal static StorageCleanupTestResult CleanRootsForTest(
             IEnumerable<string> roots,
             bool recursive,
             bool prefetchOnly,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            DateTime? maxModifiedUtc = null)
         {
             var counters = new CleanupCounters();
             foreach (string root in roots)
@@ -256,7 +269,8 @@ namespace CryoTray.Services
                     new CleanupTarget(root, recursive, prefetchOnly, BrowserPrivacy: false),
                     delete: true,
                     cancellationToken,
-                    counters);
+                    counters,
+                    maxModifiedUtc);
             }
 
             return new StorageCleanupTestResult(
@@ -267,9 +281,11 @@ namespace CryoTray.Services
 
         private static StorageCleanupScan ScanCore(
             CancellationToken cancellationToken,
-            IProgress<StorageCleanupProgress>? progress)
+            IProgress<StorageCleanupProgress>? progress,
+            bool skipRecentTempFiles)
         {
             var categories = new Dictionary<StorageCleanupCategory, StorageCleanupCategoryScan>();
+            DateTime? maxTempModifiedUtc = skipRecentTempFiles ? DateTime.UtcNow.AddHours(-24) : null;
             long totalBytes = 0;
             int totalFiles = 0;
             int completed = 0;
@@ -283,14 +299,18 @@ namespace CryoTray.Services
                     StorageCleanupCatalog.All.Count,
                     totalBytes,
                     totalFiles));
+                var targetScans = new List<StorageCleanupTargetScan>();
                 CleanupCounters counters = ProcessCategory(
                     definition.Category,
                     delete: false,
-                    cancellationToken);
+                    cancellationToken,
+                    maxTempModifiedUtc,
+                    targetScans);
                 categories[definition.Category] = new StorageCleanupCategoryScan(
                     definition.Category,
                     counters.Bytes,
-                    counters.Files);
+                    counters.Files,
+                    targetScans);
                 totalBytes += counters.Bytes;
                 totalFiles += counters.Files;
                 completed++;
@@ -302,13 +322,15 @@ namespace CryoTray.Services
         private static StorageCleanupRunResult CleanCore(
             IEnumerable<StorageCleanupCategory> categories,
             CancellationToken cancellationToken,
-            IProgress<StorageCleanupProgress>? progress)
+            IProgress<StorageCleanupProgress>? progress,
+            bool skipRecentTempFiles)
         {
             var selected = categories
                 .Distinct()
                 .Where(category => StorageCleanupCatalog.All.Any(item => item.Category == category))
                 .ToList();
 
+            DateTime? maxTempModifiedUtc = skipRecentTempFiles ? DateTime.UtcNow.AddHours(-24) : null;
             var freedByCategory = new Dictionary<StorageCleanupCategory, long>();
             long totalBytes = 0;
             int totalFiles = 0;
@@ -325,7 +347,11 @@ namespace CryoTray.Services
                     selected.Count,
                     totalBytes,
                     totalFiles));
-                CleanupCounters counters = ProcessCategory(category, delete: true, cancellationToken);
+                CleanupCounters counters = ProcessCategory(
+                    category,
+                    delete: true,
+                    cancellationToken,
+                    maxTempModifiedUtc);
                 freedByCategory[category] = counters.Bytes;
                 totalBytes += counters.Bytes;
                 totalFiles += counters.Files;
@@ -343,13 +369,30 @@ namespace CryoTray.Services
         private static CleanupCounters ProcessCategory(
             StorageCleanupCategory category,
             bool delete,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            DateTime? maxTempModifiedUtc,
+            List<StorageCleanupTargetScan>? targetScans = null)
         {
+            DateTime? maxModifiedUtc = category == StorageCleanupCategory.TempFiles
+                ? maxTempModifiedUtc
+                : null;
             var counters = new CleanupCounters();
             foreach (CleanupTarget target in BuildTargets(category))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                ProcessRoot(target, delete, cancellationToken, counters);
+                var rootCounters = new CleanupCounters();
+                if (ProcessRoot(target, delete, cancellationToken, rootCounters, maxModifiedUtc) &&
+                    targetScans != null)
+                {
+                    targetScans.Add(new StorageCleanupTargetScan(
+                        target.RootPath,
+                        rootCounters.Bytes,
+                        rootCounters.Files));
+                }
+
+                counters.Bytes += rootCounters.Bytes;
+                counters.Files += rootCounters.Files;
+                counters.Skipped += rootCounters.Skipped;
             }
 
             return counters;
@@ -362,6 +405,7 @@ namespace CryoTray.Services
                 StorageCleanupCategory.TempFiles => BuildTempTargets(),
                 StorageCleanupCategory.BrowserCache => BuildBrowserTargets(),
                 StorageCleanupCategory.GpuShaderCache => BuildGpuTargets(),
+                StorageCleanupCategory.CrashDumps => BuildCrashDumpTargets(),
                 StorageCleanupCategory.Prefetch => BuildPrefetchTargets(),
                 _ => Array.Empty<CleanupTarget>()
             };
@@ -439,6 +483,38 @@ namespace CryoTray.Services
             AddDirectoryTarget(targets, Path.Combine(local, "AMD", "GLCache"), recursive: true);
             AddDirectoryTarget(targets, Path.Combine(local, "AMD", "OglCache"), recursive: true);
             AddDirectoryTarget(targets, Path.Combine(local, "Intel", "ShaderCache"), recursive: true);
+
+            return DistinctTargets(targets);
+        }
+
+        private static IReadOnlyList<CleanupTarget> BuildCrashDumpTargets()
+        {
+            var targets = new List<CleanupTarget>();
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+
+            if (!string.IsNullOrWhiteSpace(local))
+            {
+                AddDirectoryTarget(targets, Path.Combine(local, "CrashDumps"), recursive: true);
+            }
+
+            if (!string.IsNullOrWhiteSpace(windows))
+            {
+                AddDirectoryTarget(targets, Path.Combine(windows, "Minidump"), recursive: true);
+            }
+
+            if (!string.IsNullOrWhiteSpace(programData))
+            {
+                AddDirectoryTarget(
+                    targets,
+                    Path.Combine(programData, "Microsoft", "Windows", "WER", "ReportArchive"),
+                    recursive: true);
+                AddDirectoryTarget(
+                    targets,
+                    Path.Combine(programData, "Microsoft", "Windows", "WER", "ReportQueue"),
+                    recursive: true);
+            }
 
             return DistinctTargets(targets);
         }
@@ -560,11 +636,12 @@ namespace CryoTray.Services
             return distinct;
         }
 
-        private static void ProcessRoot(
+        private static bool ProcessRoot(
             CleanupTarget target,
             bool delete,
             CancellationToken cancellationToken,
-            CleanupCounters counters)
+            CleanupCounters counters,
+            DateTime? maxModifiedUtc = null)
         {
             string root;
             try
@@ -573,7 +650,7 @@ namespace CryoTray.Services
             }
             catch
             {
-                return;
+                return false;
             }
 
             if (string.IsNullOrWhiteSpace(root) ||
@@ -581,13 +658,13 @@ namespace CryoTray.Services
                 !Directory.Exists(root) ||
                 IsReparsePoint(root))
             {
-                return;
+                return false;
             }
 
             if (target.PrefetchOnly)
             {
-                ProcessPrefetchRoot(root, delete, cancellationToken, counters);
-                return;
+                ProcessPrefetchRoot(root, delete, cancellationToken, counters, maxModifiedUtc);
+                return true;
             }
 
             ProcessDirectory(
@@ -597,14 +674,17 @@ namespace CryoTray.Services
                 target.BrowserPrivacy,
                 delete,
                 cancellationToken,
-                counters);
+                counters,
+                maxModifiedUtc);
+            return true;
         }
 
         private static void ProcessPrefetchRoot(
             string root,
             bool delete,
             CancellationToken cancellationToken,
-            CleanupCounters counters)
+            CleanupCounters counters,
+            DateTime? maxModifiedUtc)
         {
             List<string> files;
             try
@@ -623,7 +703,7 @@ namespace CryoTray.Services
                 cancellationToken.ThrowIfCancellationRequested();
                 if (IsPrefetchFile(file))
                 {
-                    ProcessFile(file, root, browserPrivacy: false, delete, cancellationToken, counters);
+                    ProcessFile(file, root, browserPrivacy: false, delete, cancellationToken, counters, maxModifiedUtc);
                 }
             }
         }
@@ -635,7 +715,8 @@ namespace CryoTray.Services
             bool browserPrivacy,
             bool delete,
             CancellationToken cancellationToken,
-            CleanupCounters counters)
+            CleanupCounters counters,
+            DateTime? maxModifiedUtc)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsPathWithinRoot(directory, root))
@@ -699,12 +780,13 @@ namespace CryoTray.Services
                             browserPrivacy,
                             delete,
                             cancellationToken,
-                            counters);
+                            counters,
+                            maxModifiedUtc);
                     }
                     continue;
                 }
 
-                ProcessFile(entry, root, browserPrivacy, delete, cancellationToken, counters);
+                ProcessFile(entry, root, browserPrivacy, delete, cancellationToken, counters, maxModifiedUtc);
             }
 
             if (delete && !IsSamePath(directory, root))
@@ -719,7 +801,8 @@ namespace CryoTray.Services
             bool browserPrivacy,
             bool delete,
             CancellationToken cancellationToken,
-            CleanupCounters counters)
+            CleanupCounters counters,
+            DateTime? maxModifiedUtc)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsPathWithinRoot(path, root) || IsReparsePoint(path))
@@ -735,7 +818,12 @@ namespace CryoTray.Services
             long length;
             try
             {
-                length = new FileInfo(path).Length;
+                var info = new FileInfo(path);
+                length = info.Length;
+                if (ShouldSkipRecentFile(info.LastWriteTimeUtc, maxModifiedUtc))
+                {
+                    return;
+                }
             }
             catch (Exception ex) when (
                 ex is IOException ||

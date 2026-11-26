@@ -69,8 +69,11 @@ namespace CryoTray.Services
         }
 
         private bool _suppressDrift;
+        private string _durationProfileKey = "";
 
         public PowerProfileDefinition? ActiveProfile { get; private set; }
+
+        public DateTime ActiveProfileStartedUtc { get; private set; }
 
         public bool IsCoolingModeActive { get; private set; }
 
@@ -429,6 +432,18 @@ namespace CryoTray.Services
             bool profileChanged = !ProfileEquals(ActiveProfile, profile);
             bool coolingChanged = IsCoolingModeActive != cooling;
 
+            string key = profile?.Key ?? "";
+            if (key.Length == 0)
+            {
+                _durationProfileKey = "";
+                ActiveProfileStartedUtc = default;
+            }
+            else if (!string.Equals(_durationProfileKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                _durationProfileKey = key;
+                ActiveProfileStartedUtc = DateTime.UtcNow;
+            }
+
             ActiveProfile = profile;
             IsCoolingModeActive = cooling;
 
@@ -441,6 +456,14 @@ namespace CryoTray.Services
             {
                 ProfileChanged?.Invoke();
             }
+        }
+
+        internal (string Key, DateTime StartedUtc) SwapDurationTrackingForTest(string key, DateTime startedUtc)
+        {
+            var previous = (_durationProfileKey, ActiveProfileStartedUtc);
+            _durationProfileKey = key;
+            ActiveProfileStartedUtc = startedUtc;
+            return previous;
         }
 
         private static bool ProfileEquals(PowerProfileDefinition? left, PowerProfileDefinition? right)
@@ -592,6 +615,19 @@ namespace CryoTray.Services
             return name;
         }
 
+        /// <summary>Reapplies settings on the currently active CryoTray scheme without switching away from Tray or Game Mode profiles.</summary>
+        public void ReapplyActiveProfileValues()
+        {
+            PowerProfileDefinition? active = GetActiveProfile();
+            if (active == null)
+            {
+                RefreshState();
+                return;
+            }
+
+            ApplyResolvedActiveProfileValues(active);
+        }
+
         /// <summary>Reapplies the preferred profile when the active plan is a known profile.</summary>
         public void RefreshActiveProfile()
         {
@@ -613,9 +649,14 @@ namespace CryoTray.Services
                 return;
             }
 
+            ApplyResolvedActiveProfileValues(active);
+        }
+
+        private void ApplyResolvedActiveProfileValues(PowerProfileDefinition active)
+        {
             if (active.IsWindowsDefault || active.IsExternal)
             {
-                SetActiveProfile(target);
+                SetActiveProfile(active);
                 return;
             }
 
@@ -737,6 +778,8 @@ namespace CryoTray.Services
                     settings.MaxCpuThrottlePercent,
                     settings.PerfBoostMode);
             }
+
+            WriteTimeoutValues(profile, schemeGuid);
         }
 
         private static void WriteCpuCoolingValues(Guid schemeGuid, int maxThrottlePercent, int perfBoostMode)
@@ -764,6 +807,120 @@ namespace CryoTray.Services
                 IntPtr.Zero, ref schemeGuid, ref subGroup, ref setting, ac);
             NativeMethods.PowerWriteDCValueIndex(
                 IntPtr.Zero, ref schemeGuid, ref subGroup, ref setting, dc);
+        }
+
+        public static uint ResolveTimeoutSeconds(int overrideMinutes, uint windowsSeconds)
+        {
+            if (overrideMinutes < 0)
+            {
+                return windowsSeconds;
+            }
+
+            if (overrideMinutes == 0)
+            {
+                return 0;
+            }
+
+            return (uint)Math.Min((long)overrideMinutes * 60L, 31536000L);
+        }
+
+        public static bool HasCustomTimeoutOverrides(AppSettings? settings)
+        {
+            if (settings == null)
+            {
+                return false;
+            }
+
+            return settings.CoolingDisplayOffAcMinutes >= 0 ||
+                   settings.CoolingDisplayOffDcMinutes >= 0 ||
+                   settings.CoolingSleepAfterAcMinutes >= 0 ||
+                   settings.CoolingSleepAfterDcMinutes >= 0 ||
+                   settings.OffDisplayOffAcMinutes >= 0 ||
+                   settings.OffDisplayOffDcMinutes >= 0 ||
+                   settings.OffSleepAfterAcMinutes >= 0 ||
+                   settings.OffSleepAfterDcMinutes >= 0;
+        }
+
+        public static (int DisplayOffAcMinutes, int DisplayOffDcMinutes, int SleepAfterAcMinutes, int SleepAfterDcMinutes)
+            GetGroupTimeoutOverrides(AppSettings settings, bool isCooling)
+        {
+            return isCooling
+                ? (settings.CoolingDisplayOffAcMinutes,
+                   settings.CoolingDisplayOffDcMinutes,
+                   settings.CoolingSleepAfterAcMinutes,
+                   settings.CoolingSleepAfterDcMinutes)
+                : (settings.OffDisplayOffAcMinutes,
+                   settings.OffDisplayOffDcMinutes,
+                   settings.OffSleepAfterAcMinutes,
+                   settings.OffSleepAfterDcMinutes);
+        }
+
+        private static void WriteTimeoutValues(PowerProfileDefinition profile, Guid schemeGuid)
+        {
+            if (profile.IsWindowsDefault || profile.IsExternal || schemeGuid == BalancedGuid)
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            var overrides = GetGroupTimeoutOverrides(settings, profile.IsCooling);
+
+            WriteTimeoutAxis(
+                schemeGuid,
+                PowerGuids.SubVideo,
+                PowerGuids.VideoIdle,
+                overrides.DisplayOffAcMinutes,
+                overrides.DisplayOffDcMinutes);
+
+            WriteTimeoutAxis(
+                schemeGuid,
+                PowerGuids.SubSleep,
+                PowerGuids.StandbyIdle,
+                overrides.SleepAfterAcMinutes,
+                overrides.SleepAfterDcMinutes);
+        }
+
+        private static void WriteTimeoutAxis(
+            Guid schemeGuid,
+            Guid subGroup,
+            Guid settingGuid,
+            int acMinutes,
+            int dcMinutes)
+        {
+            uint? acSeconds = TryResolveTimeoutSeconds(acMinutes, subGroup, settingGuid, dc: false);
+            if (acSeconds.HasValue)
+            {
+                NativeMethods.PowerWriteACValueIndex(
+                    IntPtr.Zero, ref schemeGuid, ref subGroup, ref settingGuid, acSeconds.Value);
+            }
+
+            uint? dcSeconds = TryResolveTimeoutSeconds(dcMinutes, subGroup, settingGuid, dc: true);
+            if (dcSeconds.HasValue)
+            {
+                NativeMethods.PowerWriteDCValueIndex(
+                    IntPtr.Zero, ref schemeGuid, ref subGroup, ref settingGuid, dcSeconds.Value);
+            }
+        }
+
+        private static uint? TryResolveTimeoutSeconds(int overrideMinutes, Guid subGroup, Guid settingGuid, bool dc)
+        {
+            if (overrideMinutes >= 0)
+            {
+                return ResolveTimeoutSeconds(overrideMinutes, 0);
+            }
+
+            uint? windowsSeconds = TryReadTimeoutIndex(BalancedGuid, subGroup, settingGuid, dc);
+            return windowsSeconds.HasValue
+                ? ResolveTimeoutSeconds(overrideMinutes, windowsSeconds.Value)
+                : null;
+        }
+
+        private static uint? TryReadTimeoutIndex(Guid schemeGuid, Guid subGroup, Guid settingGuid, bool dc)
+        {
+            uint status = dc
+                ? NativeMethods.PowerReadDCValueIndex(IntPtr.Zero, ref schemeGuid, ref subGroup, ref settingGuid, out uint val)
+                : NativeMethods.PowerReadACValueIndex(IntPtr.Zero, ref schemeGuid, ref subGroup, ref settingGuid, out val);
+            return status == 0 ? val : null;
         }
 
         private void DeleteOtherCryoTraySchemes(Guid keepGuid)

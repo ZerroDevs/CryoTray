@@ -47,8 +47,10 @@ namespace CryoTray.Models
 
         // Storage & Cache Cleanup
         public bool CleanTemp { get; set; } = true;
+        public bool CleanTempSkipRecent24h { get; set; } = true;
         public bool CleanBrowserCache { get; set; } = false;
         public bool CleanGpuShaderCache { get; set; } = false;
+        public bool CleanCrashDumps { get; set; } = false;
         public bool CleanPrefetch { get; set; } = false;
 
         // View
@@ -108,6 +110,14 @@ namespace CryoTray.Models
         public double CachedBoostPeakGhz { get; set; } = 0;
         public int MaxCpuThrottlePercent { get; set; } = 99; // Default 99%
         public int PerfBoostMode { get; set; } = 0; // 0 = Disabled (Default), 1 = Enabled
+        public int CoolingDisplayOffAcMinutes { get; set; } = -1; // -1 = Follow Windows, 0 = Never, >0 = Minutes
+        public int CoolingDisplayOffDcMinutes { get; set; } = -1;
+        public int CoolingSleepAfterAcMinutes { get; set; } = -1;
+        public int CoolingSleepAfterDcMinutes { get; set; } = -1;
+        public int OffDisplayOffAcMinutes { get; set; } = -1;
+        public int OffDisplayOffDcMinutes { get; set; } = -1;
+        public int OffSleepAfterAcMinutes { get; set; } = -1;
+        public int OffSleepAfterDcMinutes { get; set; } = -1;
 
         // Stress Test
         public int StressFpsReference { get; set; } = 100; // 60, 100, 120, 144, 165, or 240

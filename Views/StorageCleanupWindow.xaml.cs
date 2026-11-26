@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using CryoTray.Models;
 using CryoTray.Services;
 
@@ -47,23 +48,35 @@ namespace CryoTray.Views
             CategoriesItems.ItemsSource = _categories;
             BuildRows();
             LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
-            Closed += (_, _) => LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+            ThemeService.ThemeChanged += OnThemeChanged;
+            Closed += (_, _) =>
+            {
+                LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+                ThemeService.ThemeChanged -= OnThemeChanged;
+            };
         }
 
         private void BuildRows()
         {
             _isInitializing = true;
             var settings = SettingsService.Instance.Current;
+            if (ChkSkipRecentTemp != null)
+            {
+                ChkSkipRecentTemp.IsChecked = settings.CleanTempSkipRecent24h;
+            }
             foreach (var definition in StorageCleanupCatalog.All)
             {
+                bool selected = IsSelectedInSettings(settings, definition.Category);
                 var row = new StorageCleanupCategoryRow
                 {
                     Category = definition.Category,
                     Title = LocalizationService.Get(definition.TitleKey),
                     Description = LocalizationService.Get(definition.DescriptionKey),
                     Badge = LocalizationService.Get(definition.BadgeKey),
-                    IsSelected = IsSelectedInSettings(settings, definition.Category),
+                    IsSelected = selected,
                     AccentOpacity = GetAccentOpacity(definition.Category),
+                    DotBrush = GetCategoryDotBrush(definition.Category),
+                    DotOpacity = GetRowDotOpacity(selected),
                     FilesText = "--"
                 };
                 row.PropertyChanged += CategoryRow_PropertyChanged;
@@ -107,6 +120,7 @@ namespace CryoTray.Views
             _summaryStateKey = "StorageCleanup_Scanning";
             SetCategorySizes("...");
             SetCategoryFiles("--");
+            ClearCategoryTargets();
             TxtTotal.Text = "--";
             TxtTotal.Tag = null;
             if (hideResult)
@@ -121,10 +135,14 @@ namespace CryoTray.Views
 
             var progress = new Progress<StorageCleanupProgress>(
                 update => OnScanProgress(update, version));
+            bool skipRecentTemp = ChkSkipRecentTemp?.IsChecked == true;
 
             try
             {
-                StorageCleanupScan scan = await StorageCleanupService.ScanAsync(cts.Token, progress);
+                StorageCleanupScan scan = await StorageCleanupService.ScanAsync(
+                    cts.Token,
+                    progress,
+                    skipRecentTemp);
                 if (cts.IsCancellationRequested || version != _scanVersion || _isClosed)
                 {
                     return;
@@ -195,6 +213,15 @@ namespace CryoTray.Views
                 row.Files = categoryScan.Files;
                 row.SizeText = StorageCleanupService.FormatBytes(categoryScan.Bytes);
                 row.FilesText = FormatFileCount(categoryScan.Files);
+                var targets = (categoryScan.Targets ?? Array.Empty<StorageCleanupTargetScan>())
+                    .OrderByDescending(target => target.Bytes)
+                    .ThenBy(target => target.RootPath, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                row.SetTargets(
+                    targets,
+                    FormatTargetDisplayPath,
+                    target => FormatTargetSummary(target.Bytes, target.Files),
+                    count => LocalizationService.Format("StorageCleanup_FoldersToggle", FormatCount(count)));
             }
 
             HideProgress();
@@ -269,13 +296,15 @@ namespace CryoTray.Views
             UpdateActionStates();
             var progress = new Progress<StorageCleanupProgress>(
                 update => OnCleanProgress(update, cts));
+            bool skipRecentTemp = ChkSkipRecentTemp?.IsChecked == true;
 
             try
             {
                 StorageCleanupRunResult result = await StorageCleanupService.CleanAsync(
                     selected,
                     cts.Token,
-                    progress);
+                    progress,
+                    skipRecentTemp);
                 if (cts.IsCancellationRequested || _isClosed)
                 {
                     return;
@@ -717,10 +746,12 @@ namespace CryoTray.Views
                 var bar = new Border
                 {
                     Margin = new Thickness(0, 0, 1, 0),
-                    Opacity = row.IsSelected ? row.AccentOpacity : 0.18,
+                    Background = row.DotBrush,
+                    Opacity = row.IsSelected
+                        ? (ThemeService.IsHighContrast ? row.AccentOpacity : 1.0)
+                        : 0.22,
                     ToolTip = $"{row.Title}: {row.SizeText}"
                 };
-                bar.SetResourceReference(Border.BackgroundProperty, "RamAccentBrush");
                 Grid.SetColumn(bar, CategoryChartBars.ColumnDefinitions.Count - 1);
                 CategoryChartBars.Children.Add(bar);
             }
@@ -818,6 +849,19 @@ namespace CryoTray.Views
                 {
                     pair.Value.FilesText = FormatFileCount(pair.Value.Files);
                 }
+
+                if (_lastScan != null)
+                {
+                    var targets = (_lastScan.Get(pair.Key).Targets ?? Array.Empty<StorageCleanupTargetScan>())
+                        .OrderByDescending(target => target.Bytes)
+                        .ThenBy(target => target.RootPath, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    pair.Value.SetTargets(
+                        targets,
+                        FormatTargetDisplayPath,
+                        target => FormatTargetSummary(target.Bytes, target.Files),
+                        count => LocalizationService.Format("StorageCleanup_FoldersToggle", FormatCount(count)));
+                }
             }
 
             HideConfirm();
@@ -825,6 +869,39 @@ namespace CryoTray.Views
             BuildCategoryChart(_lastScan);
             LoadDriveInfo();
             UpdateActionStates();
+        }
+
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => OnThemeChanged(sender, e)));
+                return;
+            }
+
+            if (_isClosed)
+            {
+                return;
+            }
+
+            foreach (StorageCleanupCategoryRow row in _rows.Values)
+            {
+                row.DotBrush = GetCategoryDotBrush(row.Category);
+                row.DotOpacity = GetRowDotOpacity(row.IsSelected);
+            }
+
+            BuildCategoryChart(_lastScan);
+        }
+
+        private async void ChkSkipRecentTemp_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isInitializing || _isClosed || !_loaded || _isCleaning)
+            {
+                return;
+            }
+
+            PersistPreferences();
+            await BeginScanAsync(hideResult: true);
         }
 
         private void CategoryRow_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -836,6 +913,11 @@ namespace CryoTray.Views
                     StringComparison.Ordinal))
             {
                 return;
+            }
+
+            if (sender is StorageCleanupCategoryRow changedRow)
+            {
+                changedRow.DotOpacity = GetRowDotOpacity(changedRow.IsSelected);
             }
 
             PersistPreferences();
@@ -850,8 +932,10 @@ namespace CryoTray.Views
         {
             var settings = SettingsService.Instance.Current;
             settings.CleanTemp = _rows[StorageCleanupCategory.TempFiles].IsSelected;
+            settings.CleanTempSkipRecent24h = ChkSkipRecentTemp?.IsChecked == true;
             settings.CleanBrowserCache = _rows[StorageCleanupCategory.BrowserCache].IsSelected;
             settings.CleanGpuShaderCache = _rows[StorageCleanupCategory.GpuShaderCache].IsSelected;
+            settings.CleanCrashDumps = _rows[StorageCleanupCategory.CrashDumps].IsSelected;
             settings.CleanPrefetch = _rows[StorageCleanupCategory.Prefetch].IsSelected;
             SettingsService.Instance.Save();
         }
@@ -865,6 +949,7 @@ namespace CryoTray.Views
                 StorageCleanupCategory.TempFiles => settings.CleanTemp,
                 StorageCleanupCategory.BrowserCache => settings.CleanBrowserCache,
                 StorageCleanupCategory.GpuShaderCache => settings.CleanGpuShaderCache,
+                StorageCleanupCategory.CrashDumps => settings.CleanCrashDumps,
                 StorageCleanupCategory.Prefetch => settings.CleanPrefetch,
                 _ => false
             };
@@ -890,6 +975,10 @@ namespace CryoTray.Views
             }
 
             BtnRescan.IsEnabled = !_isScanning && !_isCleaning;
+            if (ChkSkipRecentTemp != null)
+            {
+                ChkSkipRecentTemp.IsEnabled = !_isScanning && !_isCleaning;
+            }
             BtnCancel.IsEnabled = true;
             BtnClean.IsEnabled = !_isScanning &&
                 !_isCleaning &&
@@ -921,6 +1010,19 @@ namespace CryoTray.Views
             foreach (StorageCleanupCategoryRow row in _rows.Values)
             {
                 row.FilesText = text;
+            }
+
+            if (text == "--")
+            {
+                ClearCategoryTargets();
+            }
+        }
+
+        private void ClearCategoryTargets()
+        {
+            foreach (StorageCleanupCategoryRow row in _rows.Values)
+            {
+                row.ClearTargets();
             }
         }
 
@@ -1019,11 +1121,82 @@ namespace CryoTray.Views
             return category switch
             {
                 StorageCleanupCategory.TempFiles => 1.0,
-                StorageCleanupCategory.BrowserCache => 0.72,
-                StorageCleanupCategory.GpuShaderCache => 0.52,
+                StorageCleanupCategory.BrowserCache => 0.78,
+                StorageCleanupCategory.GpuShaderCache => 0.62,
+                StorageCleanupCategory.CrashDumps => 0.48,
                 StorageCleanupCategory.Prefetch => 0.34,
                 _ => 1.0
             };
+        }
+
+        private static double GetRowDotOpacity(bool isSelected)
+        {
+            return isSelected ? 1.0 : 0.45;
+        }
+
+        private static Brush GetCategoryDotBrush(StorageCleanupCategory category)
+        {
+            if (ThemeService.IsHighContrast)
+            {
+                return ThemeService.GetBrush("AccentBrush");
+            }
+
+            bool isLight = ThemeService.IsLight;
+            string hex = category switch
+            {
+                StorageCleanupCategory.TempFiles => isLight ? "#0284C7" : "#38BDF8",
+                StorageCleanupCategory.BrowserCache => isLight ? "#7C3AED" : "#A78BFA",
+                StorageCleanupCategory.GpuShaderCache => isLight ? "#0D9488" : "#2DD4BF",
+                StorageCleanupCategory.CrashDumps => isLight ? "#D97706" : "#F59E0B",
+                StorageCleanupCategory.Prefetch => isLight ? "#64748B" : "#94A3B8",
+                _ => isLight ? "#0284C7" : "#38BDF8"
+            };
+            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+            brush.Freeze();
+            return brush;
+        }
+
+        internal static string FormatTargetDisplayPath(string rootPath)
+        {
+            if (string.IsNullOrWhiteSpace(rootPath))
+            {
+                return "";
+            }
+
+            string normalized = Path.TrimEndingDirectorySeparator(rootPath);
+            var prefixes = new (string Path, string Token)[]
+            {
+                (Path.TrimEndingDirectorySeparator(Path.GetTempPath()), "%TEMP%"),
+                (Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "%LocalAppData%"),
+                (Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "%ProgramData%"),
+                (Environment.GetFolderPath(Environment.SpecialFolder.Windows), "%WINDIR%")
+            };
+
+            foreach (var (prefix, token) in prefixes)
+            {
+                if (string.IsNullOrWhiteSpace(prefix))
+                {
+                    continue;
+                }
+
+                string cleanPrefix = Path.TrimEndingDirectorySeparator(prefix);
+                if (string.Equals(normalized, cleanPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return token;
+                }
+
+                if (normalized.StartsWith(cleanPrefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    return token + normalized.Substring(cleanPrefix.Length);
+                }
+            }
+
+            return normalized;
+        }
+
+        private static string FormatTargetSummary(long bytes, int files)
+        {
+            return $"{StorageCleanupService.FormatBytes(bytes)} · {FormatCount(files)}";
         }
 
         private static string FormatCount(int value)
@@ -1039,20 +1212,132 @@ namespace CryoTray.Views
         }
     }
 
+    public sealed record StorageCleanupTargetRow(
+        string FullPath,
+        string DisplayPath,
+        string SummaryText);
+
     public sealed class StorageCleanupCategoryRow : INotifyPropertyChanged
     {
         private bool _isSelected;
         private string _sizeText = "...";
         private string _filesText = "--";
         private bool _isSelectionEnabled = true;
+        private bool _isExpanded;
         private string _title = "";
         private string _description = "";
         private string _badge = "";
+        private string _foldersToggleText = "";
+        private Brush _dotBrush = Brushes.Transparent;
+        private double _dotOpacity = 1.0;
 
         public StorageCleanupCategory Category { get; init; }
         public long Bytes { get; set; }
         public int Files { get; set; }
         public double AccentOpacity { get; init; }
+        public ObservableCollection<StorageCleanupTargetRow> TargetRows { get; } = new();
+
+        public Brush DotBrush
+        {
+            get => _dotBrush;
+            set
+            {
+                if (ReferenceEquals(_dotBrush, value))
+                {
+                    return;
+                }
+
+                _dotBrush = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public double DotOpacity
+        {
+            get => _dotOpacity;
+            set
+            {
+                if (Math.Abs(_dotOpacity - value) < 0.001)
+                {
+                    return;
+                }
+
+                _dotOpacity = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set
+            {
+                if (_isExpanded == value)
+                {
+                    return;
+                }
+
+                _isExpanded = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(FoldersListVisibility));
+            }
+        }
+
+        public string FoldersToggleText
+        {
+            get => _foldersToggleText;
+            private set
+            {
+                if (_foldersToggleText == value)
+                {
+                    return;
+                }
+
+                _foldersToggleText = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public Visibility FoldersToggleVisibility =>
+            TargetRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        public Visibility FoldersListVisibility =>
+            _isExpanded && TargetRows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        public void SetTargets(
+            IReadOnlyList<StorageCleanupTargetScan> targets,
+            Func<string, string> formatDisplayPath,
+            Func<StorageCleanupTargetScan, string> formatSummary,
+            Func<int, string> formatToggleText)
+        {
+            TargetRows.Clear();
+            foreach (StorageCleanupTargetScan target in targets)
+            {
+                TargetRows.Add(new StorageCleanupTargetRow(
+                    target.RootPath,
+                    formatDisplayPath(target.RootPath),
+                    formatSummary(target)));
+            }
+
+            FoldersToggleText = TargetRows.Count > 0
+                ? formatToggleText(TargetRows.Count)
+                : "";
+            OnPropertyChanged(nameof(FoldersToggleVisibility));
+            OnPropertyChanged(nameof(FoldersListVisibility));
+        }
+
+        public void ClearTargets()
+        {
+            if (TargetRows.Count == 0 && string.IsNullOrEmpty(_foldersToggleText))
+            {
+                return;
+            }
+
+            TargetRows.Clear();
+            FoldersToggleText = "";
+            OnPropertyChanged(nameof(FoldersToggleVisibility));
+            OnPropertyChanged(nameof(FoldersListVisibility));
+        }
 
         public string Title
         {

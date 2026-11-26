@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -15,12 +17,24 @@ using Microsoft.Win32;
 
 namespace CryoTray.Views
 {
+    public enum StressLoadMode
+    {
+        AllCores,
+        HalfCores,
+        SingleCore
+    }
+
     public partial class StressTestWindow : Window
     {
+        internal const double ThermalSafetyCutoffCelsius = 95.0;
+        internal const double AutoCompareSwitchSeconds = 30.0;
+        internal const double AutoCompareTotalSeconds = 60.0;
+
         private bool _isRunning;
         private bool _isClosing;
         private CancellationTokenSource? _testCts;
         private readonly DispatcherTimer _timer;
+        private DispatcherTimer? _copyFeedbackTimer;
         private Stopwatch _stopwatch = new();
         private readonly List<double> _testTemps = new();
         private readonly List<bool> _testCoolingStates = new();
@@ -28,6 +42,13 @@ namespace CryoTray.Views
         private long[] _workerIterations = Array.Empty<long>();
         private long _lastIterationTotal;
         private double _lastIterationSampleSeconds;
+        private double _peakCpuTempCelsius = double.NaN;
+        private StressLoadMode _loadMode = StressLoadMode.AllCores;
+        private bool _autoCompareActive;
+        private bool _autoCompareManagedPlan;
+        private bool _autoPhaseSwitchedToOn;
+        private PowerProfileDefinition? _autoCompareRestoreProfile;
+        private int? _lastPowerWatts;
 
         internal readonly record struct StressCoolingComparison(
             bool HasOffPhase,
@@ -88,6 +109,15 @@ namespace CryoTray.Views
 
         private void StressTestWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.C &&
+                Keyboard.Modifiers == ModifierKeys.Control &&
+                _recordedSamples.Count > 0)
+            {
+                CopyStressSummary();
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Escape && !_isRunning)
             {
                 e.Handled = true;
@@ -104,19 +134,21 @@ namespace CryoTray.Views
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetry;
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingChanged;
             UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
+            UpdateStartStopButtonStyle();
             ApplyTelemetrySnapshot(HardwareMonitorService.Instance.CurrentSnapshot);
+            DrawChart();
         }
 
         private void StressTestWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             _isClosing = true;
-            StopTest();
+            StopTest(restoreAutoComparePlan: true);
         }
 
         private void StressTestWindow_Closed(object? sender, EventArgs e)
         {
             _isClosing = true;
-            StopTest();
+            StopTest(restoreAutoComparePlan: true);
             Loaded -= StressTestWindow_Loaded;
             Closing -= StressTestWindow_Closing;
             Closed -= StressTestWindow_Closed;
@@ -128,6 +160,8 @@ namespace CryoTray.Views
             _telemetryLease?.Dispose();
             _telemetryLease = null;
             _timer.Stop();
+            _copyFeedbackTimer?.Stop();
+            _copyFeedbackTimer = null;
             _testCts?.Dispose();
             _testCts = null;
             DataContext = null;
@@ -162,6 +196,7 @@ namespace CryoTray.Views
                 if (!_isClosing)
                 {
                     UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
+                    UpdateStartStopButtonStyle();
                     DrawChart();
                 }
             }));
@@ -169,7 +204,15 @@ namespace CryoTray.Views
 
         private void UpdateCoolingDisplay(bool active)
         {
-            TxtCoolingStatus.Text = LocalizationService.Get(active ? "Common_On" : "Common_Off");
+            string stateLabel = LocalizationService.Get(active ? "Common_On" : "Common_Off");
+            var profile = PowerPlanService.Instance.ActiveProfile;
+            string? profileName = profile != null ? LocalizationService.GetProfileName(profile) : null;
+            string fullText = string.IsNullOrWhiteSpace(profileName)
+                ? stateLabel
+                : $"{stateLabel} · {profileName}";
+
+            TxtCoolingStatus.Text = fullText;
+            TxtCoolingStatus.ToolTip = fullText;
             TxtCoolingStatus.Foreground = active
                 ? ThemeService.GetBrush("CoolingOnTextBrush")
                 : ThemeService.GetBrush("CoolingOffTextBrush");
@@ -212,12 +255,24 @@ namespace CryoTray.Views
                 ? $"{snapshot.CpuGhz:0.00} GHz"
                 : "-- GHz";
 
+            _lastPowerWatts = snapshot.CpuPackageWatts;
+            TxtTestWatts.Text = snapshot.CpuPackageWatts.HasValue && snapshot.CpuPackageWatts.Value > 0
+                ? LocalizationService.Format("Stress_PowerLabel", snapshot.CpuPackageWatts.Value)
+                : LocalizationService.Get("Stress_PowerNone");
+
             if (_isRunning)
             {
+                if (hasTemp && (!double.IsFinite(_peakCpuTempCelsius) || snapshot.CpuTemp > _peakCpuTempCelsius))
+                {
+                    _peakCpuTempCelsius = snapshot.CpuTemp;
+                }
+                UpdatePeakTempDisplay(isFahrenheit, unit);
+
                 var sample = TelemetrySample.FromSnapshot(snapshot);
                 sample.StressIterationsPerSecond = TakeIterationRate(sample.CoolingModeActive);
                 _recordedSamples.Add(sample);
                 BtnExportCsv.IsEnabled = _recordedSamples.Count > 0;
+                BtnCopySummary.IsEnabled = _recordedSamples.Count > 0;
                 if (hasTemp)
                 {
                     _testTemps.Add(snapshot.CpuTemp);
@@ -225,6 +280,39 @@ namespace CryoTray.Views
                     DrawChart();
                 }
                 UpdateComparisonDisplay();
+
+                if (ShouldTriggerThermalCutoff(_isRunning, snapshot.CpuTemp))
+                {
+                    StopTest(restoreAutoComparePlan: true);
+                    double cutoffDisplay = isFahrenheit
+                        ? (ThermalSafetyCutoffCelsius * 9.0 / 5.0) + 32.0
+                        : ThermalSafetyCutoffCelsius;
+                    ShowNotice(
+                        LocalizationService.Format("Stress_ThermalCutoff", $"{Math.Round(cutoffDisplay)} {unit}"),
+                        isDanger: true);
+                }
+            }
+        }
+
+        private void UpdatePeakTempDisplay(bool isFahrenheit, string unit)
+        {
+            if (TxtTestPeakTemp == null)
+            {
+                return;
+            }
+
+            if (double.IsFinite(_peakCpuTempCelsius) && _peakCpuTempCelsius > 0)
+            {
+                double peakDisplay = isFahrenheit
+                    ? (_peakCpuTempCelsius * 9.0 / 5.0) + 32.0
+                    : _peakCpuTempCelsius;
+                TxtTestPeakTemp.Text = LocalizationService.Format(
+                    "Stress_PeakTemp",
+                    $"{Math.Round(peakDisplay)} {unit}");
+            }
+            else
+            {
+                TxtTestPeakTemp.Text = LocalizationService.Get("Stress_PeakNone");
             }
         }
 
@@ -386,6 +474,7 @@ namespace CryoTray.Views
                 TxtPerformanceRetained.Text = LocalizationService.Format(
                     "Stress_PerformanceRetained",
                     retainedPercent);
+                TxtPerformanceRetained.Visibility = Visibility.Visible;
 
                 var fpsImpact = ComputeFpsImpact(cmp.PerformanceRetainedPercent, _fpsReference);
                 TxtFpsImpact.Text = LocalizationService.Format(
@@ -393,11 +482,14 @@ namespace CryoTray.Views
                     _fpsReference,
                     fpsImpact.ProjectedFps,
                     fpsImpact.LostFps);
+                TxtFpsImpact.Visibility = Visibility.Visible;
             }
             else
             {
                 TxtPerformanceRetained.Text = string.Empty;
                 TxtFpsImpact.Text = string.Empty;
+                TxtPerformanceRetained.Visibility = Visibility.Collapsed;
+                TxtFpsImpact.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -452,12 +544,129 @@ namespace CryoTray.Views
                 : tempPart;
         }
 
+        private void ChartCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            DrawChart();
+        }
+
+        private void CmbStressLoadMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CmbStressLoadMode == null)
+            {
+                return;
+            }
+
+            _loadMode = CmbStressLoadMode.SelectedIndex switch
+            {
+                1 => StressLoadMode.HalfCores,
+                2 => StressLoadMode.SingleCore,
+                _ => StressLoadMode.AllCores
+            };
+        }
+
+        internal static int ResolveWorkerThreadCount(int processorCount, StressLoadMode mode)
+        {
+            int safeCores = Math.Max(1, processorCount);
+            return mode switch
+            {
+                StressLoadMode.SingleCore => 1,
+                StressLoadMode.HalfCores => Math.Max(1, safeCores / 2),
+                _ => safeCores
+            };
+        }
+
+        internal static bool ShouldTriggerThermalCutoff(
+            bool isRunning,
+            double cpuTempCelsius,
+            double cutoffCelsius = ThermalSafetyCutoffCelsius)
+        {
+            return isRunning &&
+                double.IsFinite(cpuTempCelsius) &&
+                cpuTempCelsius >= cutoffCelsius;
+        }
+
+        internal static (bool ShouldSwitchToCoolingOn, bool ShouldComplete) EvaluateAutoCompareStep(
+            bool autoCompareActive,
+            double elapsedSeconds,
+            bool phaseSwitchedToOn)
+        {
+            if (!autoCompareActive || !double.IsFinite(elapsedSeconds) || elapsedSeconds < 0)
+            {
+                return (false, false);
+            }
+
+            bool switchToOn = !phaseSwitchedToOn && elapsedSeconds >= AutoCompareSwitchSeconds;
+            bool complete = elapsedSeconds >= AutoCompareTotalSeconds;
+            return (switchToOn, complete);
+        }
+
+        internal static string FormatStressSummary(
+            StressCoolingComparison cmp,
+            int elapsedSeconds,
+            double peakTempCelsius,
+            StressLoadMode loadMode,
+            int fpsReference,
+            bool isFahrenheit,
+            string unit)
+        {
+            var sb = new StringBuilder();
+            string loadKey = loadMode switch
+            {
+                StressLoadMode.HalfCores => "Stress_LoadHalfCores",
+                StressLoadMode.SingleCore => "Stress_LoadSingleCore",
+                _ => "Stress_LoadAllCores"
+            };
+            TimeSpan elapsed = TimeSpan.FromSeconds(Math.Max(0, elapsedSeconds));
+            sb.AppendLine($"{LocalizationService.Get("Stress_Header")} ({LocalizationService.Get(loadKey)} · {elapsed:mm\\:ss})");
+
+            if (double.IsFinite(peakTempCelsius) && peakTempCelsius > 0)
+            {
+                double peakDisplay = isFahrenheit ? (peakTempCelsius * 9.0 / 5.0) + 32.0 : peakTempCelsius;
+                sb.AppendLine(LocalizationService.Format("Stress_PeakTemp", $"{Math.Round(peakDisplay)} {unit}"));
+            }
+
+            sb.AppendLine($"{LocalizationService.Get("Stress_PhaseOff")}: {(cmp.HasOffPhase ? FormatPhaseText(cmp.OffTemp, cmp.OffWatts, unit) : "--")}");
+            sb.AppendLine($"{LocalizationService.Get("Stress_PhaseOn")}: {(cmp.HasOnPhase ? FormatPhaseText(cmp.OnTemp, cmp.OnWatts, unit) : "--")}");
+
+            if (cmp.HasOffPhase && cmp.HasOnPhase)
+            {
+                long deltaT = (long)Math.Round(cmp.DeltaTemp);
+                string deltaText = $"{(deltaT > 0 ? "+" : "")}{deltaT} {unit}";
+                if (double.IsFinite(cmp.DeltaWatts))
+                {
+                    long deltaW = (long)Math.Round(cmp.DeltaWatts);
+                    deltaText += $" · {(deltaW > 0 ? "+" : "")}{deltaW} W";
+                }
+                sb.AppendLine($"{LocalizationService.Get("Stress_PhaseDelta")}: {deltaText}");
+            }
+
+            if (double.IsFinite(cmp.PerformanceRetainedPercent))
+            {
+                long retained = (long)Math.Round(cmp.PerformanceRetainedPercent);
+                sb.AppendLine(LocalizationService.Format("Stress_PerformanceRetained", retained));
+                var fpsImpact = ComputeFpsImpact(cmp.PerformanceRetainedPercent, fpsReference);
+                sb.AppendLine(LocalizationService.Format("Stress_FpsImpact", fpsReference, fpsImpact.ProjectedFps, fpsImpact.LostFps));
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
         private void DrawChart()
         {
             ChartCanvas.Children.Clear();
+            TxtChartEmptyHint.Visibility = (_isRunning || _testTemps.Count >= 2)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+
             double w = ChartCanvas.ActualWidth;
             double h = ChartCanvas.ActualHeight;
-            if (w <= 0 || h <= 0 || _testTemps.Count < 2) return;
+            if (w <= 0 || h <= 0) return;
+
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            double minT = 30;
+            double maxT = 95;
+            double labelMax = isFahrenheit ? (maxT * 9.0 / 5.0) + 32.0 : maxT;
+            double labelMin = isFahrenheit ? (minT * 9.0 / 5.0) + 32.0 : minT;
 
             // Draw horizontal reference grid
             for (int i = 1; i <= 3; i++)
@@ -475,8 +684,24 @@ namespace CryoTray.Views
                 ChartCanvas.Children.Add(line);
             }
 
-            double minT = 30;
-            double maxT = 95;
+            void AddScaleLabel(double deg, double top)
+            {
+                var lbl = new TextBlock
+                {
+                    Text = $"{Math.Round(deg)}°",
+                    Foreground = ThemeService.GetBrush("TextTertiaryBrush"),
+                    FontSize = 9.5,
+                    IsHitTestVisible = false
+                };
+                Canvas.SetLeft(lbl, 6);
+                Canvas.SetTop(lbl, top);
+                ChartCanvas.Children.Add(lbl);
+            }
+
+            AddScaleLabel(labelMax, 3);
+            AddScaleLabel(labelMin, Math.Max(14, h - 16));
+
+            if (_testTemps.Count < 2) return;
 
             int maxCount = 60;
             int startIdx = Math.Max(0, _testTemps.Count - maxCount);
@@ -522,7 +747,7 @@ namespace CryoTray.Views
             }
             else
             {
-                StopTest();
+                StopTest(restoreAutoComparePlan: true);
             }
         }
 
@@ -532,16 +757,47 @@ namespace CryoTray.Views
             _testTemps.Clear();
             _testCoolingStates.Clear();
             _recordedSamples.Clear();
+            _peakCpuTempCelsius = double.NaN;
             _lastIterationTotal = 0;
             _lastIterationSampleSeconds = 0;
+            HideNotice();
+
+            var snapshot = HardwareMonitorService.Instance.CurrentSnapshot;
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            string unit = isFahrenheit ? "°F" : "°C";
+            if (double.IsFinite(snapshot.CpuTemp) && snapshot.CpuTemp > 0)
+            {
+                _peakCpuTempCelsius = snapshot.CpuTemp;
+            }
+            UpdatePeakTempDisplay(isFahrenheit, unit);
+
+            _autoCompareActive = ChkAutoCompare?.IsChecked == true;
+            _autoPhaseSwitchedToOn = false;
+            _autoCompareManagedPlan = false;
+            _autoCompareRestoreProfile = null;
+            if (_autoCompareActive)
+            {
+                _autoCompareRestoreProfile = PowerPlanService.Instance.ActiveProfile;
+                _autoCompareManagedPlan = true;
+                if (PowerPlanService.Instance.IsCoolingModeActive)
+                {
+                    PowerPlanService.Instance.SetCoolingMode(false);
+                }
+            }
+            UpdateAutoPhaseDisplay(0);
+
+            if (CmbStressLoadMode != null) CmbStressLoadMode.IsEnabled = false;
+            if (ChkAutoCompare != null) ChkAutoCompare.IsEnabled = false;
+
             _recordedSamples.Add(TelemetrySample.FromSnapshot(HardwareMonitorService.Instance.CurrentSnapshot));
             BtnExportCsv.IsEnabled = _recordedSamples.Count > 0;
+            BtnCopySummary.IsEnabled = _recordedSamples.Count > 0;
             UpdateComparisonDisplay();
+            DrawChart();
             _stopwatch.Restart();
             _timer.Start();
 
-            BtnStartStop.Content = LocalizationService.Get("Stress_Stop");
-            BtnStartStop.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D32F2F"));
+            UpdateStartStopButtonStyle();
 
             _testCts?.Cancel();
             _testCts?.Dispose();
@@ -549,7 +805,7 @@ namespace CryoTray.Views
             var token = _testCts.Token;
 
             // Use dedicated BelowNormal OS threads so full CPU load never starves ThreadPool polling.
-            int cores = Environment.ProcessorCount;
+            int cores = ResolveWorkerThreadCount(Environment.ProcessorCount, _loadMode);
             var iterationCounts = new long[cores];
             _workerIterations = iterationCounts;
             for (int c = 0; c < cores; c++)
@@ -580,7 +836,7 @@ namespace CryoTray.Views
             }
         }
 
-        private void StopTest()
+        private void StopTest(bool restoreAutoComparePlan = false)
         {
             if (!_isRunning) return;
 
@@ -598,8 +854,100 @@ namespace CryoTray.Views
             _stopwatch.Stop();
             _timer.Stop();
 
-            BtnStartStop.Content = LocalizationService.Get("Stress_Start");
-            BtnStartStop.Background = ThemeService.GetBrush("AccentBrush");
+            bool shouldRestore = restoreAutoComparePlan && _autoCompareManagedPlan;
+            var restoreProfile = _autoCompareRestoreProfile;
+            _autoCompareActive = false;
+            _autoCompareManagedPlan = false;
+            _autoPhaseSwitchedToOn = false;
+            _autoCompareRestoreProfile = null;
+            UpdateAutoPhaseDisplay(0);
+
+            if (shouldRestore)
+            {
+                if (restoreProfile != null)
+                {
+                    PowerPlanService.Instance.SwitchToProfile(restoreProfile);
+                }
+                else if (PowerPlanService.Instance.IsCoolingModeActive)
+                {
+                    PowerPlanService.Instance.SetCoolingMode(false);
+                }
+            }
+
+            if (CmbStressLoadMode != null) CmbStressLoadMode.IsEnabled = true;
+            if (ChkAutoCompare != null) ChkAutoCompare.IsEnabled = true;
+
+            UpdateStartStopButtonStyle();
+            DrawChart();
+        }
+
+        private void UpdateStartStopButtonStyle()
+        {
+            if (BtnStartStop == null)
+            {
+                return;
+            }
+
+            BtnStartStop.Content = LocalizationService.Get(_isRunning ? "Stress_Stop" : "Stress_Start");
+            if (_isRunning && !ThemeService.IsHighContrast)
+            {
+                BtnStartStop.Background = CreateFrozenBrush("#C62828");
+                BtnStartStop.Foreground = Brushes.White;
+            }
+            else
+            {
+                BtnStartStop.Background = ThemeService.GetBrush("AccentButtonBrush");
+                BtnStartStop.Foreground = ThemeService.GetBrush("AccentButtonTextBrush");
+            }
+        }
+
+        private void UpdateAutoPhaseDisplay(double elapsedSeconds)
+        {
+            if (TxtAutoPhaseStatus == null)
+            {
+                return;
+            }
+
+            if (!_isRunning || !_autoCompareActive)
+            {
+                TxtAutoPhaseStatus.Text = "";
+                TxtAutoPhaseStatus.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            if (!_autoPhaseSwitchedToOn)
+            {
+                int remaining = Math.Max(0, (int)Math.Ceiling(AutoCompareSwitchSeconds - elapsedSeconds));
+                TxtAutoPhaseStatus.Text = LocalizationService.Format("Stress_AutoPhaseOff", remaining);
+            }
+            else
+            {
+                int remaining = Math.Max(0, (int)Math.Ceiling(AutoCompareTotalSeconds - elapsedSeconds));
+                TxtAutoPhaseStatus.Text = LocalizationService.Format("Stress_AutoPhaseOn", remaining);
+            }
+            TxtAutoPhaseStatus.Visibility = Visibility.Visible;
+        }
+
+        private void ShowNotice(string message, bool isDanger)
+        {
+            if (BdrStressNotice == null || TxtStressNotice == null)
+            {
+                return;
+            }
+
+            string brushKey = isDanger ? "DangerTextBrush" : "SuccessTextBrush";
+            BdrStressNotice.BorderBrush = ThemeService.GetBrush(brushKey);
+            TxtStressNotice.Foreground = ThemeService.GetBrush(brushKey);
+            TxtStressNotice.Text = message;
+            BdrStressNotice.Visibility = Visibility.Visible;
+        }
+
+        private void HideNotice()
+        {
+            if (BdrStressNotice != null)
+            {
+                BdrStressNotice.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void OnLanguageChanged()
@@ -607,17 +955,116 @@ namespace CryoTray.Views
             LocalizationService.Instance.ApplyWindow(this);
             UpdateCoolingDisplay(PowerPlanService.Instance.IsCoolingModeActive);
             UpdateComparisonDisplay();
-            BtnStartStop.Content = LocalizationService.Get(_isRunning ? "Stress_Stop" : "Stress_Start");
+            UpdateStartStopButtonStyle();
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            string unit = isFahrenheit ? "°F" : "°C";
+            UpdatePeakTempDisplay(isFahrenheit, unit);
+            TxtTestWatts.Text = _lastPowerWatts.HasValue && _lastPowerWatts.Value > 0
+                ? LocalizationService.Format("Stress_PowerLabel", _lastPowerWatts.Value)
+                : LocalizationService.Get("Stress_PowerNone");
+            DrawChart();
         }
 
         private void Timer_Tick(object? sender, EventArgs e)
         {
             TxtElapsed.Text = _stopwatch.Elapsed.ToString(@"mm\:ss");
+            if (_isRunning && _autoCompareActive)
+            {
+                double elapsed = _stopwatch.Elapsed.TotalSeconds;
+                var (switchToOn, complete) = EvaluateAutoCompareStep(
+                    _autoCompareActive,
+                    elapsed,
+                    _autoPhaseSwitchedToOn);
+                if (complete)
+                {
+                    StopTest(restoreAutoComparePlan: true);
+                    ShowNotice(LocalizationService.Get("Stress_AutoComplete"), isDanger: false);
+                    return;
+                }
+                if (switchToOn)
+                {
+                    _autoPhaseSwitchedToOn = true;
+                    PowerPlanService.Instance.SetCoolingMode(true);
+                }
+
+                UpdateAutoPhaseDisplay(elapsed);
+            }
         }
 
         private void BtnToggleCooling_Click(object sender, RoutedEventArgs e)
         {
+            if (_autoCompareActive)
+            {
+                _autoCompareActive = false;
+                _autoCompareManagedPlan = false;
+                _autoCompareRestoreProfile = null;
+                UpdateAutoPhaseDisplay(0);
+            }
+
             PowerPlanService.Instance.ToggleCoolingMode();
+        }
+
+        private void BtnCopySummary_Click(object sender, RoutedEventArgs e)
+        {
+            CopyStressSummary();
+        }
+
+        private void CopyStressSummary()
+        {
+            if (_recordedSamples.Count == 0)
+            {
+                return;
+            }
+
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            string unit = isFahrenheit ? "°F" : "°C";
+            var cmp = ComputeCoolingComparison(_recordedSamples, isFahrenheit);
+            string summary = FormatStressSummary(
+                cmp,
+                (int)_stopwatch.Elapsed.TotalSeconds,
+                _peakCpuTempCelsius,
+                _loadMode,
+                _fpsReference,
+                isFahrenheit,
+                unit);
+
+            try
+            {
+                Clipboard.SetText(summary);
+                FlashCopyButtonLabel("System_Copied");
+            }
+            catch
+            {
+                FlashCopyButtonLabel("System_CopyFailed");
+            }
+        }
+
+        private void FlashCopyButtonLabel(string resourceKey)
+        {
+            if (BtnCopySummary == null)
+            {
+                return;
+            }
+
+            _copyFeedbackTimer?.Stop();
+            BtnCopySummary.Content = LocalizationService.Get(resourceKey);
+            if (_copyFeedbackTimer == null)
+            {
+                _copyFeedbackTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(1600)
+                };
+                _copyFeedbackTimer.Tick += (_, _) =>
+                {
+                    _copyFeedbackTimer?.Stop();
+                    if (!_isClosing && BtnCopySummary != null)
+                    {
+                        BtnCopySummary.Content = LocalizationService.Get("Stress_CopySummary");
+                    }
+                };
+            }
+
+            _copyFeedbackTimer.Start();
         }
 
         private void BtnExportCsv_Click(object sender, RoutedEventArgs e)

@@ -1513,6 +1513,215 @@
                         </Border>
                     </StackPanel>
 
+                    <ToggleButton x:Name="SleepTimeoutsToggle"
+                                  Style="{StaticResource SettingsDisclosureToggleStyle}"
+                                  IsChecked="False"
+                                  Checked="SleepTimeoutsToggle_Changed"
+                                  Unchecked="SleepTimeoutsToggle_Changed"
+                                  Margin="0,0,0,10"
+                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsTitle}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TxtSleepTimeoutsChevron"
+                                       Grid.Column="0"
+                                       Text="›"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TxtSleepTimeoutsTitle"
+                                       Grid.Column="1"
+                                       Text="{DynamicResource Settings_SleepTimeoutsTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontSize="12.5"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </ToggleButton>
+                    <StackPanel x:Name="PnlSleepTimeoutsContent" Visibility="Collapsed" Margin="0,0,0,14">
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="{DynamicResource Settings_SleepTimeoutsDesc}"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,10,0"
+                                       VerticalAlignment="Center"/>
+                            <Button x:Name="BtnResetSleepTimeouts"
+                                    Grid.Column="1"
+                                    Content="{DynamicResource Settings_SleepTimeoutsReset}"
+                                    Style="{StaticResource SettingsFooterButton}"
+                                    Padding="8,2"
+                                    FontSize="11"
+                                    Visibility="Collapsed"
+                                    Click="BtnResetSleepTimeouts_Click"
+                                    VerticalAlignment="Top"/>
+                        </Grid>
+
+                        <TextBlock Text="{DynamicResource Settings_SleepTimeoutsCoolingGroup}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,6"/>
+                        <Border Background="{DynamicResource InputBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="10,8"
+                                Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource Settings_SleepTimeoutsDisplayOff}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           FontSize="12"
+                                           Margin="0,0,0,5"/>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition x:Name="ColCoolingDisplayOffDc" Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock x:Name="TxtCoolingDisplayOffAcLabel"
+                                                   Text="{DynamicResource Settings_SleepTimeoutsPluggedIn}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbCoolingDisplayOffAc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsDisplayOff}"/>
+                                    </StackPanel>
+                                    <StackPanel x:Name="PnlCoolingDisplayOffDc" Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="{DynamicResource Settings_SleepTimeoutsOnBattery}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbCoolingDisplayOffDc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsOnBattery}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock Text="{DynamicResource Settings_SleepTimeoutsSleepAfter}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           FontSize="12"
+                                           Margin="0,0,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition x:Name="ColCoolingSleepAfterDc" Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock x:Name="TxtCoolingSleepAfterAcLabel"
+                                                   Text="{DynamicResource Settings_SleepTimeoutsPluggedIn}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbCoolingSleepAfterAc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsSleepAfter}"/>
+                                    </StackPanel>
+                                    <StackPanel x:Name="PnlCoolingSleepAfterDc" Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="{DynamicResource Settings_SleepTimeoutsOnBattery}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbCoolingSleepAfterDc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsOnBattery}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="{DynamicResource Settings_SleepTimeoutsOffGroup}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,6"/>
+                        <Border Background="{DynamicResource InputBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource Settings_SleepTimeoutsDisplayOff}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           FontSize="12"
+                                           Margin="0,0,0,5"/>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition x:Name="ColOffDisplayOffDc" Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock x:Name="TxtOffDisplayOffAcLabel"
+                                                   Text="{DynamicResource Settings_SleepTimeoutsPluggedIn}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbOffDisplayOffAc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsDisplayOff}"/>
+                                    </StackPanel>
+                                    <StackPanel x:Name="PnlOffDisplayOffDc" Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="{DynamicResource Settings_SleepTimeoutsOnBattery}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbOffDisplayOffDc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsOnBattery}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock Text="{DynamicResource Settings_SleepTimeoutsSleepAfter}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           FontSize="12"
+                                           Margin="0,0,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition x:Name="ColOffSleepAfterDc" Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock x:Name="TxtOffSleepAfterAcLabel"
+                                                   Text="{DynamicResource Settings_SleepTimeoutsPluggedIn}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbOffSleepAfterAc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsSleepAfter}"/>
+                                    </StackPanel>
+                                    <StackPanel x:Name="PnlOffSleepAfterDc" Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="{DynamicResource Settings_SleepTimeoutsOnBattery}"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   FontSize="10.5"
+                                                   Margin="0,0,0,3"/>
+                                        <ComboBox x:Name="CmbOffSleepAfterDc"
+                                                  HorizontalAlignment="Stretch"
+                                                  SelectionChanged="SleepTimeoutCombo_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Settings_SleepTimeoutsOnBattery}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,4,0,18"/>
 
                     <TextBlock Text="{DynamicResource Settings_CoolingControls}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>

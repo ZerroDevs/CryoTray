@@ -9,6 +9,7 @@ namespace CryoTray.Models
         TempFiles,
         BrowserCache,
         GpuShaderCache,
+        CrashDumps,
         Prefetch
     }
 
@@ -52,6 +53,13 @@ namespace CryoTray.Models
                 "StorageCleanup_Gamers",
                 false),
             new StorageCleanupCategoryDefinition(
+                StorageCleanupCategory.CrashDumps,
+                "StorageCleanup_CrashTitle",
+                "StorageCleanup_ShortCrash",
+                "StorageCleanup_CrashDesc",
+                "StorageCleanup_OptIn",
+                false),
+            new StorageCleanupCategoryDefinition(
                 StorageCleanupCategory.Prefetch,
                 "StorageCleanup_PrefetchTitle",
                 "StorageCleanup_ShortPrefetch",
@@ -66,10 +74,16 @@ namespace CryoTray.Models
         }
     }
 
+    public sealed record StorageCleanupTargetScan(
+        string RootPath,
+        long Bytes,
+        int Files);
+
     public sealed record StorageCleanupCategoryScan(
         StorageCleanupCategory Category,
         long Bytes,
-        int Files);
+        int Files,
+        IReadOnlyList<StorageCleanupTargetScan>? Targets = null);
 
     public sealed record StorageCleanupProgress(
         StorageCleanupPhase Phase,

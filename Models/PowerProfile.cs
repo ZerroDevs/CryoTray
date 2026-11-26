@@ -843,6 +843,7 @@ namespace CryoTray.Models
         public static readonly Guid SubUsb = new("2a737441-1930-4402-8d77-b2bebba308a3");
         public static readonly Guid SubDisk = new("0012ee47-9041-4b5d-9b77-535fba8b1442");
         public static readonly Guid SubSleep = new("238c9fa8-0aad-41ed-83f4-97be242c8f20");
+        public static readonly Guid SubVideo = new("7516b95f-f776-4464-8c53-06167f40cc99");
         public static readonly Guid SubWireless = new("19cbb8fa-5279-450e-9fac-8a3d5fedd0c1");
 
         // Settings belonging to no subgroup
@@ -889,5 +890,9 @@ namespace CryoTray.Models
         public static readonly Guid PrimaryNvmeLatency = new("fc95af4d-40e7-4b6d-835a-56d131dbc80e");
         public static readonly Guid SecondaryNvmeLatency = new("dbc9e238-6de9-49e3-92cd-8c2b4946b472");
         public static readonly Guid WirelessPowerSaving = new("12bbebe6-58d6-4636-95bb-3217ef867c1a");
+
+        // Display and sleep idle timeouts (seconds)
+        public static readonly Guid VideoIdle = new("3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e");
+        public static readonly Guid StandbyIdle = new("29f6c1db-86da-48c5-9fdb-f2b67b1f44da");
     }
 }

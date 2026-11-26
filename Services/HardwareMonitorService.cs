@@ -956,25 +956,23 @@ namespace CryoTray.Services
             }
             _pendingCpuBoostGhz = 0;
 
-            if (!_isInitialized)
+            HardwareSnapshot updated = CloneSnapshot(CurrentSnapshot);
+            updated.CpuBoostPeakGhz = ResolveCpuBoostPeakGhz(
+                _cpuBaseGhz, _cpuMaxGhz, _cpuIdBoostGhz, _observedCpuBoostGhz, _smbiosBoostGhz, _cachedCpuBoostGhz);
+
+            if (_isInitialized && updated.Gpus.Count > 0)
             {
-                return;
+                GpuTelemetry? primary = SelectPrimaryGpu(
+                    updated.Gpus,
+                    SettingsService.Instance.Current.PreferredGpuIdentifier);
+                ApplyPrimaryGpu(updated, primary);
             }
 
-            HardwareSnapshot current = CurrentSnapshot;
-            if (current.Gpus.Count == 0)
-            {
-                return;
-            }
-
-            var updated = CloneSnapshot(current);
-
-            GpuTelemetry? primary = SelectPrimaryGpu(
-                updated.Gpus,
-                SettingsService.Instance.Current.PreferredGpuIdentifier);
-            ApplyPrimaryGpu(updated, primary);
             CurrentSnapshot = updated;
-            TelemetryUpdated?.Invoke(updated);
+            if (_isInitialized)
+            {
+                TelemetryUpdated?.Invoke(updated);
+            }
         }
 
         private async Task PollingLoop(CancellationToken token)

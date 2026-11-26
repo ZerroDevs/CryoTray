@@ -36,6 +36,7 @@ namespace CryoTray.Tests
             allPassed &= TestCpuPlanSpeedTooltipAndDetection();
             allPassed &= TestCryoTrayPowerSchemeIntegration();
             allPassed &= TestPowerProfileWhitelistEngine();
+            allPassed &= TestSleepAndDisplayTimeoutOverrides();
             allPassed &= TestSystemInfoQueries();
             allPassed &= TestGdiLeakPrevention();
             allPassed &= TestLocalization();
@@ -43,6 +44,8 @@ namespace CryoTray.Tests
             allPassed &= TestPerCoreTemperaturePolling();
             allPassed &= TestTemperatureAlerts();
             allPassed &= TestGpuDetailsAndDeltaAlerts();
+            allPassed &= TestMainWindowOverviewTooltipTimerBarAndDuration();
+            allPassed &= TestMainWindowSnapshotAndUiPolish();
             allPassed &= TestProcessUsageSampling();
             allPassed &= TestFanHealthWatch();
             allPassed &= TestStorageHealthWatch();
@@ -119,6 +122,9 @@ namespace CryoTray.Tests
             allPassed &= TestProfileVisibilityAndExternalPalette();
             allPassed &= TestProfileEnhancementsAndMissingPlanPrune();
             allPassed &= TestCpuPlanSpeedTooltipAndDetection();
+            allPassed &= TestSleepAndDisplayTimeoutOverrides();
+            allPassed &= TestMainWindowOverviewTooltipTimerBarAndDuration();
+            allPassed &= TestMainWindowSnapshotAndUiPolish();
             allPassed &= TestGdiLeakPrevention();
             allPassed &= TestLocalization();
             allPassed &= TestWindowsXamlInstantiation();
@@ -526,6 +532,20 @@ namespace CryoTray.Tests
             Console.Write("[TEST] Six-Profile Whitelist Engine... ");
             var pps = PowerPlanService.Instance;
             Guid originalActive = pps.GetActiveSchemeGuid();
+            AppSettings settings = SettingsService.Instance.Current;
+            string oldPreferredCooling = settings.PreferredCoolingProfile;
+            int oldCoolingDispAc = settings.CoolingDisplayOffAcMinutes;
+            int oldCoolingDispDc = settings.CoolingDisplayOffDcMinutes;
+            int oldCoolingSleepAc = settings.CoolingSleepAfterAcMinutes;
+            int oldCoolingSleepDc = settings.CoolingSleepAfterDcMinutes;
+            int oldOffDispAc = settings.OffDisplayOffAcMinutes;
+            int oldOffDispDc = settings.OffDisplayOffDcMinutes;
+            int oldOffSleepAc = settings.OffSleepAfterAcMinutes;
+            int oldOffSleepDc = settings.OffSleepAfterDcMinutes;
+            uint origWinAcVideo = ReadPowerValue(PowerPlanService.BalancedGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, dc: false, "Balanced AC video idle");
+            uint origWinDcVideo = ReadPowerValue(PowerPlanService.BalancedGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, dc: true, "Balanced DC video idle");
+            uint origWinAcSleep = ReadPowerValue(PowerPlanService.BalancedGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, dc: false, "Balanced AC standby idle");
+            uint origWinDcSleep = ReadPowerValue(PowerPlanService.BalancedGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, dc: true, "Balanced DC standby idle");
             try
             {
                 var guids = PowerProfiles.All.Select(profile => profile.SchemeGuid).ToList();
@@ -597,6 +617,16 @@ namespace CryoTray.Tests
                 }
                 AssertSingleCryoTrayScheme(pps, PowerProfiles.LegacyProfile, "Legacy");
 
+                settings.PreferredCoolingProfile = PowerProfiles.EcoKey;
+                settings.CoolingDisplayOffAcMinutes = 3;
+                settings.CoolingDisplayOffDcMinutes = 2;
+                settings.CoolingSleepAfterAcMinutes = 15;
+                settings.CoolingSleepAfterDcMinutes = 0;
+                settings.OffDisplayOffAcMinutes = 5;
+                settings.OffDisplayOffDcMinutes = 1;
+                settings.OffSleepAfterAcMinutes = 0;
+                settings.OffSleepAfterDcMinutes = 10;
+
                 if (!pps.SwitchToProfile(PowerProfiles.EcoProfile))
                 {
                     throw new Exception("Failed to activate the Eco cooling profile.");
@@ -636,6 +666,29 @@ namespace CryoTray.Tests
                     PowerGuids.SystemCoolingPolicy,
                     0,
                     "Eco passive cooling policy");
+                AssertAcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, 180, "Eco AC video idle");
+                AssertDcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, 120, "Eco DC video idle");
+                AssertAcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, 900, "Eco AC standby idle");
+                AssertDcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, 0, "Eco DC standby idle");
+
+                // ReapplyActiveProfileValues must update timeouts on an active Tray/Game Mode scheme (Eco)
+                // without overriding it back to PreferredCoolingProfile (Cooling).
+                settings.PreferredCoolingProfile = PowerProfiles.CoolingKey;
+                settings.CoolingDisplayOffAcMinutes = 4;
+                pps.ReapplyActiveProfileValues();
+                AssertSingleCryoTrayScheme(pps, PowerProfiles.EcoProfile, "Reapply keeps Eco active");
+                AssertAcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, 240, "Reapply updates active Eco timeout");
+
+                settings.PreferredCoolingProfile = PowerProfiles.EcoKey;
+                settings.CoolingDisplayOffAcMinutes = -1;
+                settings.CoolingDisplayOffDcMinutes = -1;
+                settings.CoolingSleepAfterAcMinutes = -1;
+                settings.CoolingSleepAfterDcMinutes = -1;
+                pps.RefreshActiveProfile();
+                AssertAcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, origWinAcVideo, "Eco Follow Windows AC video idle");
+                AssertDcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, origWinDcVideo, "Eco Follow Windows DC video idle");
+                AssertAcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, origWinAcSleep, "Eco Follow Windows AC standby idle");
+                AssertDcValue(PowerProfiles.EcoProfile.SchemeGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, origWinDcSleep, "Eco Follow Windows DC standby idle");
 
                 if (!pps.SwitchToProfile(PowerProfiles.WorkProfile))
                 {
@@ -688,6 +741,10 @@ namespace CryoTray.Tests
                     PowerGuids.PrimaryNvmeIdle,
                     200,
                     "Work NVMe idle");
+                AssertAcValue(PowerProfiles.WorkProfile.SchemeGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, 300, "Work AC video idle");
+                AssertDcValue(PowerProfiles.WorkProfile.SchemeGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, 60, "Work DC video idle");
+                AssertAcValue(PowerProfiles.WorkProfile.SchemeGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, 0, "Work AC standby idle");
+                AssertDcValue(PowerProfiles.WorkProfile.SchemeGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, 600, "Work DC standby idle");
 
                 if (!pps.SwitchToProfile(PowerProfiles.BalancedProfile))
                 {
@@ -706,6 +763,10 @@ namespace CryoTray.Tests
                 {
                     throw new Exception("Balanced was removed while switching profiles.");
                 }
+                AssertAcValue(PowerPlanService.BalancedGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, origWinAcVideo, "Balanced AC video idle untouched");
+                AssertDcValue(PowerPlanService.BalancedGuid, PowerGuids.SubVideo, PowerGuids.VideoIdle, origWinDcVideo, "Balanced DC video idle untouched");
+                AssertAcValue(PowerPlanService.BalancedGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, origWinAcSleep, "Balanced AC standby idle untouched");
+                AssertDcValue(PowerPlanService.BalancedGuid, PowerGuids.SubSleep, PowerGuids.StandbyIdle, origWinDcSleep, "Balanced DC standby idle untouched");
 
                 pps.CleanupForUninstall();
                 if (pps.GetInstalledSchemes().Any(scheme => PowerProfiles.IsCryoTrayScheme(scheme.Guid)))
@@ -723,6 +784,16 @@ namespace CryoTray.Tests
             }
             finally
             {
+                settings.PreferredCoolingProfile = oldPreferredCooling;
+                settings.CoolingDisplayOffAcMinutes = oldCoolingDispAc;
+                settings.CoolingDisplayOffDcMinutes = oldCoolingDispDc;
+                settings.CoolingSleepAfterAcMinutes = oldCoolingSleepAc;
+                settings.CoolingSleepAfterDcMinutes = oldCoolingSleepDc;
+                settings.OffDisplayOffAcMinutes = oldOffDispAc;
+                settings.OffDisplayOffDcMinutes = oldOffDispDc;
+                settings.OffSleepAfterAcMinutes = oldOffSleepAc;
+                settings.OffSleepAfterDcMinutes = oldOffSleepDc;
+
                 Guid restore = originalActive;
                 if (pps.GetInstalledSchemes().All(scheme => scheme.Guid != restore))
                 {
@@ -734,6 +805,39 @@ namespace CryoTray.Tests
             }
         }
 
+        private static uint ReadPowerValue(
+            Guid scheme,
+            Guid subGroup,
+            Guid setting,
+            bool dc,
+            string label)
+        {
+            uint value;
+            uint result = dc
+                ? NativeMethods.PowerReadDCValueIndex(IntPtr.Zero, ref scheme, ref subGroup, ref setting, out value)
+                : NativeMethods.PowerReadACValueIndex(IntPtr.Zero, ref scheme, ref subGroup, ref setting, out value);
+            if (result != 0)
+            {
+                throw new Exception($"{label}: read failed with code {result}.");
+            }
+            return value;
+        }
+
+        private static void AssertPowerValue(
+            Guid scheme,
+            Guid subGroup,
+            Guid setting,
+            bool dc,
+            uint expected,
+            string label)
+        {
+            uint value = ReadPowerValue(scheme, subGroup, setting, dc, label);
+            if (value != expected)
+            {
+                throw new Exception($"{label}: expected {expected}, got {value}.");
+            }
+        }
+
         private static void AssertAcValue(
             Guid scheme,
             Guid subGroup,
@@ -741,17 +845,17 @@ namespace CryoTray.Tests
             uint expected,
             string label)
         {
-            uint value;
-            uint result = NativeMethods.PowerReadACValueIndex(
-                IntPtr.Zero, ref scheme, ref subGroup, ref setting, out value);
-            if (result != 0)
-            {
-                throw new Exception($"{label}: read failed with code {result}.");
-            }
-            if (value != expected)
-            {
-                throw new Exception($"{label}: expected {expected}, got {value}.");
-            }
+            AssertPowerValue(scheme, subGroup, setting, dc: false, expected, label);
+        }
+
+        private static void AssertDcValue(
+            Guid scheme,
+            Guid subGroup,
+            Guid setting,
+            uint expected,
+            string label)
+        {
+            AssertPowerValue(scheme, subGroup, setting, dc: true, expected, label);
         }
 
         private static void AssertSingleCryoTrayScheme(
@@ -2677,6 +2781,90 @@ namespace CryoTray.Tests
                         $"FPS impact NaN mismatch: projected={fpsUnknown.ProjectedFps}, lost={fpsUnknown.LostFps}");
                 }
 
+                if (Views.StressTestWindow.ResolveWorkerThreadCount(16, Views.StressLoadMode.AllCores) != 16 ||
+                    Views.StressTestWindow.ResolveWorkerThreadCount(16, Views.StressLoadMode.HalfCores) != 8 ||
+                    Views.StressTestWindow.ResolveWorkerThreadCount(16, Views.StressLoadMode.SingleCore) != 1 ||
+                    Views.StressTestWindow.ResolveWorkerThreadCount(1, Views.StressLoadMode.HalfCores) != 1)
+                {
+                    throw new Exception("Worker thread count resolution mismatch.");
+                }
+
+                if (Views.StressTestWindow.ShouldTriggerThermalCutoff(false, 99.0) ||
+                    Views.StressTestWindow.ShouldTriggerThermalCutoff(true, 94.9) ||
+                    !Views.StressTestWindow.ShouldTriggerThermalCutoff(true, 95.0) ||
+                    Views.StressTestWindow.ShouldTriggerThermalCutoff(true, double.NaN))
+                {
+                    throw new Exception("Thermal safety cutoff predicate failed.");
+                }
+
+                var autoBefore = Views.StressTestWindow.EvaluateAutoCompareStep(true, 29.5, false);
+                var autoMid = Views.StressTestWindow.EvaluateAutoCompareStep(true, 30.0, false);
+                var autoMidDone = Views.StressTestWindow.EvaluateAutoCompareStep(true, 45.0, true);
+                var autoEnd = Views.StressTestWindow.EvaluateAutoCompareStep(true, 60.0, true);
+                if (autoBefore.ShouldSwitchToCoolingOn || autoBefore.ShouldComplete ||
+                    !autoMid.ShouldSwitchToCoolingOn || autoMid.ShouldComplete ||
+                    autoMidDone.ShouldSwitchToCoolingOn || autoMidDone.ShouldComplete ||
+                    !autoEnd.ShouldComplete)
+                {
+                    throw new Exception("Auto A/B compare step evaluation mismatch.");
+                }
+
+                string stressSummary = Views.StressTestWindow.FormatStressSummary(
+                    cmpC,
+                    elapsedSeconds: 60,
+                    peakTempCelsius: 81.0,
+                    loadMode: Views.StressLoadMode.HalfCores,
+                    fpsReference: 144,
+                    isFahrenheit: false,
+                    unit: "°C");
+                if (!stressSummary.Contains("01:00", StringComparison.Ordinal) ||
+                    !stressSummary.Contains("81 °C", StringComparison.Ordinal) ||
+                    !stressSummary.Contains("-30 °C", StringComparison.Ordinal) ||
+                    !stressSummary.Contains("90%", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected stress summary output:\n{stressSummary}");
+                }
+
+                Exception? staEx = null;
+                var staThread = new Thread(() =>
+                {
+                    var stw = new Views.StressTestWindow();
+                    try
+                    {
+                        if (stw.FindName("TxtChartEmptyHint") is not System.Windows.Controls.TextBlock hint ||
+                            hint.Visibility != Visibility.Visible ||
+                            stw.FindName("TxtPerformanceRetained") is not System.Windows.Controls.TextBlock retained ||
+                            retained.Visibility != Visibility.Collapsed ||
+                            stw.FindName("TxtFpsImpact") is not System.Windows.Controls.TextBlock fpsText ||
+                            fpsText.Visibility != Visibility.Collapsed ||
+                            stw.FindName("CmbStressLoadMode") is not System.Windows.Controls.ComboBox loadCombo ||
+                            loadCombo.Items.Count != 3 ||
+                            stw.FindName("ChkAutoCompare") == null ||
+                            stw.FindName("BtnCopySummary") == null ||
+                            stw.FindName("TxtTestPeakTemp") == null ||
+                            stw.FindName("TxtTestWatts") == null)
+                        {
+                            throw new Exception("StressTestWindow missing upgraded benchmark or visual controls.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        stw.Close();
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                staThread.SetApartmentState(ApartmentState.STA);
+                staThread.Start();
+                staThread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
                 Console.WriteLine("PASSED");
                 return true;
             }
@@ -3772,7 +3960,7 @@ namespace CryoTray.Tests
                                     }
                                 }
 
-                                if (itemCount != 6 || sepCount != 1 || ramMenu.Items.Count != 5)
+                                if (itemCount != 7 || sepCount != 1 || ramMenu.Items.Count != 5)
                                 {
                                     throw new Exception($"Unexpected menu structure: toolsItems={itemCount}, toolsSep={sepCount}, ramItems={ramMenu.Items.Count}");
                                 }
@@ -4428,12 +4616,24 @@ namespace CryoTray.Tests
                          Path.Combine(local, "D3DSCache"))) ||
                     (!string.IsNullOrWhiteSpace(local) &&
                      !StorageCleanupService.IsSafeCleanupRoot(
+                         Path.Combine(local, "CrashDumps"))) ||
+                    (!string.IsNullOrWhiteSpace(local) &&
+                     !StorageCleanupService.IsSafeCleanupRoot(
                          Path.Combine(local, "Google", "Chrome", "User Data", "Default", "Cache", "Cache_Data"))) ||
                     (!string.IsNullOrWhiteSpace(programData) &&
                      !StorageCleanupService.IsSafeCleanupRoot(
-                         Path.Combine(programData, "NVIDIA Corporation", "NV_Cache"))))
+                         Path.Combine(programData, "NVIDIA Corporation", "NV_Cache"))) ||
+                    (!string.IsNullOrWhiteSpace(programData) &&
+                     !StorageCleanupService.IsSafeCleanupRoot(
+                         Path.Combine(programData, "Microsoft", "Windows", "WER", "ReportArchive"))))
                 {
                     throw new Exception("A normal cleanup target or sandbox root was rejected.");
+                }
+
+                IReadOnlyList<string> crashRoots = StorageCleanupService.GetCrashDumpRootsForTest();
+                if (crashRoots.Count == 0 || crashRoots.Any(r => !StorageCleanupService.IsSafeCleanupRoot(r)))
+                {
+                    throw new Exception("CrashDump cleanup roots invalid or failed safety guard.");
                 }
 
                 string? oldTmp = Environment.GetEnvironmentVariable("TMP");
@@ -4502,6 +4702,7 @@ namespace CryoTray.Tests
                 {
                     StorageCleanupCategory.BrowserCache,
                     StorageCleanupCategory.GpuShaderCache,
+                    StorageCleanupCategory.CrashDumps,
                     StorageCleanupCategory.Prefetch
                 };
 
@@ -4768,6 +4969,72 @@ namespace CryoTray.Tests
                     File.Exists(Path.Combine(prefetch, "app.db")))
                 {
                     throw new Exception("Prefetch-only cleanup removed the wrong files.");
+                }
+
+                string ageRoot = Path.Combine(root, "temp-age");
+                Directory.CreateDirectory(ageRoot);
+                string oldFile = Path.Combine(ageRoot, "old.tmp");
+                string recentFile = Path.Combine(ageRoot, "recent.tmp");
+                File.WriteAllBytes(oldFile, new byte[80]);
+                File.WriteAllBytes(recentFile, new byte[45]);
+                File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow.AddHours(-30));
+                File.SetLastWriteTimeUtc(recentFile, DateTime.UtcNow.AddMinutes(-5));
+
+                StorageCleanupTestResult ageResult = StorageCleanupService.CleanRootsForTest(
+                    new[] { ageRoot },
+                    recursive: true,
+                    prefetchOnly: false,
+                    maxModifiedUtc: DateTime.UtcNow.AddHours(-24));
+                if (ageResult.FilesDeleted != 1 ||
+                    ageResult.BytesFreed != 80 ||
+                    ageResult.SkippedLockedFiles != 0 ||
+                    File.Exists(oldFile) ||
+                    !File.Exists(recentFile))
+                {
+                    throw new Exception($"Temp 24h age guard mismatch: deleted={ageResult.FilesDeleted}, bytes={ageResult.BytesFreed}, recentExists={File.Exists(recentFile)}.");
+                }
+
+                string tempDisplay = Views.StorageCleanupWindow.FormatTargetDisplayPath(Path.GetTempPath());
+                if (!string.Equals(tempDisplay, "%TEMP%", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Expected %TEMP% display path, got '{tempDisplay}'.");
+                }
+
+                if (StorageCleanupCatalog.All.Count != 5 ||
+                    LocalizationService.Get("StorageCleanup_BrowserTitle").Contains("Chrome", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception("StorageCleanup catalog count or concise browser title mismatch.");
+                }
+
+                Exception? staEx = null;
+                var staThread = new Thread(() =>
+                {
+                    var w = new Views.StorageCleanupWindow();
+                    try
+                    {
+                        if (w.FindName("ChkSkipRecentTemp") is not System.Windows.Controls.CheckBox chk ||
+                            chk.IsChecked != true ||
+                            w.TryFindResource("CleanupScrollBarStyle") is not Style)
+                        {
+                            throw new Exception("StorageCleanupWindow missing 24h guard checkbox or dark scrollbar style.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        w.Close();
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                staThread.SetApartmentState(ApartmentState.STA);
+                staThread.Start();
+                staThread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
                 }
 
                 Console.WriteLine("PASSED");
@@ -5316,6 +5583,43 @@ namespace CryoTray.Tests
                     throw new Exception("Step-up consecutive boost sample did not settle at 5.02 GHz.");
                 }
 
+                // OnSettingsChanged immediately refreshes CurrentSnapshot.CpuBoostPeakGhz when cache changes or clears.
+                AppSettings liveSettings = SettingsService.Instance.Current;
+                string prevCpuCacheName = liveSettings.CachedBoostPeakCpuName;
+                double prevCpuCacheGhz = liveSettings.CachedBoostPeakGhz;
+                try
+                {
+                    liveSettings.CachedBoostPeakCpuName = "Unknown";
+                    liveSettings.CachedBoostPeakGhz = 0;
+                    var hms = new HardwareMonitorService();
+                    string detectedCpu = hms.CurrentSnapshot.CpuName;
+                    if (!string.IsNullOrWhiteSpace(detectedCpu))
+                    {
+                        var onSettingsChangedMethod = typeof(HardwareMonitorService).GetMethod(
+                            "OnSettingsChanged",
+                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                        liveSettings.CachedBoostPeakCpuName = detectedCpu;
+                        liveSettings.CachedBoostPeakGhz = 9.95;
+                        onSettingsChangedMethod!.Invoke(hms, null);
+                        if (Math.Abs(hms.CurrentSnapshot.CpuBoostPeakGhz - 9.95) > 0.01)
+                        {
+                            throw new Exception($"OnSettingsChanged did not pick up updated boost cache: got {hms.CurrentSnapshot.CpuBoostPeakGhz}");
+                        }
+
+                        HardwareMonitorService.TryClearCachedBoostPeak(liveSettings);
+                        onSettingsChangedMethod.Invoke(hms, null);
+                        if (Math.Abs(hms.CurrentSnapshot.CpuBoostPeakGhz - 9.95) < 0.01)
+                        {
+                            throw new Exception("OnSettingsChanged left stale cached boost peak after clear.");
+                        }
+                    }
+                }
+                finally
+                {
+                    liveSettings.CachedBoostPeakCpuName = prevCpuCacheName;
+                    liveSettings.CachedBoostPeakGhz = prevCpuCacheGhz;
+                }
+
                 // Glitch right before a valid higher peak confirms only the lower real value (never 9.90).
                 double glitchPending = 0;
                 double glitchConfirmed = HardwareMonitorService.ObserveConsecutiveBoostSample(9.90, 3.80, 4.85, ref glitchPending);
@@ -5579,6 +5883,519 @@ namespace CryoTray.Tests
                     {
                         throw new Exception($"Arabic dictionary missing key: {key}");
                     }
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestSleepAndDisplayTimeoutOverrides()
+        {
+            Console.Write("[TEST] Sleep & Display Timeout Overrides... ");
+            try
+            {
+                if (PowerPlanService.ResolveTimeoutSeconds(-1, 600u) != 600u ||
+                    PowerPlanService.ResolveTimeoutSeconds(-1, 0u) != 0u ||
+                    PowerPlanService.ResolveTimeoutSeconds(0, 600u) != 0u ||
+                    PowerPlanService.ResolveTimeoutSeconds(1, 600u) != 60u ||
+                    PowerPlanService.ResolveTimeoutSeconds(15, 600u) != 900u ||
+                    PowerPlanService.ResolveTimeoutSeconds(120, 600u) != 7200u ||
+                    PowerPlanService.ResolveTimeoutSeconds(int.MaxValue, 600u) != 31536000u)
+                {
+                    throw new Exception("ResolveTimeoutSeconds mapping mismatch.");
+                }
+
+                var defaults = new AppSettings();
+                if (PowerPlanService.HasCustomTimeoutOverrides(defaults) ||
+                    PowerPlanService.HasCustomTimeoutOverrides(null))
+                {
+                    throw new Exception("Default AppSettings reported custom timeout overrides.");
+                }
+
+                Action<AppSettings>[] mutators =
+                {
+                    s => s.CoolingDisplayOffAcMinutes = 0,
+                    s => s.CoolingDisplayOffDcMinutes = 5,
+                    s => s.CoolingSleepAfterAcMinutes = 10,
+                    s => s.CoolingSleepAfterDcMinutes = 0,
+                    s => s.OffDisplayOffAcMinutes = 15,
+                    s => s.OffDisplayOffDcMinutes = 2,
+                    s => s.OffSleepAfterAcMinutes = 0,
+                    s => s.OffSleepAfterDcMinutes = 30
+                };
+                foreach (var mutate in mutators)
+                {
+                    var sample = new AppSettings();
+                    mutate(sample);
+                    if (!PowerPlanService.HasCustomTimeoutOverrides(sample))
+                    {
+                        throw new Exception("HasCustomTimeoutOverrides failed to detect an override.");
+                    }
+                }
+
+                var routed = new AppSettings
+                {
+                    CoolingDisplayOffAcMinutes = 3,
+                    CoolingDisplayOffDcMinutes = 2,
+                    CoolingSleepAfterAcMinutes = 15,
+                    CoolingSleepAfterDcMinutes = 0,
+                    OffDisplayOffAcMinutes = 10,
+                    OffDisplayOffDcMinutes = 5,
+                    OffSleepAfterAcMinutes = 0,
+                    OffSleepAfterDcMinutes = 20
+                };
+                var coolingGroup = PowerPlanService.GetGroupTimeoutOverrides(routed, isCooling: true);
+                var offGroup = PowerPlanService.GetGroupTimeoutOverrides(routed, isCooling: false);
+                if (coolingGroup != (3, 2, 15, 0) || offGroup != (10, 5, 0, 20))
+                {
+                    throw new Exception("GetGroupTimeoutOverrides routing mismatch.");
+                }
+
+                Exception? staEx = null;
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        var sw = new Views.SettingsWindow();
+                        try
+                        {
+                            string[] expectedNames =
+                            {
+                                "SleepTimeoutsToggle",
+                                "PnlSleepTimeoutsContent",
+                                "BtnResetSleepTimeouts",
+                                "CmbCoolingDisplayOffAc",
+                                "CmbCoolingDisplayOffDc",
+                                "CmbCoolingSleepAfterAc",
+                                "CmbCoolingSleepAfterDc",
+                                "CmbOffDisplayOffAc",
+                                "CmbOffDisplayOffDc",
+                                "CmbOffSleepAfterAc",
+                                "CmbOffSleepAfterDc"
+                            };
+                            foreach (string name in expectedNames)
+                            {
+                                if (sw.FindName(name) == null)
+                                {
+                                    throw new Exception($"SettingsWindow missing control '{name}'.");
+                                }
+                            }
+
+                            // Verify disclosure headers on unopened tabs are indexed and resolve back to their ToggleButton.
+                            sw.RebuildSettingsSearchIndex();
+
+                            if (sw.FindName("TxtSleepTimeoutsTitle") is not System.Windows.FrameworkElement sleepTitle ||
+                                sw.FindName("SleepTimeoutsToggle") is not System.Windows.Controls.Primitives.ToggleButton sleepToggle ||
+                                !ReferenceEquals(Views.SettingsWindow.FindFocusableTarget(sleepTitle), sleepToggle))
+                            {
+                                throw new Exception("FindFocusableTarget did not resolve SleepTimeoutsToggle.");
+                            }
+
+                            if (sw.FindName("TxtManageProfilesTitle") is not System.Windows.FrameworkElement manageTitle ||
+                                sw.FindName("ManageProfilesToggle") is not System.Windows.Controls.Primitives.ToggleButton manageToggle ||
+                                !ReferenceEquals(Views.SettingsWindow.FindFocusableTarget(manageTitle), manageToggle))
+                            {
+                                throw new Exception("FindFocusableTarget did not resolve ManageProfilesToggle.");
+                            }
+
+                            if (!sw.SettingsSearchIndex.Any(item => ReferenceEquals(item.Target, sleepTitle)) ||
+                                !sw.SettingsSearchIndex.Any(item => ReferenceEquals(item.Target, manageTitle)) ||
+                                sw.SettingsSearchIndex.Any(item =>
+                                    ReferenceEquals(item.Target, sw.FindName("BtnResetSleepTimeouts")) ||
+                                    item.Title.StartsWith("Cooling On (", StringComparison.Ordinal) ||
+                                    item.Title.StartsWith("Override turn-off display", StringComparison.Ordinal)))
+                            {
+                                throw new Exception("Settings search index mismatch for disclosure headers or collapsed internals.");
+                            }
+
+                            if (sw.FindName("TabCpu") is System.Windows.Controls.RadioButton tabCpu)
+                            {
+                                tabCpu.IsChecked = true;
+                            }
+
+                            sw.ApplyTemplate();
+                            sw.Measure(new System.Windows.Size(480, 620));
+                            sw.Arrange(new System.Windows.Rect(0, 0, 480, 620));
+                            sw.UpdateLayout();
+                            if (!ReferenceEquals(Views.SettingsWindow.FindFocusableTarget(sleepTitle), sleepToggle))
+                            {
+                                throw new Exception("FindFocusableTarget failed after opening CPU tab.");
+                            }
+                        }
+                        finally
+                        {
+                            sw.Close();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                thread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestMainWindowOverviewTooltipTimerBarAndDuration()
+        {
+            Console.Write("[TEST] GPU Overview Tooltip, Active Timer Pill & Persistent Profile Uptime... ");
+            var pps = PowerPlanService.Instance;
+            string currentKey = pps.ActiveProfile?.Key ?? "";
+            var savedDuration = pps.SwapDurationTrackingForTest(currentKey, DateTime.UtcNow.AddMinutes(-12).AddSeconds(-10));
+            try
+            {
+                var fullGpu = new HardwareSnapshot
+                {
+                    GpuName = "NVIDIA GeForce RTX 3060 Ti",
+                    GpuVramUsedMb = 2048,
+                    GpuVramTotalMb = 8192,
+                    GpuCoreClockMhz = 1695,
+                    GpuMemoryClockMhz = 7000,
+                    GpuThrottleReason = "GPU Performance Limit - Power"
+                };
+                var (gpuTitle, gpuDetail) = Views.MainWindow.FormatGpuOverviewTooltip(fullGpu);
+                if (!gpuTitle.Contains("RTX 3060 Ti", StringComparison.Ordinal) ||
+                    !gpuDetail.Contains("2.0 / 8.0 GB", StringComparison.Ordinal) ||
+                    !gpuDetail.Contains("1695/7000 MHz", StringComparison.Ordinal) ||
+                    !gpuDetail.Contains("Power", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected GPU overview tooltip: title='{gpuTitle}', detail='{gpuDetail}'.");
+                }
+
+                var (emptyTitle, emptyDetail) = Views.MainWindow.FormatGpuOverviewTooltip(new HardwareSnapshot());
+                if (string.IsNullOrWhiteSpace(emptyTitle) || string.IsNullOrWhiteSpace(emptyDetail))
+                {
+                    throw new Exception("Empty GPU overview tooltip fell back cleanly failed.");
+                }
+
+                var (idleText, idleKind, idleActive) = Views.MainWindow.FormatActiveUtilityDisplay(null, null, null);
+                if (idleActive || idleText.Length != 0 || idleKind.Length != 0)
+                {
+                    throw new Exception("Idle active utility bar should report inactive.");
+                }
+
+                var dlStatus = new DownloadTimerStatus(
+                    DownloadTimerPhase.Monitoring, 0, 0, true,
+                    TimeSpan.FromSeconds(75), TimeSpan.FromMinutes(5), 0, DownloadPowerAction.Sleep);
+                var keepStatus = new KeepAwakeStatus(
+                    KeepAwakeMode.Timed, DateTime.UtcNow.AddMinutes(42), TimeSpan.FromMinutes(60),
+                    TimeSpan.FromMinutes(42), true, true);
+                var (comboText, comboKind, comboActive) = Views.MainWindow.FormatActiveUtilityDisplay(
+                    keepStatus, dlStatus, TimeSpan.FromMinutes(14));
+                if (!comboActive ||
+                    comboKind != "download" ||
+                    !comboText.Contains("3:45", StringComparison.Ordinal) ||
+                    !comboText.Contains("00:42:00", StringComparison.Ordinal) ||
+                    !comboText.Contains("14", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected multi-timer summary: kind='{comboKind}', text='{comboText}'.");
+                }
+
+                var (warnText, warnKind, warnActive) = Views.MainWindow.FormatActiveUtilityDisplay(
+                    null,
+                    new DownloadTimerStatus(
+                        DownloadTimerPhase.Warning, 0, 0, true,
+                        TimeSpan.Zero, TimeSpan.FromMinutes(5), 37, DownloadPowerAction.Sleep),
+                    null);
+                if (!warnActive || warnKind != "download" || !warnText.Contains("37", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected warning timer summary: '{warnText}'.");
+                }
+
+                string tipDownload = Views.MainWindow.ResolveActiveUtilityStopTooltip("download");
+                string tipKeep = Views.MainWindow.ResolveActiveUtilityStopTooltip("keepawake");
+                string tipPause = Views.MainWindow.ResolveActiveUtilityStopTooltip("pause");
+                string tipDefault = Views.MainWindow.ResolveActiveUtilityStopTooltip("");
+                if (string.IsNullOrWhiteSpace(tipDownload) ||
+                    string.IsNullOrWhiteSpace(tipKeep) ||
+                    string.IsNullOrWhiteSpace(tipPause) ||
+                    tipDownload == tipKeep || tipKeep == tipPause || tipDownload == tipDefault)
+                {
+                    throw new Exception($"Stop utility tooltips did not resolve distinctly: '{tipDownload}', '{tipKeep}', '{tipPause}'.");
+                }
+
+                Exception? staEx = null;
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        var mw1 = new Views.MainWindow();
+                        try
+                        {
+                            if (mw1.FindName("GpuOverviewPanel") == null ||
+                                mw1.FindName("GpuOverviewToolTip") == null ||
+                                mw1.FindName("ActiveUtilityBar") is not System.Windows.Controls.Border bar ||
+                                bar.Visibility != Visibility.Collapsed ||
+                                mw1.FindName("TxtActiveUtilityStatus") == null ||
+                                mw1.FindName("BtnStopActiveUtility") == null)
+                            {
+                                throw new Exception("MainWindow missing GPU overview tooltip or collapsed ActiveUtilityBar controls.");
+                            }
+
+                            if (!string.IsNullOrEmpty(currentKey))
+                            {
+                                mw1.ApplySettings();
+                                if (mw1.FindName("TxtActivePowerProfile") is not System.Windows.Controls.TextBlock txtProfile ||
+                                    !txtProfile.Text.Contains("12", StringComparison.Ordinal))
+                                {
+                                    throw new Exception($"First MainWindow did not show service profile uptime: '{(mw1.FindName("TxtActivePowerProfile") as System.Windows.Controls.TextBlock)?.Text}'.");
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            mw1.Close();
+                        }
+
+                        if (!string.IsNullOrEmpty(currentKey))
+                        {
+                            var mw2 = new Views.MainWindow();
+                            try
+                            {
+                                mw2.ApplySettings();
+                                if (mw2.FindName("TxtActivePowerProfile") is not System.Windows.Controls.TextBlock txtProfile2 ||
+                                    !txtProfile2.Text.Contains("12", StringComparison.Ordinal))
+                                {
+                                    throw new Exception($"Reopened MainWindow lost profile duration: '{(mw2.FindName("TxtActivePowerProfile") as System.Windows.Controls.TextBlock)?.Text}'.");
+                                }
+                            }
+                            finally
+                            {
+                                mw2.Close();
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                thread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                pps.SwapDurationTrackingForTest(savedDuration.Key, savedDuration.StartedUtc);
+            }
+        }
+
+        private static bool TestMainWindowSnapshotAndUiPolish()
+        {
+            Console.Write("[Test] MainWindow PCB Fade, Ctrl+C Snapshot & 22px Gutter... ");
+            try
+            {
+                var snap = new HardwareSnapshot
+                {
+                    CpuName = "AMD Ryzen 7 5800X",
+                    CpuTemp = 37.0,
+                    CpuGhz = 2.82,
+                    CpuBaseGhz = 3.80,
+                    CpuMaxGhz = 3.80,
+                    CpuLoad = 4.0,
+                    CpuPackageWatts = 26,
+                    GpuName = "NVIDIA GeForce RTX 3060 Ti",
+                    GpuTemp = 53.0,
+                    GpuPowerWatts = 75,
+                    GpuLoad = 0.0,
+                    GpuVramUsedMb = 1433.6,
+                    GpuVramTotalMb = 8192.0,
+                    GpuCoreClockMhz = 210,
+                    GpuMemoryClockMhz = 405,
+                    GpuThrottleReason = "None",
+                    RamUsedGb = 5.9,
+                    RamTotalGb = 15.9,
+                    RamUsagePercent = 37.0,
+                    StorageDrives = new List<DriveTelemetry>
+                    {
+                        new DriveTelemetry
+                        {
+                            Index = 0,
+                            DriveLetters = "C:",
+                            Model = "Samsung SSD 980",
+                            Temperature = 45.0,
+                            SmartHealthPercent = 96
+                        },
+                        new DriveTelemetry
+                        {
+                            Index = 1,
+                            DriveLetters = "E:",
+                            Model = "WD Backup",
+                            Temperature = 38.0,
+                            SmartHealthPercent = 100
+                        }
+                    }
+                };
+
+                string celsiusReport = Views.MainWindow.FormatDashboardSnapshot(
+                    snap,
+                    PowerProfiles.CoolingProfile,
+                    isFahrenheit: false,
+                    tempUnit: "°C");
+                if (!celsiusReport.Contains("AMD Ryzen 7 5800X", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("37°C", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("2.82 / 3.80", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("NVIDIA GeForce RTX 3060 Ti", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("53°C", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("5.9 / 15.9", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("45°C", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("96%", StringComparison.Ordinal) ||
+                    !celsiusReport.Contains("WD Backup", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected Celsius snapshot report:\n{celsiusReport}");
+                }
+
+                string excludedKey = HardwareMonitorService.GetDriveExclusionKey(snap.StorageDrives[1]);
+                string filteredReport = Views.MainWindow.FormatDashboardSnapshot(
+                    snap,
+                    PowerProfiles.CoolingProfile,
+                    isFahrenheit: false,
+                    tempUnit: "°C",
+                    showDiskTemp: true,
+                    excludedDrives: new[] { excludedKey });
+                if (!filteredReport.Contains("Samsung SSD 980", StringComparison.Ordinal) ||
+                    filteredReport.Contains("WD Backup", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Excluded drive still included in snapshot:\n{filteredReport}");
+                }
+
+                string hiddenDiskReport = Views.MainWindow.FormatDashboardSnapshot(
+                    snap,
+                    PowerProfiles.CoolingProfile,
+                    isFahrenheit: false,
+                    tempUnit: "°C",
+                    showDiskTemp: false,
+                    excludedDrives: null);
+                if (hiddenDiskReport.Contains("Samsung SSD 980", StringComparison.Ordinal) ||
+                    hiddenDiskReport.Contains("WD Backup", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Disks included when ShowDiskTemp is false:\n{hiddenDiskReport}");
+                }
+
+                string fahrenheitReport = Views.MainWindow.FormatDashboardSnapshot(
+                    snap,
+                    null,
+                    isFahrenheit: true,
+                    tempUnit: "°F");
+                if (!fahrenheitReport.Contains("99°F", StringComparison.Ordinal) ||
+                    !fahrenheitReport.Contains("127°F", StringComparison.Ordinal) ||
+                    !fahrenheitReport.Contains("113°F", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected Fahrenheit snapshot report:\n{fahrenheitReport}");
+                }
+
+                string emptyReport = Views.MainWindow.FormatDashboardSnapshot(
+                    null,
+                    null,
+                    isFahrenheit: false,
+                    tempUnit: "°C");
+                if (!emptyReport.Contains("--", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Null snapshot report missing placeholders: {emptyReport}");
+                }
+
+                Exception? staEx = null;
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        var mw = new Views.MainWindow();
+                        try
+                        {
+                            if (mw.FindName("PcbMaskLayer") is not System.Windows.Controls.Grid pcbMask ||
+                                pcbMask.OpacityMask is not System.Windows.Media.LinearGradientBrush maskBrush ||
+                                maskBrush.GradientStops.Count < 4)
+                            {
+                                throw new Exception("Hero PCB opacity mask gradient missing.");
+                            }
+
+                            var rightStop = maskBrush.GradientStops
+                                .OrderByDescending(g => g.Offset)
+                                .First();
+                            if (rightStop.Color.A >= 64)
+                            {
+                                throw new Exception($"Hero PCB right fade stop is not faded enough: A={rightStop.Color.A}.");
+                            }
+
+                            if (mw.FindName("MenuToolsCopySnapshot") is not System.Windows.Controls.MenuItem copyItem ||
+                                !string.Equals(copyItem.InputGestureText, "Ctrl+C", StringComparison.Ordinal))
+                            {
+                                throw new Exception("Tools menu missing Copy snapshot Ctrl+C item.");
+                            }
+
+                            if (mw.FindName("CoolingModeRow") is not System.Windows.Controls.Border coolingRow ||
+                                Math.Abs(coolingRow.Padding.Left - 22.0) > 0.1)
+                            {
+                                throw new Exception($"CoolingModeRow left padding expected 22, found {(mw.FindName("CoolingModeRow") as System.Windows.Controls.Border)?.Padding.Left}.");
+                            }
+
+                            if (mw.FindName("TelemetryRowsPanel") is not System.Windows.Controls.StackPanel telemetryPanel ||
+                                Math.Abs(telemetryPanel.Margin.Left - 22.0) > 0.1 ||
+                                Math.Abs(telemetryPanel.Margin.Right - 18.0) > 0.1)
+                            {
+                                throw new Exception($"TelemetryRowsPanel margin expected (22,0,18,8), found {(mw.FindName("TelemetryRowsPanel") as System.Windows.Controls.StackPanel)?.Margin}.");
+                            }
+                        }
+                        finally
+                        {
+                            mw.Close();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                thread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
                 }
 
                 Console.WriteLine("PASSED");

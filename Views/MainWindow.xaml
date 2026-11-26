@@ -99,6 +99,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <Border x:Name="CheckBoxBdr"
                                         Width="13" Height="13"
@@ -121,9 +122,20 @@
                                                   ContentSource="Header"
                                                   VerticalAlignment="Center"
                                                   RecognizesAccessKey="True"/>
+                                <TextBlock x:Name="GestureText"
+                                           Grid.Column="2"
+                                           Text="{TemplateBinding InputGestureText}"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           FontSize="11.5"
+                                           Margin="16,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FlowDirection="LeftToRight"/>
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="InputGestureText" Value="">
+                                <Setter TargetName="GestureText" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
                             <Trigger Property="IsCheckable" Value="True">
                                 <Setter TargetName="CheckBoxBdr" Property="Visibility" Value="Visible"/>
                             </Trigger>
@@ -586,6 +598,10 @@
                                 <MenuItem x:Name="MenuToolsSessionReport"
                                           Header="{DynamicResource Main_ToolsSessionReport}"
                                           Click="MenuToolsSessionReport_Click"/>
+                                <MenuItem x:Name="MenuToolsCopySnapshot"
+                                          Header="{DynamicResource Main_ToolsCopySnapshot}"
+                                          InputGestureText="Ctrl+C"
+                                          Click="MenuToolsCopySnapshot_Click"/>
                                 <Separator Style="{StaticResource DarkMenuSeparatorStyle}"/>
                                 <MenuItem x:Name="MenuToolsAbout"
                                           Header="{DynamicResource Main_AboutTitle}"
@@ -832,7 +848,17 @@
 
                 <Grid>
                     <!-- Dense Procedural Circuit Board PCB Pattern Overlay matching Camomile -->
-                    <Canvas x:Name="PcbCanvas" Opacity="0.46" IsHitTestVisible="False">
+                    <Grid x:Name="PcbMaskLayer" IsHitTestVisible="False">
+                        <Grid.OpacityMask>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="#FFFFFFFF" Offset="0.0"/>
+                                <GradientStop Color="#FFFFFFFF" Offset="0.56"/>
+                                <GradientStop Color="#66FFFFFF" Offset="0.71"/>
+                                <GradientStop Color="#24FFFFFF" Offset="0.82"/>
+                                <GradientStop Color="#18FFFFFF" Offset="1.0"/>
+                            </LinearGradientBrush>
+                        </Grid.OpacityMask>
+                        <Canvas x:Name="PcbCanvas" Opacity="0.46" IsHitTestVisible="False">
                         <Canvas.RenderTransform>
                             <TranslateTransform X="65"/>
                         </Canvas.RenderTransform>
@@ -947,7 +973,8 @@
                         <Ellipse Canvas.Left="285" Canvas.Top="33" Width="5" Height="5" Stroke="#FFFFFF" StrokeThickness="1"/>
                         <Ellipse Canvas.Left="275" Canvas.Top="48" Width="5" Height="5" Stroke="#FFFFFF" StrokeThickness="1"/>
                         <Ellipse Canvas.Left="165" Canvas.Top="18" Width="5" Height="5" Stroke="#FFFFFF" StrokeThickness="1"/>
-                    </Canvas>
+                        </Canvas>
+                    </Grid>
 
                     <!-- Soft top-left sheen, kept under the text. -->
                     <Rectangle IsHitTestVisible="False">
@@ -1171,7 +1198,7 @@
             </Grid>
 
             <!-- 4. COOLING MODE CONTROL ROW -->
-            <Border Grid.Row="4" Background="{DynamicResource WindowBackgroundBrush}" Padding="36,9,18,9" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,1">
+            <Border x:Name="CoolingModeRow" Grid.Row="4" Background="{DynamicResource WindowBackgroundBrush}" Padding="22,9,18,9" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,1">
                 <Grid>
                     <!-- Left: Fan Icon + Label -->
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -1465,7 +1492,55 @@
 
             <!-- 5. HARDWARE TELEMETRY ROWS -->
             <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="36,0,18,8">
+                <StackPanel x:Name="TelemetryRowsPanel" Margin="22,0,18,8">
+
+                    <!-- ACTIVE TIMER PILL (0 px and 0 timers when idle) -->
+                    <Border x:Name="ActiveUtilityBar"
+                            Height="28"
+                            Margin="0,4,0,2"
+                            Padding="8,0"
+                            CornerRadius="4"
+                            Background="{DynamicResource CardBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                            BorderThickness="1"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse x:Name="ActiveUtilityDot"
+                                     Grid.Column="0"
+                                     Width="6"
+                                     Height="6"
+                                     Fill="{DynamicResource AccentBrush}"
+                                     Margin="0,0,7,0"
+                                     VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TxtActiveUtilityStatus"
+                                       Grid.Column="1"
+                                       Text=""
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"/>
+                            <Button x:Name="BtnStopActiveUtility"
+                                    Grid.Column="2"
+                                    Content="{DynamicResource Main_ActiveTimer_Stop}"
+                                    Click="BtnStopActiveUtility_Click"
+                                    Style="{StaticResource UpdateBannerButtonStyle}"
+                                    Background="Transparent"
+                                    Foreground="{DynamicResource TextPrimaryBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    Padding="8,1"
+                                    Height="20"
+                                    FontSize="10.5"
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center"
+                                    AutomationProperties.Name="{DynamicResource Main_ActiveTimer_StopAutomation}"/>
+                        </Grid>
+                    </Border>
 
                     <!-- ROW 1: CPU SPEED -->
                     <Grid x:Name="CpuSpeedRow" Height="44">
@@ -2020,7 +2095,35 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel x:Name="GpuOverviewPanel"
+                                    Grid.Column="0"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Background="Transparent"
+                                    ToolTipService.InitialShowDelay="250"
+                                    ToolTipService.ShowDuration="8000">
+                            <StackPanel.ToolTip>
+                                <ToolTip x:Name="GpuOverviewToolTip"
+                                         Style="{StaticResource SsdToolTipStyle}"
+                                         Placement="Top"
+                                         VerticalOffset="-6">
+                                    <StackPanel>
+                                        <TextBlock x:Name="TxtGpuOverviewTitle"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   FlowDirection="LeftToRight"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="280"/>
+                                        <TextBlock x:Name="TxtGpuOverviewDetail"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   FontSize="11.5"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="280"
+                                                   Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </ToolTip>
+                            </StackPanel.ToolTip>
                             <Grid Width="26" Height="26" Margin="0,0,10,0">
                                 <!-- Display with a fan and output lines, no surrounding badge. -->
                                 <Path Data="M2,4 L18,4 L18,16 L2,16 Z

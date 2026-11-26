@@ -1,5 +1,60 @@
 # CONTEXT
 
+## v0.0.108 release bump, docs update & release notes (2026-11-26)
+
+- Release stamps set to `0.0.108` across `VERSION`, `app.manifest` (`0.0.108.0`), and `Installer/CryoTray.iss`; Release binary reports `FileVersion=0.0.108` and `ProductVersion=0.0.108+d4d41bf8b1d4bc0fcb4fcc426d30e980741f8b58`.
+- `docs/js/i18n.js` holds `240` aligned EN and AR keys (`missing=0`) covering all `194` `data-i18n` / `data-i18n-aria` bindings in `docs/index.html` (`missingHtml=0`); `docs/js/config.js` `SEED_RELEASE` targets `CryoTray-Setup-0.0.108.exe` and `CryoTray-0.0.108-win-x64.zip`.
+- `release-notes/0.0.108.md` follows `0.0.107.md` format (user-facing changes only, no test mentions); `CONTRIBUTING.md` and `SECURITY.md` track `0.0.108` as baseline.
+
+## CPU Temperature Test UI, Auto A/B compare, load modes, copy summary & thermal cutoff (2026-11-26)
+
+- `StressTestWindow` exposes `StressLoadMode` (`AllCores`, `HalfCores`, `SingleCore` via `ResolveWorkerThreadCount`) and optional 60 s `Auto A/B` (`EvaluateAutoCompareStep`: forces Cooling OFF at start, flips to Cooling ON at `30s` using `PowerPlanService.SetCoolingMode`, stops at `60s`, and restores the captured `PowerProfileDefinition` on completion, stop, or close; manual `BtnToggleCooling` cancels auto takeover).
+- `ShouldTriggerThermalCutoff(isRunning, cpuTempCelsius, 95.0)` stops stress worker threads automatically and displays `BdrStressNotice` if CPU reaches `>= 95 °C`.
+- `DrawChart()` renders gridlines, unit-converted `30°`/`95°` min/max scale labels, and `TxtChartEmptyHint` before test start; `TxtPerformanceRetained` / `TxtFpsImpact` stay `Collapsed` until delta comparison succeeds; `BtnStartStop` resolves `AccentButtonBrush`/`AccentButtonTextBrush` in High Contrast/idle and `#C62828` + white text while active; `FormatStressSummary` backs `BtnCopySummary` and `Ctrl+C`.
+
+## Storage & Cache Cleanup visual polish, 24h temp guard, crash dumps & folder breakdown (2026-11-26)
+
+- `StorageCleanupService.ScanAsync` / `CleanAsync` apply `DateTime.UtcNow.AddHours(-24)` strictly to `TempFiles` when `skipRecentTempFiles` is true (controlled by `AppSettings.CleanTempSkipRecent24h = true` and `ChkSkipRecentTemp`). `ShouldSkipRecentFile` filters recent temp files out of BOTH scan and cleanup so skipped `< 24h` files never inflate scanned byte totals or `SkippedLockedFiles`.
+- `StorageCleanupService.ProcessCategory` records `StorageCleanupTargetScan(RootPath, Bytes, Files)` only for existing targets on disk (skipping missing vendor folders such as absent AMD/Intel caches on NVIDIA hosts). `StorageCleanupWindow.FormatTargetDisplayPath` checks `%TEMP%` before `%LocalAppData%` so user temp resolves cleanly as `%TEMP%` instead of `%LocalAppData%\Temp`.
+- `StorageCleanupCategory.CrashDumps` sits before `Prefetch` (`CheckedByDefault = false`, `AppSettings.CleanCrashDumps = false`), inherits `RequiresConfirmation` (`!= TempFiles`), and uses explicit-root `IsSafeCleanupRoot` targets (`%LocalAppData%\CrashDumps`, `%WINDIR%\Minidump`, `%ProgramData%\Microsoft\Windows\WER\ReportArchive`, `%ProgramData%\Microsoft\Windows\WER\ReportQueue`).
+- `StorageCleanupWindow` pairs `GetCategoryDotBrush` (matching Light/Dark/High Contrast modes via `ThemeService.ThemeChanged`) across both row `Ellipse` dots and `CategoryChartBars` segments, aligns `Ellipse` (`VerticalAlignment="Top" Margin="0,6,6,0"`) with row line 1, applies 8 px `CleanupScrollBarStyle`, and hosts collapsed per-row `Locations ({0})` disclosures.
+
+## Hero PCB fade, dashboard snapshot copy (Tools + Ctrl+C) & 22 px telemetry gutter (2026-11-26)
+
+- `PcbMaskLayer` wraps `PcbCanvas` in a zero-transform `Grid` so `OpacityMask` coordinates (`0.0..1.0`) stay pinned to the `444 px` Hero width regardless of `PcbCanvas`'s `TranslateTransform X="65"` and mirror cleanly under Arabic `RightToLeft` flow direction.
+- `CoolingModeRow` (`Padding="22,9,18,9"`) and `TelemetryRowsPanel` (`Margin="22,0,18,8"`) match Hero text's `22 px` left edge, widening available pill room by `14 px` without altering the `444 px` window width.
+- `RamDarkMenuItemStyle` adds an `Auto` third column for `InputGestureText` (collapsed by trigger when empty so other menus stay identical); `ToolsContextMenu` exposes `MenuToolsCopySnapshot` (`Ctrl+C`), and `Window_PreviewKeyDown` shares `CopyDashboardSnapshot()` -> `FormatDashboardSnapshot(...)` (filtering hidden/excluded drives via `ShowDiskTemp` and `HardwareMonitorService.IsDriveExcluded`), temporarily showing feedback on `TxtActivePowerProfile` via a single reused 1.6 s `_copyFeedbackTimer` guarded in `UpdateActiveProfileLabel` / `RefreshProfileDurationText` and stopped in `OnClosed`. `RefreshActiveUtilityBar` updates `BtnStopActiveUtility.ToolTip` and `AutomationProperties.Name` via `ResolveActiveUtilityStopTooltip(primaryKind)` only when the active signature changes.
+
+## GPU overview tooltip, active timer pill & persistent profile duration (2026-11-26)
+
+- `PowerPlanService.ActiveProfileStartedUtc` (`_durationProfileKey`) owns the active profile timestamp instead of `MainWindow` alone (`UpdateActiveProfileLabel()` reads `PowerPlanService.Instance.ActiveProfileStartedUtc`), surviving `MainWindow.Close()` + `App.TrimWorkingSet()` with zero timers or polling overhead.
+- `GpuOverviewPanel` in `MainWindow.xaml` wraps the GPU icon and label line with `GpuOverviewToolTip` (`FormatGpuOverviewTooltip`), reusing `FormatGpuVramUsage`, `FormatGpuClocks`, and `CompactThrottleReason` without altering `TxtGpuTemp`/`TxtGpuPower`/`TxtGpuLoad` tooltips or permanent `ShowGpuName`/`ShowGpuDetails` row settings.
+- `ActiveUtilityBar` in `MainWindow.xaml` adds `0 px` and `0` timers/allocations while idle (`KeepAwakeService.IsActive`, `DownloadTimerService.IsArmed`, `App.CoolingPausedUntilUtc` false), subscribes to `KeepAwakeService.StatusChanged`, `DownloadTimerService.StatusChanged`, and `App.CoolingPauseChanged` while `MainWindow` is open (all unsubscribed in `MainWindow_Closed`), and updates `UpdateWindowHeight()` cleanly when shown/collapsed.
+
+## Bug-fix pass: active profile guard, Settings search disclosures & boost cache event sync (2026-11-26)
+
+- `PowerPlanService.ReapplyActiveProfileValues()` updates values (`VIDEOIDLE`, `STANDBYIDLE`, Legacy controls, active profile metadata) on the currently active profile via shared `ApplyResolvedActiveProfileValues(...)`; `SaveUiIntoSettings()` calls `ReapplyActiveProfileValues()` instead of `RefreshActiveProfile()` so Settings changes never clobber a Tray-selected or Autopilot per-app plan, while explicit `CmbCoolingProfile`/`CmbGamingProfile` changes switch only when that mode is active and Autopilot is idle.
+- `SettingsWindow.AddSearchItems` skips `Visibility != Visibility.Visible` subtrees plus `Pnl*Content` disclosure bodies, and falls back to `contentControl.Content` when `VisualTreeHelper.GetChildrenCount == 0` so unopened-tab `ToggleButton` headers remain indexed on launch; `FindFocusableTarget` checks `parentControl` (`not ScrollViewer && not Window`) along `VisualTreeHelper.GetParent ?? LogicalTreeHelper.GetParent` so jumping to a disclosure focuses its `ToggleButton`.
+- `HardwareMonitorService.OnSettingsChanged()` updates `CurrentSnapshot.CpuBoostPeakGhz` via `ResolveCpuBoostPeakGhz` unconditionally across GPU counts and initialization states.
+
+## Settings Reset/Import active plan sync & SupportBundle allowlist fix (2026-11-26)
+
+- `SettingsWindow.BtnReset_Click` and `BtnImport_Click` now call `PowerPlanService.Instance.RefreshActiveProfile()` immediately after `SettingsService.Reset()` / `Import()` (keeping `ResetCryoTraySchemeToDefault()` scoped to `Legacy` parameters so `TestCryoTrayPowerSchemeIntegration` stays isolated while full UI reset/import restores live active CryoTray schemes and display/sleep timeouts right away).
+- `SupportBundleService.BuildRedactedSettings` includes `PreferredCoolingProfile`, `PreferredGamingProfile`, `SyncCpuTrayBadgeColor`, and the 8 display/sleep timeout fields in the support ZIP allowlist while still keeping `AutopilotWhitelist`, `AutopilotAppProfiles`, `HotkeyKey`, `FanAliases`, and `ExternalPowerProfiles` excluded.
+
+## Sleep and display timeout overrides (2026-11-26)
+
+- CryoTray deletes inactive CryoTray schemes (`DeleteOtherCryoTraySchemes`) and re-duplicates `Balanced` on plan switches (`EnsureProfileScheme`), which previously discarded any Windows Control Panel sleep/display changes made on CryoTray plans. `AppSettings` now stores per-mode AC/DC overrides (`CoolingDisplayOff*`, `CoolingSleepAfter*`, `OffDisplayOff*`, `OffSleepAfter*`, defaulting to `-1` = `Follow Windows`) so timeouts survive plan switches and restarts without changing existing defaults.
+- `PowerPlanService.WriteTimeoutValues` runs inside `WriteProfileValues` (only for CryoTray-owned schemes, guarded against `IsWindowsDefault`, `IsExternal`, and `BalancedGuid`). Positive minutes convert to seconds capped at `31536000` (`ResolveTimeoutSeconds`), `0` writes `0` (`Never`), and `-1` reads `BalancedGuid`'s live AC/DC index (`TryReadTimeoutIndex`) so switching a scheme back to `Follow Windows` updates the active scheme immediately via `RefreshActiveProfile()`.
+- `SettingsWindow` places `SleepTimeoutsToggle` (collapsed by default) below `ManageProfilesToggle` in `Settings > CPU`, hiding the DC column and AC `"Plugged in"` sub-headers when `BatteryTelemetryService.Read().HasBattery` is false (tested layout budget in the `480px`-wide Settings window: stacked per-setting `50/50` AC/DC Grid avoids horizontal text clipping). Preset formatting handles Arabic singular/dual/few/many rules and preserves non-preset positive integers read from `settings.json`.
+- Notice: changes are uncommitted on `main` alongside pre-existing `docs/js/config.js` fallback seed.
+
+## v0.0.107 release (2026-11-26)
+
+- Tag `v0.0.107` points at commit `d4d41bf`; Release run `45754178215` completed in `2m51s` at `2026-11-26T04:19:27Z`, publishing verbatim notes from `release-notes/0.0.107.md` (no test mentions).
+- Version stamps across `VERSION` (`0.0.107`, read by `CryoTray.csproj`), `app.manifest` (`0.0.107.0`), `Installer/CryoTray.iss` (`0.0.107`), `CONTRIBUTING.md`, `SECURITY.md`, `README.md`, and `docs/` are aligned at `0.0.107`.
+- Published unsigned assets (with SHA-256 companions): `CryoTray-Setup-0.0.107.exe` (`55,156,010` bytes), `CryoTray-0.0.107-win-x64.zip` (`82,570,327` bytes), and `CryoTray-Update-0.0.107-win-x64.zip` (`82,594,469` bytes). Docs fallback seeded with exact published values.
+
 ## Per-CPU boost peak cache in AppSettings (2026-11-26)
 
 - `AppSettings` adds `CachedBoostPeakCpuName` and `CachedBoostPeakGhz` under CPU & Power Plan settings. `HardwareMonitorService.ResolveCachedBoostPeakGhz` validates the CPU name match (case-insensitive trimmed) and `> base * 1.02 && <= 10.0`, while `TryUpdateCachedBoostPeak` mutates the cache only when the CPU model changed or a newly detected boost ceiling exceeds `existing + 0.005`.

@@ -45,6 +45,17 @@ namespace CryoTray.Services
 
         public event Action? StatusChanged;
 
+        public bool IsActive
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _mode != KeepAwakeMode.Off;
+                }
+            }
+        }
+
         private KeepAwakeService()
         {
         }

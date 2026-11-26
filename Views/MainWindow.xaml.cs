@@ -69,10 +69,14 @@ namespace CryoTray.Views
         private string _profileBaseText = "";
         private string _profileDurationText = "";
         private int _lastProfileDurationMinutes = -1;
+        private string _lastActiveUtilitySignature = "";
+        private string _activeUtilityPrimaryKind = "";
 
         private readonly List<SsdRowView> _ssdRows = new();
         private string? _ssdRowSignature;
         private DispatcherTimer? _ramFeedbackTimer;
+        private DispatcherTimer? _copyFeedbackTimer;
+        private bool _isCopyFeedbackActive;
         private bool _ramTooltipPinned;
 
         private static Brush SsdHealthGoodBrush => ThemeService.GetBrush("SuccessTextBrush");
@@ -168,6 +172,7 @@ namespace CryoTray.Views
             Closed += MainWindow_Closed;
             AutopilotService.Instance.StateChanged += OnAutopilotStateChanged;
             UpdateCpuGhzTooltip(HardwareMonitorService.Instance.CurrentSnapshot);
+            UpdateGpuOverviewTooltip(HardwareMonitorService.Instance.CurrentSnapshot);
         }
 
         private void SetupFanAnimation()
@@ -306,6 +311,12 @@ namespace CryoTray.Views
             PowerPlanService.Instance.CoolingModeChanged += OnCoolingModeChanged;
             PowerPlanService.Instance.ProfileChanged += OnProfileChanged;
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
+            KeepAwakeService.Instance.StatusChanged += OnUtilityTimerChanged;
+            DownloadTimerService.Instance.StatusChanged += OnDownloadTimerChanged;
+            if (System.Windows.Application.Current is App utilityApp)
+            {
+                utilityApp.CoolingPauseChanged += OnUtilityTimerChanged;
+            }
             MemoryOptimizerService.Instance.OptimizingStateChanged += OnRamOptimizingStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted += OnRamOptimizationCompleted;
 
@@ -369,10 +380,18 @@ namespace CryoTray.Views
             PowerPlanService.Instance.CoolingModeChanged -= OnCoolingModeChanged;
             PowerPlanService.Instance.ProfileChanged -= OnProfileChanged;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
+            KeepAwakeService.Instance.StatusChanged -= OnUtilityTimerChanged;
+            DownloadTimerService.Instance.StatusChanged -= OnDownloadTimerChanged;
+            if (System.Windows.Application.Current is App pauseApp)
+            {
+                pauseApp.CoolingPauseChanged -= OnUtilityTimerChanged;
+            }
             MemoryOptimizerService.Instance.OptimizingStateChanged -= OnRamOptimizingStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted -= OnRamOptimizationCompleted;
             _ramFeedbackTimer?.Stop();
             _ramFeedbackTimer = null;
+            _copyFeedbackTimer?.Stop();
+            _copyFeedbackTimer = null;
             _chartRenderTimer?.Stop();
             _telemetryLease?.Dispose();
             _telemetryLease = null;
@@ -451,6 +470,7 @@ namespace CryoTray.Views
                 bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
                 string unit = isFahrenheit ? "°F" : "°C";
                 RenderSsdRows(HardwareMonitorService.Instance.CurrentSnapshot.StorageDrives, isFahrenheit, unit);
+                RefreshActiveUtilityBar(updateHeight: false);
                 UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
                 DrawCpuChart();
             }
@@ -579,6 +599,10 @@ namespace CryoTray.Views
             {
                 height += UpdateSuccessBanner.Height;
             }
+            if (ActiveUtilityBar != null && ActiveUtilityBar.Visibility == Visibility.Visible)
+            {
+                height += ActiveUtilityBar.Height + ActiveUtilityBar.Margin.Top + ActiveUtilityBar.Margin.Bottom;
+            }
 
             height *= TextScaleService.Factor;
 
@@ -688,10 +712,23 @@ namespace CryoTray.Views
             }
 
             string key = profile?.Key ?? "";
-            if (!string.Equals(_profileDurationKey, key, StringComparison.Ordinal))
+            DateTime serviceStartedUtc = PowerPlanService.Instance.ActiveProfileStartedUtc;
+            bool planChanged = !string.Equals(_profileDurationKey, key, StringComparison.Ordinal);
+            if (planChanged)
             {
+                if (_isCopyFeedbackActive)
+                {
+                    _copyFeedbackTimer?.Stop();
+                    _isCopyFeedbackActive = false;
+                }
                 _profileDurationKey = key;
-                _profileStartedUtc = DateTime.UtcNow;
+                _profileStartedUtc = serviceStartedUtc != default ? serviceStartedUtc : DateTime.UtcNow;
+                _profileDurationText = "";
+                _lastProfileDurationMinutes = -1;
+            }
+            else if (serviceStartedUtc != default && serviceStartedUtc != _profileStartedUtc)
+            {
+                _profileStartedUtc = serviceStartedUtc;
                 _profileDurationText = "";
                 _lastProfileDurationMinutes = -1;
             }
@@ -712,7 +749,8 @@ namespace CryoTray.Views
         /// </summary>
         private void RefreshProfileDurationText()
         {
-            if (TxtActivePowerProfile == null ||
+            if (_isCopyFeedbackActive ||
+                TxtActivePowerProfile == null ||
                 _profileStartedUtc == default ||
                 string.IsNullOrEmpty(_profileDurationKey))
             {
@@ -1219,10 +1257,12 @@ namespace CryoTray.Views
             TxtGpuThrottle.ToolTip = string.IsNullOrWhiteSpace(snapshot.GpuThrottleReason)
                 ? null
                 : snapshot.GpuThrottleReason;
+            UpdateGpuOverviewTooltip(snapshot);
             ApplyTelemetryVisibility(s);
 
             // SSD Rows (rendered before height update so height reflects visible & graphed drives)
             RenderSsdRows(snapshot.StorageDrives, isFahrenheit, unit);
+            RefreshActiveUtilityBar(updateHeight: false);
             UpdateWindowHeight(s.ShowOverlayRow, s.ShowAutopilotRow);
 
             InvalidateCharts();
@@ -1342,6 +1382,269 @@ namespace CryoTray.Views
                 ? System.Windows.FlowDirection.RightToLeft
                 : System.Windows.FlowDirection.LeftToRight;
             AutomationProperties.SetHelpText(BdrCpuGhzUnit, $"{title}. {detail}");
+        }
+
+        private void UpdateGpuOverviewTooltip(HardwareSnapshot? snapshot)
+        {
+            if (TxtGpuOverviewTitle == null || TxtGpuOverviewDetail == null ||
+                GpuOverviewPanel == null || GpuOverviewToolTip == null)
+            {
+                return;
+            }
+
+            var (title, detail) = FormatGpuOverviewTooltip(snapshot);
+            TxtGpuOverviewTitle.Text = title;
+            TxtGpuOverviewDetail.Text = detail;
+            GpuOverviewToolTip.FlowDirection = LocalizationService.Instance.IsArabic
+                ? System.Windows.FlowDirection.RightToLeft
+                : System.Windows.FlowDirection.LeftToRight;
+            AutomationProperties.SetHelpText(GpuOverviewPanel, $"{title}. {detail}");
+        }
+
+        internal static (string Title, string Detail) FormatGpuOverviewTooltip(HardwareSnapshot? snapshot)
+        {
+            string fullName = snapshot?.GpuName?.Trim() ?? "";
+            string title = string.IsNullOrWhiteSpace(fullName)
+                ? LocalizationService.Get("Main_GpuLabel")
+                : fullName;
+
+            if (snapshot == null)
+            {
+                return (title, LocalizationService.Get("Main_GpuDetailsUnavailable"));
+            }
+
+            var parts = new List<string>(3);
+            string vram = FormatGpuVramUsage(snapshot);
+            if (!string.Equals(vram, "--", StringComparison.Ordinal))
+            {
+                parts.Add($"{LocalizationService.Get("Main_GpuVramUsageLabel")}: {vram}");
+            }
+
+            string clocks = FormatGpuClocks(snapshot);
+            if (!string.Equals(clocks, "--", StringComparison.Ordinal))
+            {
+                parts.Add($"{LocalizationService.Get("Main_GpuClocksLabel")}: {clocks}");
+            }
+
+            string throttle = CompactThrottleReason(snapshot.GpuThrottleReason);
+            if (!string.Equals(throttle, "--", StringComparison.Ordinal))
+            {
+                parts.Add($"{LocalizationService.Get("Main_GpuThrottleLabel")}: {throttle}");
+            }
+
+            string detail = parts.Count > 0
+                ? string.Join(" · ", parts)
+                : LocalizationService.Get("Main_GpuDetailsUnavailable");
+            return (title, detail);
+        }
+
+        private void OnUtilityTimerChanged()
+        {
+            if (_isClosing || Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            if (Dispatcher.CheckAccess())
+            {
+                RefreshActiveUtilityBar(updateHeight: true);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_isClosing)
+                {
+                    RefreshActiveUtilityBar(updateHeight: true);
+                }
+            }));
+        }
+
+        private void OnDownloadTimerChanged(DownloadTimerStatus _)
+        {
+            OnUtilityTimerChanged();
+        }
+
+        private void RefreshActiveUtilityBar(bool updateHeight)
+        {
+            if (ActiveUtilityBar == null || TxtActiveUtilityStatus == null)
+            {
+                return;
+            }
+
+            bool keepActive = KeepAwakeService.Instance.IsActive;
+            bool downloadActive = DownloadTimerService.Instance.IsArmed;
+            DateTime? pausedUntil = (System.Windows.Application.Current as App)?.CoolingPausedUntilUtc;
+            TimeSpan? pauseRemaining = pausedUntil.HasValue && pausedUntil.Value > DateTime.UtcNow
+                ? pausedUntil.Value - DateTime.UtcNow
+                : null;
+
+            void CollapseUtilityBar()
+            {
+                if (ActiveUtilityBar.Visibility == Visibility.Collapsed && _lastActiveUtilitySignature.Length == 0)
+                {
+                    return;
+                }
+
+                _lastActiveUtilitySignature = "";
+                _activeUtilityPrimaryKind = "";
+                TxtActiveUtilityStatus.Text = "";
+                if (BtnStopActiveUtility != null)
+                {
+                    string fallback = LocalizationService.Get("Main_ActiveTimer_StopAutomation");
+                    BtnStopActiveUtility.ToolTip = fallback;
+                    AutomationProperties.SetName(BtnStopActiveUtility, fallback);
+                }
+                ActiveUtilityBar.Visibility = Visibility.Collapsed;
+                if (updateHeight)
+                {
+                    var settings = SettingsService.Instance.Current;
+                    UpdateWindowHeight(settings.ShowOverlayRow, settings.ShowAutopilotRow);
+                }
+            }
+
+            if (!keepActive && !downloadActive && !pauseRemaining.HasValue)
+            {
+                CollapseUtilityBar();
+                return;
+            }
+
+            KeepAwakeStatus? keepStatus = keepActive ? KeepAwakeService.Instance.GetStatus() : null;
+            DownloadTimerStatus? downloadStatus = downloadActive ? DownloadTimerService.Instance.CurrentStatus : null;
+            var (text, primaryKind, anyActive) = FormatActiveUtilityDisplay(keepStatus, downloadStatus, pauseRemaining);
+            if (!anyActive)
+            {
+                CollapseUtilityBar();
+                return;
+            }
+
+            _activeUtilityPrimaryKind = primaryKind;
+            string signature = $"{primaryKind}|{text}";
+            bool visibilityChanged = ActiveUtilityBar.Visibility != Visibility.Visible;
+            if (!visibilityChanged && string.Equals(_lastActiveUtilitySignature, signature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastActiveUtilitySignature = signature;
+            TxtActiveUtilityStatus.Text = text;
+            TxtActiveUtilityStatus.ToolTip = text;
+            if (BtnStopActiveUtility != null)
+            {
+                string stopTip = ResolveActiveUtilityStopTooltip(primaryKind);
+                BtnStopActiveUtility.ToolTip = stopTip;
+                AutomationProperties.SetName(BtnStopActiveUtility, stopTip);
+            }
+            if (visibilityChanged)
+            {
+                ActiveUtilityBar.Visibility = Visibility.Visible;
+                if (updateHeight)
+                {
+                    var settings = SettingsService.Instance.Current;
+                    UpdateWindowHeight(settings.ShowOverlayRow, settings.ShowAutopilotRow);
+                }
+            }
+        }
+
+        internal static (string Text, string PrimaryKind, bool AnyActive) FormatActiveUtilityDisplay(
+            KeepAwakeStatus? keepStatus,
+            DownloadTimerStatus? downloadStatus,
+            TimeSpan? pauseRemaining)
+        {
+            var segments = new List<string>(3);
+            string primaryKind = "";
+
+            if (downloadStatus != null && downloadStatus.Phase != DownloadTimerPhase.Disarmed)
+            {
+                primaryKind = "download";
+                segments.Add(FormatDownloadTimerSummary(downloadStatus));
+            }
+
+            if (keepStatus != null && keepStatus.IsActive)
+            {
+                if (primaryKind.Length == 0)
+                {
+                    primaryKind = "keepawake";
+                }
+
+                segments.Add(keepStatus.Mode == KeepAwakeMode.Timed
+                    ? LocalizationService.Format(
+                        "Main_ActiveTimer_KeepAwake",
+                        KeepAwakeService.FormatRemaining(keepStatus.Remaining ?? TimeSpan.Zero))
+                    : LocalizationService.Get("Main_ActiveTimer_KeepAwakeOn"));
+            }
+
+            if (pauseRemaining.HasValue && pauseRemaining.Value > TimeSpan.Zero)
+            {
+                if (primaryKind.Length == 0)
+                {
+                    primaryKind = "pause";
+                }
+
+                int mins = Math.Max(1, (int)Math.Ceiling(pauseRemaining.Value.TotalMinutes));
+                segments.Add(LocalizationService.Format("Main_ActiveTimer_CoolingPause", mins));
+            }
+
+            return segments.Count == 0
+                ? ("", "", false)
+                : (string.Join(" · ", segments), primaryKind, true);
+        }
+
+        internal static string ResolveActiveUtilityStopTooltip(string primaryKind) => primaryKind switch
+        {
+            "download" => LocalizationService.Get("Main_ActiveTimer_StopDownload"),
+            "keepawake" => LocalizationService.Get("Tray_KeepAwakeStop"),
+            "pause" => LocalizationService.Get("Tray_ResumeCoolingNow"),
+            _ => LocalizationService.Get("Main_ActiveTimer_StopAutomation")
+        };
+
+        private static string FormatDownloadTimerSummary(DownloadTimerStatus status)
+        {
+            switch (status.Phase)
+            {
+                case DownloadTimerPhase.Warning:
+                    string actionName = status.Action switch
+                    {
+                        DownloadPowerAction.Hibernate => LocalizationService.Get("Settings_DownloadTimerHibernate"),
+                        DownloadPowerAction.ShutDown => LocalizationService.Get("Settings_DownloadTimerShutDown"),
+                        _ => LocalizationService.Get("Settings_DownloadTimerSleep")
+                    };
+                    return LocalizationService.Format(
+                        "Main_ActiveTimer_DownloadWarning",
+                        actionName,
+                        Math.Max(0, status.WarningSecondsRemaining));
+                case DownloadTimerPhase.WaitingForDownload:
+                    return LocalizationService.Get("Main_ActiveTimer_DownloadWaiting");
+                case DownloadTimerPhase.WaitingForDisk:
+                    return LocalizationService.Get("Main_ActiveTimer_DownloadDisk");
+                default:
+                    TimeSpan remaining = status.QuietDuration > status.QuietElapsed
+                        ? status.QuietDuration - status.QuietElapsed
+                        : TimeSpan.Zero;
+                    int mins = (int)remaining.TotalMinutes;
+                    int secs = remaining.Seconds;
+                    return LocalizationService.Format(
+                        "Main_ActiveTimer_DownloadQuiet",
+                        $"{mins}:{secs:00}");
+            }
+        }
+
+        private void BtnStopActiveUtility_Click(object sender, RoutedEventArgs e)
+        {
+            switch (_activeUtilityPrimaryKind)
+            {
+                case "download":
+                    DownloadTimerService.Instance.CancelAndDisarm();
+                    break;
+                case "keepawake":
+                    KeepAwakeService.Instance.Stop();
+                    break;
+                case "pause":
+                    (System.Windows.Application.Current as App)?.CancelCoolingPause(resumeCooling: true, forceResume: true);
+                    break;
+            }
+
+            RefreshActiveUtilityBar(updateHeight: true);
         }
 
         private static string GetBoostModeResourceKey(int boostMode) => boostMode switch
@@ -3129,6 +3432,206 @@ namespace CryoTray.Views
             ShowSessionReportDialog();
         }
 
+        private void MenuToolsCopySnapshot_Click(object sender, RoutedEventArgs e)
+        {
+            CopyDashboardSnapshot();
+        }
+
+        private void CopyDashboardSnapshot()
+        {
+            var s = SettingsService.Instance.Current;
+            bool isFahrenheit = s.TemperatureUnit == "Fahrenheit";
+            string tempUnit = isFahrenheit ? "°F" : "°C";
+            string text = FormatDashboardSnapshot(
+                HardwareMonitorService.Instance.CurrentSnapshot,
+                PowerPlanService.Instance.ActiveProfile,
+                isFahrenheit,
+                tempUnit,
+                s.ShowDiskTemp,
+                s.ExcludedDrives);
+
+            try
+            {
+                Clipboard.SetText(text);
+                ShowCopyFeedbackMessage(LocalizationService.Get("Main_ToolsCopiedSnapshot"));
+            }
+            catch
+            {
+                ShowCopyFeedbackMessage(LocalizationService.Get("System_CopyFailed"));
+            }
+        }
+
+        private void ShowCopyFeedbackMessage(string message)
+        {
+            if (TxtActivePowerProfile == null)
+            {
+                return;
+            }
+
+            _copyFeedbackTimer?.Stop();
+            _isCopyFeedbackActive = true;
+            TxtActivePowerProfile.Text = message;
+
+            if (_copyFeedbackTimer == null)
+            {
+                _copyFeedbackTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(1600)
+                };
+                _copyFeedbackTimer.Tick += (_, _) =>
+                {
+                    _copyFeedbackTimer?.Stop();
+                    _isCopyFeedbackActive = false;
+                    if (!_isClosing)
+                    {
+                        UpdateActiveProfileLabel();
+                        if (PowerPlanService.Instance.ActiveProfile == null && TxtActivePowerProfile != null)
+                        {
+                            TxtActivePowerProfile.Text = "";
+                        }
+                    }
+                };
+            }
+
+            _copyFeedbackTimer.Start();
+        }
+
+        internal static string FormatDashboardSnapshot(
+            HardwareSnapshot? snapshot,
+            PowerProfileDefinition? activeProfile,
+            bool isFahrenheit,
+            string tempUnit,
+            bool showDiskTemp = true,
+            IReadOnlyCollection<string>? excludedDrives = null)
+        {
+            string FormatTempValue(double celsius)
+            {
+                if (!double.IsFinite(celsius))
+                {
+                    return "--";
+                }
+
+                double converted = isFahrenheit ? (celsius * 9.0 / 5.0) + 32.0 : celsius;
+                return $"{Math.Round(converted).ToString("0", CultureInfo.InvariantCulture)}{tempUnit}";
+            }
+
+            var sb = new System.Text.StringBuilder();
+            bool isCooling = activeProfile?.IsCooling == true;
+            string modeState = LocalizationService.Get(isCooling ? "Common_On" : "Common_Off");
+            string planSuffix = activeProfile != null
+                ? $" ({LocalizationService.GetProfileName(activeProfile)})"
+                : "";
+            sb.AppendLine($"{LocalizationService.Get("Main_CoolingMode")}: {modeState}{planSuffix}");
+
+            string cpuLabel = LocalizationService.Get("Common_Cpu");
+            if (snapshot == null)
+            {
+                sb.AppendLine($"{cpuLabel}: --");
+                sb.AppendLine($"{LocalizationService.Get("Main_LabelRam")}: --");
+                return sb.ToString().TrimEnd();
+            }
+
+            string cpuName = string.IsNullOrWhiteSpace(snapshot.CpuName)
+                ? LocalizationService.Get("Common_NotReported")
+                : snapshot.CpuName.Trim();
+            var cpuParts = new List<string>(4) { FormatTempValue(snapshot.CpuTemp) };
+            if (double.IsFinite(snapshot.CpuGhz) && snapshot.CpuGhz > 0)
+            {
+                string clockText = FormatCpuClockReadout(
+                    snapshot.CpuGhz,
+                    snapshot.CpuBaseGhz,
+                    snapshot.CpuMaxGhz,
+                    showBaseSpeed: true);
+                cpuParts.Add($"{clockText} {LocalizationService.Get("Main_LabelGhz")}");
+            }
+            if (double.IsFinite(snapshot.CpuLoad))
+            {
+                cpuParts.Add($"{Math.Round(snapshot.CpuLoad).ToString("0", CultureInfo.InvariantCulture)}%");
+            }
+            if (snapshot.CpuPackageWatts.HasValue)
+            {
+                cpuParts.Add(FormatPackagePower(snapshot.CpuPackageWatts));
+            }
+            sb.AppendLine($"{cpuLabel}: {cpuName} — {string.Join(" | ", cpuParts)}");
+
+            bool hasGpu = !string.IsNullOrWhiteSpace(snapshot.GpuName) ||
+                double.IsFinite(snapshot.GpuTemp) ||
+                double.IsFinite(snapshot.GpuLoad) ||
+                snapshot.GpuPowerWatts.HasValue ||
+                snapshot.Gpus.Count > 0;
+            if (hasGpu)
+            {
+                string gpuName = string.IsNullOrWhiteSpace(snapshot.GpuName)
+                    ? LocalizationService.Get("Common_NotReported")
+                    : snapshot.GpuName.Trim();
+                var gpuParts = new List<string>(6) { FormatTempValue(snapshot.GpuTemp) };
+                if (snapshot.GpuPowerWatts.HasValue)
+                {
+                    gpuParts.Add(FormatPackagePower(snapshot.GpuPowerWatts));
+                }
+                if (double.IsFinite(snapshot.GpuLoad))
+                {
+                    gpuParts.Add($"{Math.Round(snapshot.GpuLoad).ToString("0", CultureInfo.InvariantCulture)}%");
+                }
+                string vram = FormatGpuVramUsage(snapshot);
+                if (!string.Equals(vram, "--", StringComparison.Ordinal))
+                {
+                    gpuParts.Add($"{LocalizationService.Get("Main_GpuVramUsageLabel")} {vram}");
+                }
+                string clocks = FormatGpuClocks(snapshot);
+                if (!string.Equals(clocks, "--", StringComparison.Ordinal))
+                {
+                    gpuParts.Add(clocks);
+                }
+                string throttle = CompactThrottleReason(snapshot.GpuThrottleReason);
+                if (!string.Equals(throttle, "--", StringComparison.Ordinal))
+                {
+                    gpuParts.Add($"{LocalizationService.Get("Main_GpuThrottleLabel")} {throttle}");
+                }
+                sb.AppendLine($"{LocalizationService.Get("Main_GpuLabel")}: {gpuName} — {string.Join(" | ", gpuParts)}");
+            }
+
+            string ramLabel = LocalizationService.Get("Main_LabelRam");
+            if (double.IsFinite(snapshot.RamUsedGb) &&
+                double.IsFinite(snapshot.RamTotalGb) &&
+                snapshot.RamTotalGb > 0)
+            {
+                string ramRatio = $"{snapshot.RamUsedGb.ToString("0.0", CultureInfo.InvariantCulture)} / {snapshot.RamTotalGb.ToString("0.0", CultureInfo.InvariantCulture)} {LocalizationService.Get("Main_LabelGb")}";
+                string ramPct = double.IsFinite(snapshot.RamUsagePercent)
+                    ? $" ({Math.Round(snapshot.RamUsagePercent).ToString("0", CultureInfo.InvariantCulture)}%)"
+                    : "";
+                sb.AppendLine($"{ramLabel}: {ramRatio}{ramPct}");
+            }
+            else
+            {
+                sb.AppendLine($"{ramLabel}: --");
+            }
+
+            if (showDiskTemp && snapshot.StorageDrives != null)
+            {
+                foreach (var drive in snapshot.StorageDrives)
+                {
+                    if (drive == null || HardwareMonitorService.IsDriveExcluded(drive, excludedDrives))
+                    {
+                        continue;
+                    }
+
+                    var driveParts = new List<string>(3) { FormatTempValue(drive.Temperature) };
+                    if (drive.SmartHealthPercent.HasValue)
+                    {
+                        driveParts.Add($"{drive.SmartHealthPercent.Value.ToString(CultureInfo.InvariantCulture)}%");
+                    }
+                    if (!string.IsNullOrWhiteSpace(drive.Model))
+                    {
+                        driveParts.Add(drive.Model.Trim());
+                    }
+                    sb.AppendLine($"{FormatSsdRowLabel(drive)}: {string.Join(" | ", driveParts)}");
+                }
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
         private void MenuToolsAbout_Click(object sender, RoutedEventArgs e)
         {
             OpenSettingsDialog(true);
@@ -3683,6 +4186,14 @@ namespace CryoTray.Views
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             ShowKeyboardFocusCues = true;
+            if (e.Key == Key.C &&
+                Keyboard.Modifiers == ModifierKeys.Control &&
+                !IsTextInputFocused())
+            {
+                CopyDashboardSnapshot();
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.Escape && CpuCoresPopup.IsOpen)
             {
                 CpuCoresPopup.IsOpen = false;
@@ -3694,6 +4205,9 @@ namespace CryoTray.Views
                 e.Handled = true;
             }
         }
+
+        private static bool IsTextInputFocused() =>
+            Keyboard.FocusedElement is TextBoxBase or PasswordBox;
 
         private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
@@ -4452,6 +4966,7 @@ namespace CryoTray.Views
         {
             LocalizationService.Instance.ApplyWindow(this);
             _ssdRowSignature = null;
+            _lastActiveUtilitySignature = "";
             ApplySettings();
             if (PowerProfileMenu?.IsOpen == true)
             {
