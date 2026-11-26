@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace CryoTray.Models
@@ -8,6 +9,9 @@ namespace CryoTray.Models
 
     public sealed class ProfilePalette
     {
+        private static readonly (byte R, byte G, byte B) DarkBase = (0x0B, 0x12, 0x18);
+        private static readonly (byte R, byte G, byte B) WhiteBase = (0xFF, 0xFF, 0xFF);
+
         public string Accent { get; init; } = "#2B88D8";
         public string BannerTop { get; init; } = "#255D8E";
         public string BannerBottom { get; init; } = "#1E9FD0";
@@ -28,6 +32,128 @@ namespace CryoTray.Models
         public string ToggleThumb { get; init; } = "#FFFFFF";
         public string ChartLine { get; init; } = "#3B9BCB";
         public string ChartArea { get; init; } = "#1A5A7E";
+
+        public static string NormalizeHex(string? hex, string fallback = "#6E859E")
+        {
+            var (r, g, b) = TryParseHex(hex, out var parsed)
+                ? parsed
+                : TryParseHex(fallback, out var fb)
+                    ? fb
+                    : ((byte)0x6E, (byte)0x85, (byte)0x9E);
+            return $"#{r:X2}{g:X2}{b:X2}";
+        }
+
+        /// <summary>Derives a full dashboard, fan, toggle, and chart palette from one accent color.</summary>
+        public static ProfilePalette FromAccent(string? accentHex)
+        {
+            (byte r, byte g, byte b) baseRgb = TryParseHex(accentHex, out var parsed)
+                ? parsed
+                : ((byte)0x6E, (byte)0x85, (byte)0x9E);
+
+            var trackRgb = Blend(baseRgb, DarkBase, 0.14);
+            double lumDark = RelativeLuminance((0x0D, 0x0D, 0x0D));
+            double lumWhite = 1.0;
+            double lumTrack = RelativeLuminance(trackRgb);
+            double darkContrast = (Math.Max(lumTrack, lumDark) + 0.05) / (Math.Min(lumTrack, lumDark) + 0.05);
+            double whiteContrast = (Math.Max(lumTrack, lumWhite) + 0.05) / (Math.Min(lumTrack, lumWhite) + 0.05);
+
+            bool useDarkText = darkContrast > whiteContrast;
+            if (!useDarkText && whiteContrast < 4.5)
+            {
+                for (int step = 1; step <= 8 && whiteContrast < 4.5; step++)
+                {
+                    trackRgb = Blend(trackRgb, DarkBase, 0.12);
+                    lumTrack = RelativeLuminance(trackRgb);
+                    whiteContrast = (1.05) / (lumTrack + 0.05);
+                }
+            }
+            else if (useDarkText && darkContrast < 4.5)
+            {
+                for (int step = 1; step <= 8 && darkContrast < 4.5; step++)
+                {
+                    trackRgb = Blend(trackRgb, WhiteBase, 0.12);
+                    lumTrack = RelativeLuminance(trackRgb);
+                    darkContrast = (lumTrack + 0.05) / (lumDark + 0.05);
+                }
+            }
+
+            return new ProfilePalette
+            {
+                Accent = FormatRgb(baseRgb),
+                BannerTop = FormatRgb(Blend(baseRgb, DarkBase, 0.50)),
+                BannerBottom = FormatRgb(Blend(baseRgb, DarkBase, 0.24)),
+                FanAccent = FormatRgb(Blend(baseRgb, WhiteBase, 0.22)),
+                FanRing = FormatRgb(Blend(baseRgb, DarkBase, 0.36)),
+                FanCircuit = FormatRgb(Blend(baseRgb, DarkBase, 0.15)),
+                FanDots = FormatRgb(Blend(baseRgb, WhiteBase, 0.56)),
+                FanTileTop = FormatRgb(Blend(baseRgb, DarkBase, 0.85)),
+                FanTileMiddle = FormatRgb(Blend(baseRgb, DarkBase, 0.74)),
+                FanTileBottom = FormatRgb(Blend(baseRgb, DarkBase, 0.88)),
+                PetalTop = FormatRgb(Blend(baseRgb, WhiteBase, 0.86)),
+                PetalMiddle = FormatRgb(Blend(baseRgb, WhiteBase, 0.48)),
+                PetalBottom = FormatRgb(baseRgb),
+                PetalOutline = FormatRgb(Blend(baseRgb, WhiteBase, 0.70)),
+                PetalVein = FormatRgb(Blend(baseRgb, WhiteBase, 0.90)),
+                ToggleTrack = FormatRgb(trackRgb),
+                ToggleText = useDarkText ? "#0D0D0D" : "#FFFFFF",
+                ToggleThumb = "#FFFFFF",
+                ChartLine = FormatRgb(Blend(baseRgb, WhiteBase, 0.10)),
+                ChartArea = FormatRgb(Blend(baseRgb, DarkBase, 0.55))
+            };
+        }
+
+        private static bool TryParseHex(string? hex, out (byte R, byte G, byte B) rgb)
+        {
+            rgb = default;
+            if (string.IsNullOrWhiteSpace(hex))
+            {
+                return false;
+            }
+
+            string trimmed = hex.Trim();
+            if (trimmed.StartsWith("#", StringComparison.Ordinal))
+            {
+                trimmed = trimmed[1..];
+            }
+
+            if (trimmed.Length == 8)
+            {
+                trimmed = trimmed[2..];
+            }
+
+            if (trimmed.Length != 6 ||
+                !byte.TryParse(trimmed[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte r) ||
+                !byte.TryParse(trimmed.Substring(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte g) ||
+                !byte.TryParse(trimmed.Substring(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte b))
+            {
+                return false;
+            }
+
+            rgb = (r, g, b);
+            return true;
+        }
+
+        private static (byte R, byte G, byte B) Blend((byte R, byte G, byte B) from, (byte R, byte G, byte B) to, double amount)
+        {
+            return (
+                (byte)Math.Clamp((int)Math.Round(from.R + ((to.R - from.R) * amount)), 0, 255),
+                (byte)Math.Clamp((int)Math.Round(from.G + ((to.G - from.G) * amount)), 0, 255),
+                (byte)Math.Clamp((int)Math.Round(from.B + ((to.B - from.B) * amount)), 0, 255));
+        }
+
+        private static double RelativeLuminance((byte R, byte G, byte B) rgb)
+        {
+            static double Channel(byte value)
+            {
+                double c = value / 255.0;
+                return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+            }
+
+            return (0.2126 * Channel(rgb.R)) + (0.7152 * Channel(rgb.G)) + (0.0722 * Channel(rgb.B));
+        }
+
+        private static string FormatRgb((byte R, byte G, byte B) rgb) =>
+            $"#{rgb.R:X2}{rgb.G:X2}{rgb.B:X2}";
     }
 
     public sealed class PowerProfileDefinition
@@ -37,6 +163,10 @@ namespace CryoTray.Models
         public string SchemeName { get; init; } = "";
         public bool IsCooling { get; init; }
         public bool IsWindowsDefault { get; init; }
+        public bool IsExternal { get; init; }
+        public string? LiteralName { get; init; }
+        public string? LiteralBadge { get; init; }
+        public string? LiteralDescription { get; init; }
         public ProfilePalette Palette { get; init; } = new();
         public IReadOnlyList<PowerValue> Values { get; init; } = Array.Empty<PowerValue>();
 
@@ -48,12 +178,15 @@ namespace CryoTray.Models
     public static class PowerProfiles
     {
         public const string CoolingKey = "Cooling";
+        public const string EcoKey = "Eco";
         public const string LegacyKey = "Legacy";
         public const string BalancedKey = "Balanced";
+        public const string WorkKey = "Work";
         public const string GamingLowKey = "GamingLow";
         public const string GamingMediumKey = "GamingMedium";
         public const string GamingHighKey = "GamingHigh";
         public const string GamingUltimateKey = "GamingUltimate";
+        public const string ExternalKeyPrefix = "ext:";
 
         private static readonly ProfilePalette CoolingPalette = new()
         {
@@ -79,6 +212,30 @@ namespace CryoTray.Models
             ChartArea = "#1A5A7E"
         };
 
+        private static readonly ProfilePalette EcoPalette = new()
+        {
+            Accent = "#2699A8",
+            BannerTop = "#174B57",
+            BannerBottom = "#1D7F8E",
+            FanAccent = "#4AD6E8",
+            FanRing = "#176B7A",
+            FanCircuit = "#1D899B",
+            FanDots = "#A6F4FF",
+            FanTileTop = "#061A20",
+            FanTileMiddle = "#092831",
+            FanTileBottom = "#06161B",
+            PetalTop = "#E6FCFF",
+            PetalMiddle = "#94E8F5",
+            PetalBottom = "#31A4B5",
+            PetalOutline = "#C7F6FC",
+            PetalVein = "#E9FDFF",
+            ToggleTrack = "#1C7986",
+            ToggleText = "#FFFFFF",
+            ToggleThumb = "#FFFFFF",
+            ChartLine = "#2DA7B8",
+            ChartArea = "#144A54"
+        };
+
         private static readonly ProfilePalette BalancedPalette = new()
         {
             Accent = "#C26A47",
@@ -101,6 +258,30 @@ namespace CryoTray.Models
             ToggleThumb = "#E68A57",
             ChartLine = "#C77950",
             ChartArea = "#6A3320"
+        };
+
+        private static readonly ProfilePalette WorkPalette = new()
+        {
+            Accent = "#6E859E",
+            BannerTop = "#354354",
+            BannerBottom = "#4F647D",
+            FanAccent = "#8EB2D6",
+            FanRing = "#445A73",
+            FanCircuit = "#5E7B9C",
+            FanDots = "#CFE3F7",
+            FanTileTop = "#0D131A",
+            FanTileMiddle = "#16202B",
+            FanTileBottom = "#0B1016",
+            PetalTop = "#EDF4FC",
+            PetalMiddle = "#B8CFE6",
+            PetalBottom = "#607D9C",
+            PetalOutline = "#D6E6F5",
+            PetalVein = "#F2F7FC",
+            ToggleTrack = "#4A5E75",
+            ToggleText = "#FFFFFF",
+            ToggleThumb = "#FFFFFF",
+            ChartLine = "#738CA6",
+            ChartArea = "#2D3D4F"
         };
 
         private static readonly ProfilePalette GamingLowPalette = new()
@@ -225,6 +406,33 @@ namespace CryoTray.Models
             }
         };
 
+        public static readonly PowerProfileDefinition EcoProfile = new()
+        {
+            Key = EcoKey,
+            SchemeGuid = new Guid("c7a00007-0000-4000-8000-000000000007"),
+            SchemeName = "CryoTray — Eco",
+            IsCooling = true,
+            Palette = EcoPalette,
+            Values = new[]
+            {
+                Power(PowerGuids.SubNone, PowerGuids.Personality, 0, 0),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfBoostMode, 0, 0),
+                Power(PowerGuids.SubProcessor, PowerGuids.ThrottleMax, 70, 55),
+                Power(PowerGuids.SubProcessor, PowerGuids.ThrottleMin, 5, 5),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfEpp, 95, 100),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfIncreasePolicy, 0, 0),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfDecreasePolicy, 0, 0),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfIncreaseThreshold, 65, 85),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfDecreaseThreshold, 25, 35),
+                Power(PowerGuids.SubProcessor, PowerGuids.CoreParkingMinCores, 10, 5),
+                Power(PowerGuids.SubProcessor, PowerGuids.SystemCoolingPolicy, 0, 0),
+                Power(PowerGuids.SubPcie, PowerGuids.PcieAspm, 2, 2),
+                Power(PowerGuids.SubUsb, PowerGuids.UsbSelectiveSuspend, 1, 1),
+                Power(PowerGuids.SubDisk, PowerGuids.PrimaryNvmeIdle, 100, 50),
+                Power(PowerGuids.SubWireless, PowerGuids.WirelessPowerSaving, 2, 3)
+            }
+        };
+
         public static readonly PowerProfileDefinition LegacyProfile = new()
         {
             Key = LegacyKey,
@@ -284,6 +492,29 @@ namespace CryoTray.Models
             IsWindowsDefault = true,
             Palette = BalancedPalette,
             Values = Array.Empty<PowerValue>()
+        };
+
+        public static readonly PowerProfileDefinition WorkProfile = new()
+        {
+            Key = WorkKey,
+            SchemeGuid = new Guid("c7a00008-0000-4000-8000-000000000008"),
+            SchemeName = "CryoTray — Work",
+            IsCooling = false,
+            Palette = WorkPalette,
+            Values = new[]
+            {
+                Power(PowerGuids.SubNone, PowerGuids.Personality, 2, 2),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfBoostMode, 4, 3),
+                Power(PowerGuids.SubProcessor, PowerGuids.ThrottleMax, 100, 100),
+                Power(PowerGuids.SubProcessor, PowerGuids.ThrottleMin, 5, 5),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfEpp, 25, 50),
+                Power(PowerGuids.SubProcessor, PowerGuids.PerfIncreasePolicy, 3, 0),
+                Power(PowerGuids.SubProcessor, PowerGuids.CoreParkingMinCores, 50, 25),
+                Power(PowerGuids.SubProcessor, PowerGuids.SystemCoolingPolicy, 1, 0),
+                Power(PowerGuids.SubPcie, PowerGuids.PcieAspm, 1, 2),
+                Power(PowerGuids.SubUsb, PowerGuids.UsbSelectiveSuspend, 1, 1),
+                Power(PowerGuids.SubDisk, PowerGuids.PrimaryNvmeIdle, 200, 100)
+            }
         };
 
         public static readonly PowerProfileDefinition GamingLowProfile = new()
@@ -375,6 +606,8 @@ namespace CryoTray.Models
         {
             CoolingProfile,
             LegacyProfile,
+            EcoProfile,
+            WorkProfile,
             GamingLowProfile,
             GamingMediumProfile,
             GamingHighProfile,
@@ -384,12 +617,14 @@ namespace CryoTray.Models
         public static readonly IReadOnlyList<PowerProfileDefinition> CoolingProfiles = new[]
         {
             CoolingProfile,
-            LegacyProfile
+            LegacyProfile,
+            EcoProfile
         };
 
         public static readonly IReadOnlyList<PowerProfileDefinition> GamingProfiles = new[]
         {
             BalancedProfile,
+            WorkProfile,
             GamingLowProfile,
             GamingMediumProfile,
             GamingHighProfile,
@@ -400,7 +635,9 @@ namespace CryoTray.Models
         {
             CoolingProfile,
             LegacyProfile,
+            EcoProfile,
             BalancedProfile,
+            WorkProfile,
             GamingLowProfile,
             GamingMediumProfile,
             GamingHighProfile,
@@ -416,6 +653,98 @@ namespace CryoTray.Models
         public static readonly Guid[] SchemeGuids =
             All.Select(profile => profile.SchemeGuid).ToArray();
 
+        public static string MakeExternalKey(Guid guid) => $"{ExternalKeyPrefix}{guid:N}";
+
+        public static bool TryParseExternalGuid(string? key, out Guid guid)
+        {
+            guid = Guid.Empty;
+            if (string.IsNullOrWhiteSpace(key) ||
+                !key.StartsWith(ExternalKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return Guid.TryParse(key[ExternalKeyPrefix.Length..], out guid) && guid != Guid.Empty;
+        }
+
+        public static bool CanHide(PowerProfileDefinition? profile)
+        {
+            return profile != null &&
+                !profile.IsExternal &&
+                !string.Equals(profile.Key, CoolingKey, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(profile.Key, BalancedKey, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsHidden(string? key, AppSettings? settings)
+        {
+            if (string.IsNullOrWhiteSpace(key) || settings?.HiddenPowerProfiles == null)
+            {
+                return false;
+            }
+
+            var profile = Get(key);
+            if (!CanHide(profile))
+            {
+                return false;
+            }
+
+            return settings.HiddenPowerProfiles.Any(
+                hidden => string.Equals(hidden, profile!.Key, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public static PowerProfileDefinition? BuildExternalProfile(
+            ExternalPowerProfileSetting? entry,
+            string? fallbackName = null)
+        {
+            if (entry == null ||
+                !Guid.TryParse(entry.Guid, out Guid guid) ||
+                guid == Guid.Empty ||
+                guid == BalancedProfile.SchemeGuid ||
+                IsCryoTrayScheme(guid))
+            {
+                return null;
+            }
+
+            string name = !string.IsNullOrWhiteSpace(entry.Name)
+                ? entry.Name.Trim()
+                : !string.IsNullOrWhiteSpace(fallbackName)
+                    ? fallbackName.Trim()
+                    : guid.ToString("D");
+
+            return new PowerProfileDefinition
+            {
+                Key = MakeExternalKey(guid),
+                SchemeGuid = guid,
+                SchemeName = name,
+                IsCooling = entry.IsCooling,
+                IsExternal = true,
+                LiteralName = name,
+                Palette = ProfilePalette.FromAccent(entry.AccentColor),
+                Values = Array.Empty<PowerValue>()
+            };
+        }
+
+        public static IReadOnlyList<PowerProfileDefinition> GetExternalProfiles(AppSettings? settings)
+        {
+            if (settings?.ExternalPowerProfiles == null || settings.ExternalPowerProfiles.Count == 0)
+            {
+                return Array.Empty<PowerProfileDefinition>();
+            }
+
+            var result = new List<PowerProfileDefinition>();
+            var seen = new HashSet<Guid>();
+            foreach (var entry in settings.ExternalPowerProfiles)
+            {
+                var built = BuildExternalProfile(entry);
+                if (built != null && seen.Add(built.SchemeGuid))
+                {
+                    result.Add(built);
+                }
+            }
+
+            return result;
+        }
+
         public static PowerProfileDefinition? Get(string? key)
         {
             return !string.IsNullOrWhiteSpace(key) && ByKey.TryGetValue(key, out var profile)
@@ -423,21 +752,80 @@ namespace CryoTray.Models
                 : null;
         }
 
-        public static PowerProfileDefinition GetCooling(string? key)
+        public static PowerProfileDefinition? Resolve(string? key, AppSettings? settings = null)
         {
-            var profile = Get(key);
-            return profile is { IsCooling: true } ? profile : CoolingProfile;
+            var builtIn = Get(key);
+            if (builtIn != null)
+            {
+                return builtIn;
+            }
+
+            if (!TryParseExternalGuid(key, out Guid guid))
+            {
+                return null;
+            }
+
+            return GetExternalProfiles(settings)
+                .FirstOrDefault(profile => profile.SchemeGuid == guid);
         }
 
-        public static PowerProfileDefinition GetGaming(string? key)
+        public static IReadOnlyList<PowerProfileDefinition> GetVisibleCoolingProfiles(AppSettings? settings)
         {
-            var profile = Get(key);
-            return profile is { IsCooling: false } ? profile : BalancedProfile;
+            var visible = CoolingProfiles
+                .Where(profile => !IsHidden(profile.Key, settings))
+                .ToList();
+            visible.AddRange(GetExternalProfiles(settings).Where(profile => profile.IsCooling));
+            return visible;
         }
 
-        public static PowerProfileDefinition? FromSchemeGuid(Guid guid)
+        public static IReadOnlyList<PowerProfileDefinition> GetVisibleGamingProfiles(AppSettings? settings)
         {
-            return ByGuid.TryGetValue(guid, out var profile) ? profile : null;
+            var visible = GamingProfiles
+                .Where(profile => !IsHidden(profile.Key, settings))
+                .ToList();
+            visible.AddRange(GetExternalProfiles(settings).Where(profile => !profile.IsCooling));
+            return visible;
+        }
+
+        public static IReadOnlyList<PowerProfileDefinition> GetVisibleMenuProfiles(AppSettings? settings)
+        {
+            var visible = new List<PowerProfileDefinition>();
+            visible.AddRange(GetVisibleCoolingProfiles(settings));
+            visible.AddRange(GetVisibleGamingProfiles(settings));
+            return visible;
+        }
+
+        public static PowerProfileDefinition GetCooling(string? key, AppSettings? settings = null)
+        {
+            var profile = Resolve(key, settings);
+            if (profile is { IsCooling: true } && !IsHidden(profile.Key, settings))
+            {
+                return profile;
+            }
+
+            return CoolingProfile;
+        }
+
+        public static PowerProfileDefinition GetGaming(string? key, AppSettings? settings = null)
+        {
+            var profile = Resolve(key, settings);
+            if (profile is { IsCooling: false } && !IsHidden(profile.Key, settings))
+            {
+                return profile;
+            }
+
+            return BalancedProfile;
+        }
+
+        public static PowerProfileDefinition? FromSchemeGuid(Guid guid, AppSettings? settings = null)
+        {
+            if (ByGuid.TryGetValue(guid, out var profile))
+            {
+                return profile;
+            }
+
+            return GetExternalProfiles(settings)
+                .FirstOrDefault(ext => ext.SchemeGuid == guid);
         }
 
         public static bool IsCryoTrayScheme(Guid guid) => SchemeGuids.Contains(guid);

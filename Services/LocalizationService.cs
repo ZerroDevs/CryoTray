@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Markup;
+using CryoTray.Models;
 
 namespace CryoTray.Services
 {
@@ -103,6 +104,42 @@ namespace CryoTray.Services
             string key = "Health_" + status;
             string translated = Get(key);
             return translated == key ? Get("Common_Unknown") : translated;
+        }
+
+        public static string GetProfileName(PowerProfileDefinition profile)
+        {
+            return !string.IsNullOrWhiteSpace(profile.LiteralName)
+                ? profile.LiteralName
+                : Get(profile.NameKey);
+        }
+
+        public static string GetProfileBadge(PowerProfileDefinition profile)
+        {
+            if (profile.IsExternal)
+            {
+                return Get(profile.IsCooling
+                    ? "PowerProfile_ExternalCooling_Badge"
+                    : "PowerProfile_External_Badge");
+            }
+
+            return !string.IsNullOrWhiteSpace(profile.LiteralBadge)
+                ? profile.LiteralBadge
+                : Get(profile.BadgeKey);
+        }
+
+        public static string GetProfileDescription(PowerProfileDefinition profile)
+        {
+            if (!string.IsNullOrWhiteSpace(profile.LiteralDescription))
+            {
+                return profile.LiteralDescription;
+            }
+
+            if (profile.IsExternal)
+            {
+                return Format("PowerProfile_External_Description", GetProfileName(profile));
+            }
+
+            return Get(profile.DescriptionKey);
         }
     }
 }

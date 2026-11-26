@@ -558,10 +558,10 @@ namespace CryoTray.Services
 
         private static string ProfileName(string key)
         {
-            PowerProfileDefinition? profile = PowerProfiles.Get(key);
+            PowerProfileDefinition? profile = PowerProfiles.Resolve(key, SettingsService.Instance.Current);
             return profile == null
                 ? key
-                : LocalizationService.Get(profile.NameKey);
+                : LocalizationService.GetProfileName(profile);
         }
 
         private static bool IsFanActivity(ActivityEvent item) =>

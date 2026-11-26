@@ -6,7 +6,7 @@ CryoTray actively maintains security patches for the following versions:
 
 | Version | Supported | Notes |
 | :--- | :---: | :--- |
-| `>= 0.0.100` / `main` | :white_check_mark: | Actively supported (current baseline `0.0.106`; incrementing `0.0.107`, `0.0.108`, etc.) |
+| `>= 0.0.100` / `main` | :white_check_mark: | Actively supported (current baseline `0.0.107`; incrementing `0.0.108`, `0.0.109`, etc.) |
 | `< 0.0.100` | :x: | Unsupported / unreleased builds |
 
 We strongly recommend always running the latest official release available from the [CryoTray Releases](https://github.com/ZerroDevs/CryoTray/releases) page.
@@ -52,7 +52,7 @@ CryoTray requires elevation in its application manifest (`app.manifest`) to acce
 - **Out of Scope**: Attacks that require an attacker to already possess interactive Administrator or SYSTEM privileges on the machine.
 
 ### 2. Windows Power Scheme Management
-CryoTray creates and applies six power profiles with hardcoded GUIDs (`c7a00001` through `c7a00006`) using direct Win32 API calls (`PowerWriteACValueIndex`, `PowerWriteDCValueIndex`, `PowerWriteFriendlyName`, and `PowerSetActiveScheme` in `powrprof.dll`). Its cleanup pass can only delete GUIDs from that whitelist plus the exact legacy `"CryoTray Cooling"` name; built-in Windows plans and third-party plans are never deleted or modified.
+CryoTray creates and applies eight power profiles with deterministic GUIDs (`c7a00001` through `c7a00008`) using direct Win32 API calls (`PowerWriteACValueIndex`, `PowerWriteDCValueIndex`, `PowerWriteFriendlyName`, and `PowerSetActiveScheme` in `powrprof.dll`). Its cleanup pass can only delete GUIDs from that whitelist plus the exact legacy `"CryoTray Cooling"` name; built-in Windows plans and user-pinned external Windows plans are never modified or deleted.
 - **In Scope**: Injections or corruption allowing unauthorized modification of system-wide security settings or arbitrary power schemes.
 - **Out of Scope**: Standard CPU throttling behavior intended by Windows power management policies.
 
@@ -82,7 +82,7 @@ CryoTray includes automated update checking and downloading via GitHub Releases 
 ### 6. Privacy & Data Handling
 - CryoTray runs entirely offline and contains **zero telemetry, analytics, or tracking**.
 - The only outbound network requests occur during explicit checks or the adaptive background update checks against GitHub Releases (`5` minutes with the dashboard open, `30` minutes in the tray, plus startup, resume, and network reconnect).
-- User settings are stored locally in plaintext JSON at `%APPDATA%\CryoTray\settings.json`. No credentials, personal data, or encryption keys are handled or stored. This file also stores the opt-in GPU power and download-timer preferences; neither feature sends data anywhere.
+- User settings are stored locally in plaintext JSON at `%APPDATA%\CryoTray\settings.json`. No credentials, personal data, or encryption keys are handled or stored. This file also stores the opt-in GPU power, download-timer, pinned Windows plan references, and detected CPU boost-peak cache locally; none of these send data anywhere.
 
 ### 7. Third-Party Hardware Drivers
 CryoTray relies on `LibreHardwareMonitorLib`, the `PawnIO` kernel driver, and the installed NVIDIA or AMD display driver for hardware sensing and the opt-in GPU power limit.

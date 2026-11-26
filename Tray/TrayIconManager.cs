@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Globalization;
+using System.Linq;
 using System.Windows.Forms;
 using CryoTray.Models;
 using CryoTray.Services;
@@ -29,6 +30,7 @@ namespace CryoTray.Tray
         private readonly ToolStripMenuItem _itemCooling = null!;
         private readonly ToolStripMenuItem _itemPowerProfiles = null!;
         private readonly Dictionary<string, ToolStripMenuItem> _powerProfileItems = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Color> _powerProfileAccentColors = new(StringComparer.OrdinalIgnoreCase);
         private readonly ToolStripMenuItem _itemPauseCooling = null!;
         private readonly ToolStripMenuItem _itemPause15m = null!;
         private readonly ToolStripMenuItem _itemPause30m = null!;
@@ -73,6 +75,7 @@ namespace CryoTray.Tray
         private NotifyIcon? _notificationIcon;
         private DateTime _notificationHoldUntilUtc;
         private DateTime? _coolingPausedUntilUtc;
+        private string _lastPowerProfileMenuSignature = "";
         private double _lastGpuTemp = double.NaN;
         private double _lastCpuTemp = double.NaN;
         private double _lastGpuLoad = double.NaN;
@@ -211,6 +214,7 @@ namespace CryoTray.Tray
 
             SettingsService.Instance.SettingsChanged += OnSettingsChanged;
             KeepAwakeService.Instance.StatusChanged += OnKeepAwakeStatusChanged;
+            PowerPlanService.Instance.ProfileChanged += OnPowerPlanProfileChanged;
 
             ApplyLanguage();
             UpdateBadges(double.NaN, double.NaN, PowerPlanService.Instance.IsCoolingModeActive, true);
@@ -238,12 +242,24 @@ namespace CryoTray.Tray
 
             UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true,
                 _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
+            RefreshPowerProfileMenu(force: false);
             RefreshKeepAwakeMenuText();
         }
 
         private void OnKeepAwakeStatusChanged()
         {
             RefreshKeepAwakeMenuText();
+        }
+
+        private void OnPowerPlanProfileChanged()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, false,
+                _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
         }
 
         public void RefreshDownloadTimerCheck()
@@ -264,14 +280,7 @@ namespace CryoTray.Tray
             _itemOpen.Text = LocalizationService.Get("Tray_OpenDashboard");
             _itemCooling.Text = LocalizationService.Get("Tray_ToggleCooling");
             _itemPowerProfiles.Text = LocalizationService.Get("Tray_PowerProfile");
-            foreach (var profile in PowerProfiles.MenuProfiles)
-            {
-                if (_powerProfileItems.TryGetValue(profile.Key, out var item))
-                {
-                    item.Text = LocalizationService.Get(profile.NameKey);
-                }
-            }
-            RefreshPowerProfileChecks();
+            RefreshPowerProfileMenu(force: true);
             _itemPause15m.Text = LocalizationService.Get("Tray_Pause15m");
             _itemPause30m.Text = LocalizationService.Get("Tray_Pause30m");
             _itemPause60m.Text = LocalizationService.Get("Tray_Pause60m");
@@ -296,7 +305,7 @@ namespace CryoTray.Tray
 
             UpdateDropDownSizes(_contextMenu, MainMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateDropDownSizes(_itemPauseCooling.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
-            UpdateDropDownSizes(_itemPowerProfiles.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
+            UpdateDropDownSizes(_itemPowerProfiles.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve + 16);
             UpdateDropDownSizes(_itemKeepAwake.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateBadges(_lastGpuTemp, _lastCpuTemp, _lastCoolingModeActive, true,
                 _lastGpuLoad, _lastCpuLoad, _lastRamPercent);
@@ -355,6 +364,78 @@ namespace CryoTray.Tray
             }
 
             return Math.Max(1, (int)Math.Ceiling((until.Value - DateTime.UtcNow).TotalMinutes));
+        }
+
+        private void RefreshPowerProfileMenu(bool force)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_contextMenu.InvokeRequired)
+            {
+                try
+                {
+                    _contextMenu.BeginInvoke(new Action(() => RefreshPowerProfileMenu(force)));
+                }
+                catch
+                {
+                }
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            var cooling = PowerProfiles.GetVisibleCoolingProfiles(settings);
+            var gaming = PowerProfiles.GetVisibleGamingProfiles(settings);
+            string signature = string.Join("|",
+                cooling.Concat(gaming).Select(p =>
+                    $"{p.Key}:{(p.IsCooling ? 'C' : 'G')}:{p.Palette.Accent}:{LocalizationService.GetProfileName(p)}"));
+
+            if (!force && string.Equals(signature, _lastPowerProfileMenuSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastPowerProfileMenuSignature = signature;
+            PopulatePowerProfileDropDown(_itemPowerProfiles, _powerProfileItems, cooling, gaming);
+            RefreshPowerProfileChecks();
+            UpdateDropDownSizes(_itemPowerProfiles.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve + 16);
+            ApplyMenuTheme(_itemPowerProfiles.DropDown);
+        }
+
+        private void PopulatePowerProfileDropDown(
+            ToolStripMenuItem parent,
+            Dictionary<string, ToolStripMenuItem>? itemMap,
+            IReadOnlyList<PowerProfileDefinition> cooling,
+            IReadOnlyList<PowerProfileDefinition> gaming)
+        {
+            parent.DropDownItems.Clear();
+            itemMap?.Clear();
+            _powerProfileAccentColors.Clear();
+
+            void AddEntries(IReadOnlyList<PowerProfileDefinition> profiles)
+            {
+                foreach (var profile in profiles)
+                {
+                    string key = profile.Key;
+                    _powerProfileAccentColors[key] = ParseBadgeColor(profile.Palette.Accent, CpuCyan);
+                    var entry = CreateMenuItem(
+                        LocalizationService.GetProfileName(profile),
+                        () => OnPowerProfileRequested?.Invoke(key),
+                        tag: CheckableMenuItemTag);
+                    entry.Name = key;
+                    parent.DropDownItems.Add(entry);
+                    if (itemMap != null)
+                    {
+                        itemMap[key] = entry;
+                    }
+                }
+            }
+
+            AddEntries(cooling);
+            parent.DropDownItems.Add(CreateSeparator());
+            AddEntries(gaming);
         }
 
         private void RefreshPowerProfileChecks()
@@ -514,7 +595,7 @@ namespace CryoTray.Tray
 
         private DarkContextMenuItems CreateDarkContextMenu()
         {
-            var renderer = new DarkMenuRenderer();
+            var renderer = new DarkMenuRenderer(ResolveProfileDotColor);
             var menu = new ContextMenuStrip();
             ConfigureDarkDropDown(menu, renderer);
 
@@ -529,15 +610,12 @@ namespace CryoTray.Tray
             {
                 ConfigureDarkDropDown(profileDropDown, renderer);
             }
-            foreach (var profile in PowerProfiles.MenuProfiles)
-            {
-                var entry = CreateMenuItem(
-                    LocalizationService.Get(profile.NameKey),
-                    () => OnPowerProfileRequested?.Invoke(profile.Key),
-                    tag: CheckableMenuItemTag);
-                entry.Name = profile.Key;
-                itemPowerProfiles.DropDownItems.Add(entry);
-            }
+            var settings = SettingsService.Instance.Current;
+            PopulatePowerProfileDropDown(
+                itemPowerProfiles,
+                null,
+                PowerProfiles.GetVisibleCoolingProfiles(settings),
+                PowerProfiles.GetVisibleGamingProfiles(settings));
 
             var itemPauseCooling = new ToolStripMenuItem("Pause Cooling Mode")
             {
@@ -648,6 +726,19 @@ namespace CryoTray.Tray
                 itemExit);
         }
 
+        private Color? ResolveProfileDotColor(ToolStripItem item)
+        {
+            if (item is ToolStripMenuItem menuItem &&
+                !string.IsNullOrEmpty(menuItem.Name) &&
+                menuItem.Owner == _itemPowerProfiles?.DropDown &&
+                _powerProfileAccentColors.TryGetValue(menuItem.Name, out Color color))
+            {
+                return color;
+            }
+
+            return null;
+        }
+
         private void ConfigureDarkDropDown(ToolStripDropDownMenu dropDown, ToolStripRenderer renderer)
         {
             dropDown.Renderer = renderer;
@@ -726,7 +817,7 @@ namespace CryoTray.Tray
             RefreshPauseMenuText();
             UpdateDropDownSizes(_contextMenu, MainMenuFloorWidth, MenuTextHorizontalReserve);
             UpdateDropDownSizes(_itemPauseCooling.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
-            UpdateDropDownSizes(_itemPowerProfiles.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
+            UpdateDropDownSizes(_itemPowerProfiles.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve + 16);
             UpdateDropDownSizes(_itemKeepAwake.DropDown, SubMenuFloorWidth, MenuTextHorizontalReserve);
 
             Bitmap mainBmp = RenderMenuToBitmap(_contextMenu, selectFirstItem ? _itemOpen : null);
@@ -792,13 +883,19 @@ namespace CryoTray.Tray
             int pauseMins = (!_coolingPausedUntilUtc.HasValue || _coolingPausedUntilUtc.Value <= DateTime.UtcNow)
                 ? 0
                 : Math.Max(1, (int)Math.Ceiling((_coolingPausedUntilUtc.Value - DateTime.UtcNow).TotalMinutes));
+            var activeProfile = PowerPlanService.Instance.ActiveProfile;
+            string activeProfileKey = activeProfile?.Key ?? "";
+            string activeProfileAccent = activeProfile?.Palette.Accent ?? "";
             string signature = string.Join(
                 "|",
                 gpuText, cpuText, settings.ShowRamBadge ? ramText : "",
                 coolingModeActive, settings.MergeTrayIcons,
                 settings.ShowGpuBadge, settings.ShowCpuBadge, settings.ShowRamBadge,
                 isFahrenheit, holdCpu, holdGpu, holdRam, pauseMins,
-                settings.CpuTrayWhiteDigits, settings.GpuTrayWhiteDigits, settings.RamTrayWhiteDigits,
+                settings.CpuTrayWhiteDigits, settings.SyncCpuTrayBadgeColor,
+                settings.SyncCpuTrayBadgeColor ? activeProfileKey : "",
+                settings.SyncCpuTrayBadgeColor ? activeProfileAccent : "",
+                settings.GpuTrayWhiteDigits, settings.RamTrayWhiteDigits,
                 settings.RamTrayBadgeColor, cpuMetric, gpuMetric, cpuUnit, gpuUnit, batteryText);
 
             _lastGpuTemp = gpuTemp;
@@ -814,9 +911,9 @@ namespace CryoTray.Tray
             }
 
             _lastBadgeSignature = signature;
-            Color cpuColor = settings.CpuTrayWhiteDigits
-                ? (coolingModeActive ? CpuCyanWhite : CpuAmberWhite)
-                : (coolingModeActive ? CpuCyan : CpuAmber);
+            Color cpuColor = ResolveCpuBadgeColor(
+                settings.SyncCpuTrayBadgeColor, activeProfile, coolingModeActive,
+                settings.CpuTrayWhiteDigits, merged: false);
             Color gpuColor = settings.GpuTrayWhiteDigits ? GpuGreenWhite : GpuGreen;
             Color ramColor = ResolveRamBadgeColor(settings.RamTrayBadgeColor, settings.RamTrayWhiteDigits);
 
@@ -842,9 +939,9 @@ namespace CryoTray.Tray
 
                 if (_cpuIcon.Visible)
                 {
-                    Color mergedCpuBg = settings.CpuTrayWhiteDigits
-                        ? (coolingModeActive ? CpuCyanWhite : CpuAmberWhite)
-                        : (coolingModeActive ? MergedCpuOn : MergedCpuOff);
+                    Color mergedCpuBg = ResolveCpuBadgeColor(
+                        settings.SyncCpuTrayBadgeColor, activeProfile, coolingModeActive,
+                        settings.CpuTrayWhiteDigits, merged: true);
                     Color mergedGpuBg = settings.GpuTrayWhiteDigits ? GpuGreenWhite : MergedGpuGreen;
                     DrawMergedBadge(cpuInt, gpuInt, mergedCpuBg, mergedGpuBg,
                         settings.CpuTrayWhiteDigits, settings.GpuTrayWhiteDigits);
@@ -960,6 +1057,30 @@ namespace CryoTray.Tray
             return metric == TrayBadgeMetric.Temperature
                 ? (isFahrenheit ? "°F" : "°C")
                 : "%";
+        }
+
+        internal static Color ResolveCpuBadgeColor(
+            bool syncWithProfile,
+            PowerProfileDefinition? activeProfile,
+            bool coolingModeActive,
+            bool whiteDigits,
+            bool merged)
+        {
+            if (!syncWithProfile || activeProfile == null)
+            {
+                if (merged && !whiteDigits)
+                {
+                    return coolingModeActive ? MergedCpuOn : MergedCpuOff;
+                }
+
+                return whiteDigits
+                    ? (coolingModeActive ? CpuCyanWhite : CpuAmberWhite)
+                    : (coolingModeActive ? CpuCyan : CpuAmber);
+            }
+
+            Color fallback = coolingModeActive ? CpuCyan : CpuAmber;
+            Color accent = ParseBadgeColor(activeProfile.Palette.Accent, fallback);
+            return EnsureBadgeContrast(accent, whiteDigits ? Color.White : BadgeInk);
         }
 
         internal static Color ResolveRamBadgeColor(string? configuredHex, bool whiteDigits)
@@ -1249,6 +1370,7 @@ namespace CryoTray.Tray
                 _disposed = true;
                 SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
                 KeepAwakeService.Instance.StatusChanged -= OnKeepAwakeStatusChanged;
+                PowerPlanService.Instance.ProfileChanged -= OnPowerPlanProfileChanged;
 
                 _gpuIcon.Visible = false;
                 _cpuIcon.Visible = false;
@@ -1283,6 +1405,13 @@ namespace CryoTray.Tray
         // Custom owner-drawn renderer avoids .NET 8 ToolStripProfessionalRenderer white ImageMargin and VisualStyle hover overrides.
         private sealed class DarkMenuRenderer : ToolStripRenderer
         {
+            private readonly Func<ToolStripItem, Color?>? _resolveDotColor;
+
+            public DarkMenuRenderer(Func<ToolStripItem, Color?>? resolveDotColor = null)
+            {
+                _resolveDotColor = resolveDotColor;
+            }
+
             public static Color SurfaceBg = Color.FromArgb(30, 30, 30);
             public static Color SurfaceBorder = Color.FromArgb(58, 58, 58);
             public static Color HoverFill = Color.FromArgb(45, 45, 45);
@@ -1383,6 +1512,18 @@ namespace CryoTray.Tray
                     e.Graphics.SmoothingMode = prev;
                 }
 
+                if (_resolveDotColor?.Invoke(e.Item) is Color dotColor)
+                {
+                    float dotSize = 8f;
+                    float dotX = rtl ? (stripW - 22f) - itemX : 14f - itemX;
+                    float dotY = (e.Item.Height - dotSize) / 2f;
+                    SmoothingMode prevDot = e.Graphics.SmoothingMode;
+                    e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    using var dotBrush = new SolidBrush(dotColor);
+                    e.Graphics.FillEllipse(dotBrush, dotX, dotY, dotSize, dotSize);
+                    e.Graphics.SmoothingMode = prevDot;
+                }
+
                 if (e.Item is ToolStripMenuItem menuItem && Equals(menuItem.Tag, CheckableMenuItemTag))
                 {
                     float cx = rtl ? 19f - itemX : (stripW - 19f) - itemX;
@@ -1431,8 +1572,9 @@ namespace CryoTray.Tray
                 int itemX = e.Item.Bounds.Left;
                 bool rtl = IsRtl(e.ToolStrip, e.Item);
 
-                int textLeft = rtl ? 36 - itemX : 14 - itemX;
-                int textRight = rtl ? (stripW - 14) - itemX : (stripW - 36) - itemX;
+                int dotOffset = _resolveDotColor?.Invoke(e.Item) != null ? 15 : 0;
+                int textLeft = rtl ? 36 - itemX : (14 + dotOffset) - itemX;
+                int textRight = rtl ? ((stripW - 14 - dotOffset) - itemX) : (stripW - 36) - itemX;
                 var textBounds = new Rectangle(textLeft, 0, Math.Max(20, textRight - textLeft), e.Item.Height);
 
                 Color textColor = !e.Item.Enabled

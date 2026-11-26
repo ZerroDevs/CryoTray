@@ -351,14 +351,16 @@ namespace CryoTray.Services
             string profileKey = ResolveProfileKey(
                 matchedProcess,
                 settings.AutopilotAppProfiles,
-                settings.PreferredGamingProfile);
+                settings.PreferredGamingProfile,
+                settings);
             return new AutomationTarget(matchedProcess, profileKey, false);
         }
 
         internal static string ResolveProfileKey(
             string processName,
             IReadOnlyDictionary<string, string>? profiles,
-            string fallbackKey)
+            string fallbackKey,
+            AppSettings? settings = null)
         {
             string fallback = string.IsNullOrWhiteSpace(fallbackKey)
                 ? PowerProfiles.BalancedKey
@@ -376,7 +378,7 @@ namespace CryoTray.Services
                         continue;
                     }
 
-                    if (PowerProfiles.Get(pair.Value) != null)
+                    if (PowerProfiles.Resolve(pair.Value, settings) != null)
                     {
                         return pair.Value;
                     }
@@ -416,10 +418,10 @@ namespace CryoTray.Services
 
         private static bool SwitchProfile(string profileKey, AppSettings settings)
         {
-            PowerProfileDefinition? profile = PowerProfiles.Get(profileKey);
+            PowerProfileDefinition? profile = PowerProfiles.Resolve(profileKey, settings);
             if (profile == null)
             {
-                profile = PowerProfiles.GetGaming(settings.PreferredGamingProfile);
+                profile = PowerProfiles.GetGaming(settings.PreferredGamingProfile, settings);
             }
 
             var application = System.Windows.Application.Current;

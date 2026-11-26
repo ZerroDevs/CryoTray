@@ -770,7 +770,7 @@ namespace CryoTray.Services
             sb.AppendLine($"OS: {data.OperatingSystem}");
             var activeProfile = PowerPlanService.Instance.GetActiveProfile();
             string activeProfileName = activeProfile != null
-                ? LocalizationService.Get(activeProfile.NameKey)
+                ? LocalizationService.GetProfileName(activeProfile)
                 : PowerPlanService.Instance.GetInstalledSchemes()
                     .FirstOrDefault(scheme => scheme.IsActive)?.Name ?? "Unknown";
             Guid activeProfileGuid = activeProfile?.SchemeGuid ?? PowerPlanService.Instance.GetActiveSchemeGuid();

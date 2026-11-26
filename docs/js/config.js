@@ -272,20 +272,20 @@ const STRESS_PROFILES = [
 
 
 const SEED_RELEASE = {
-  tag: "v0.0.106",
-  publishedAt: "2026-11-26T00:18:57Z",
-  htmlUrl: "https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.106",
+  tag: "v0.0.107",
+  publishedAt: "2026-11-26T04:20:00Z",
+  htmlUrl: "https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.107",
   setup: {
-    name: "CryoTray-Setup-0.0.106.exe",
+    name: "CryoTray-Setup-0.0.107.exe",
     size: 55129716,
-    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.106/CryoTray-Setup-0.0.106.exe",
-    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.106/CryoTray-Setup-0.0.106.exe.sha256"
+    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.107/CryoTray-Setup-0.0.107.exe",
+    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.107/CryoTray-Setup-0.0.107.exe.sha256"
   },
   zip: {
-    name: "CryoTray-0.0.106-win-x64.zip",
+    name: "CryoTray-0.0.107-win-x64.zip",
     size: 82540457,
-    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.106/CryoTray-0.0.106-win-x64.zip",
-    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.106/CryoTray-0.0.106-win-x64.zip.sha256"
+    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.107/CryoTray-0.0.107-win-x64.zip",
+    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.107/CryoTray-0.0.107-win-x64.zip.sha256"
   }
 };
 

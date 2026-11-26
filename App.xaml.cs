@@ -126,6 +126,7 @@ namespace CryoTray
             ApplyWindowAccent();
             PowerPlanService.Instance.ProfileChanged += OnPowerPlanProfileChanged;
             PowerPlanService.Instance.CoolingModeChanged += OnPowerPlanCoolingChanged;
+            PowerPlanService.Instance.ExternalPlanMissing += OnExternalPlanMissing;
 
             DispatcherUnhandledException += (s, args) =>
             {
@@ -237,7 +238,7 @@ namespace CryoTray
             _trayManager.OnToggleCoolingRequested += () => PowerPlanService.Instance.ToggleCoolingMode();
             _trayManager.OnPowerProfileRequested += key =>
             {
-                var profile = PowerProfiles.Get(key);
+                var profile = PowerProfiles.Resolve(key, SettingsService.Instance.Current);
                 if (profile != null)
                 {
                     PowerPlanService.Instance.SwitchToProfile(profile);
@@ -1014,6 +1015,7 @@ namespace CryoTray
 
         private void OnThemeChanged(object? sender, EventArgs e)
         {
+            ApplyWindowAccent();
             _trayManager?.ApplyTheme();
         }
 
@@ -1091,6 +1093,24 @@ namespace CryoTray
                         drift.NewName),
                     () => ShowDashboard(),
                     System.Windows.Forms.ToolTipIcon.Info);
+            }));
+        }
+
+        private void OnExternalPlanMissing(string planName)
+        {
+            ActivityLogService.Instance.Record(
+                ActivitySeverity.Warning,
+                "power",
+                "Activity_ExternalPlanRemoved",
+                planName);
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                ShowTrayNotification(
+                    LocalizationService.Get("Alert_ExternalPlanMissingTitle"),
+                    LocalizationService.Format("Alert_ExternalPlanMissingBody", planName),
+                    () => ShowDashboard(),
+                    System.Windows.Forms.ToolTipIcon.Warning);
             }));
         }
 
@@ -1569,7 +1589,7 @@ namespace CryoTray
                 "profile",
                 "Activity_ProfileChanged",
                 profile == null ? LocalizationService.Get("Common_Unknown")
-                    : LocalizationService.Get(profile.NameKey));
+                    : LocalizationService.GetProfileName(profile));
 
             if (!Dispatcher.CheckAccess())
             {
@@ -1589,8 +1609,10 @@ namespace CryoTray
                 return;
             }
 
-            string profileName = LocalizationService.Get(
-                PowerProfiles.Get(state.ProfileKey)?.NameKey ?? "Common_Unknown");
+            var resolvedProfile = PowerProfiles.Resolve(state.ProfileKey, SettingsService.Instance.Current);
+            string profileName = resolvedProfile != null
+                ? LocalizationService.GetProfileName(resolvedProfile)
+                : LocalizationService.Get("Common_Unknown");
             string targetName = string.IsNullOrWhiteSpace(state.ProcessName)
                 ? LocalizationService.Get("Activity_FullscreenGame")
                 : state.ProcessName;
@@ -1616,24 +1638,31 @@ namespace CryoTray
                 MemoryTelemetryService.FormatBytes(result.FreedBytes));
         }
 
+        internal static Color ResolveWindowAccentColor(PowerProfileDefinition? profile, AppSettings settings)
+        {
+            if (profile?.Key == PowerProfiles.CoolingKey || profile?.Key == PowerProfiles.LegacyKey)
+            {
+                return ResolveFrameColor(settings.CoolingOnFrameColor, DefaultCoolingOnFrameColor);
+            }
+
+            if (profile == null || profile.IsWindowsDefault || profile.Key == PowerProfiles.GamingHighKey)
+            {
+                return ResolveFrameColor(settings.CoolingOffFrameColor, DefaultCoolingOffFrameColor);
+            }
+
+            return (Color)ColorConverter.ConvertFromString(profile.Palette.Accent);
+        }
+
         private void ApplyWindowAccent()
         {
+            if (ThemeService.IsHighContrast)
+            {
+                return;
+            }
+
             var settings = SettingsService.Instance.Current;
             var profile = PowerPlanService.Instance.ActiveProfile;
-
-            Color color;
-            if (profile?.IsCooling == true)
-            {
-                color = ResolveFrameColor(settings.CoolingOnFrameColor, DefaultCoolingOnFrameColor);
-            }
-            else if (profile == null || profile.IsWindowsDefault || profile.Key == PowerProfiles.GamingHighKey)
-            {
-                color = ResolveFrameColor(settings.CoolingOffFrameColor, DefaultCoolingOffFrameColor);
-            }
-            else
-            {
-                color = (Color)ColorConverter.ConvertFromString(profile.Palette.Accent);
-            }
+            Color color = ResolveWindowAccentColor(profile, settings);
 
             var brush = new SolidColorBrush(color);
             brush.Freeze();

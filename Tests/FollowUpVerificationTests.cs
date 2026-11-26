@@ -318,7 +318,8 @@ namespace CryoTray.Tests
                     AutopilotAppProfiles = new Dictionary<string, string>(
                         StringComparer.OrdinalIgnoreCase)
                     {
-                        ["game.exe"] = PowerProfiles.GamingHighKey
+                        ["game.exe"] = PowerProfiles.GamingHighKey,
+                        ["code.exe"] = PowerProfiles.WorkKey
                     }
                 };
 
@@ -359,6 +360,38 @@ namespace CryoTray.Tests
                     "game.exe",
                     settings.AutopilotAppProfiles,
                     settings.PreferredGamingProfile) == PowerProfiles.GamingHighKey);
+                Guid extGuid = Guid.NewGuid();
+                string extKey = PowerProfiles.MakeExternalKey(extGuid);
+                settings.ExternalPowerProfiles.Add(new ExternalPowerProfileSetting
+                {
+                    Guid = extGuid.ToString("D"),
+                    Name = "OEM Performance",
+                    AccentColor = "#3399CC"
+                });
+                settings.AutopilotAppProfiles["render.exe"] = extKey;
+
+                Assert(AutopilotService.ResolveProfileKey(
+                    "code.exe",
+                    settings.AutopilotAppProfiles,
+                    settings.PreferredGamingProfile) == PowerProfiles.WorkKey);
+                Assert(AutopilotService.ResolveProfileKey(
+                    "render.exe",
+                    settings.AutopilotAppProfiles,
+                    settings.PreferredGamingProfile,
+                    settings) == extKey);
+
+                settings.AutopilotAppProfiles["quiet.exe"] = PowerProfiles.EcoKey;
+                Assert(AutopilotService.ResolveProfileKey(
+                    "quiet.exe",
+                    settings.AutopilotAppProfiles,
+                    settings.PreferredGamingProfile,
+                    settings) == PowerProfiles.EcoKey);
+                var appProfileMenuKeys = PowerProfiles.GetVisibleMenuProfiles(settings)
+                    .Select(p => p.Key)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                Assert(appProfileMenuKeys.Contains(PowerProfiles.EcoKey));
+                Assert(appProfileMenuKeys.Contains(PowerProfiles.BalancedKey));
+                Assert(appProfileMenuKeys.Contains(PowerProfiles.GamingHighKey));
 
                 var moved = new AppSettings
                 {
@@ -367,7 +400,8 @@ namespace CryoTray.Tests
                     AutopilotAppProfiles = new Dictionary<string, string>(
                         StringComparer.OrdinalIgnoreCase)
                     {
-                        ["game.exe"] = PowerProfiles.GamingHighKey
+                        ["game.exe"] = PowerProfiles.GamingHighKey,
+                        ["code.exe"] = PowerProfiles.WorkKey
                     }
                 };
                 string json = JsonSerializer.Serialize(moved);

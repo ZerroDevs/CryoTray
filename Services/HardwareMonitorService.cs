@@ -8,6 +8,7 @@ using System.Linq;
 using System.Management;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.X86;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -64,6 +65,11 @@ namespace CryoTray.Services
         private int _cpuCores;
         private double _cpuBaseGhz;
         private double _cpuMaxGhz;
+        private readonly double _cpuIdBoostGhz;
+        private readonly double _smbiosBoostGhz;
+        private double _cachedCpuBoostGhz;
+        private double _observedCpuBoostGhz;
+        private double _pendingCpuBoostGhz;
 
         private sealed class CachedDriveMetadata
         {
@@ -80,6 +86,7 @@ namespace CryoTray.Services
             public List<double> AllTemps { get; } = new();
             public List<(int KindOrder, int Index, double Value)> Loads { get; } = new();
             public List<(int KindOrder, int Index, double Value)> Clocks { get; } = new();
+            public double? PeakCoreClockMhz { get; set; }
             public double? TctlTdie { get; set; }
             public double? TotalLoad { get; set; }
             public double? PackagePowerWatts { get; set; }
@@ -90,6 +97,308 @@ namespace CryoTray.Services
         {
             ReadCpuRegistryInfo();
             ReadCpuPhysicalCoreCount();
+            _cpuIdBoostGhz = ReadCpuIdMaxBoostGhz();
+            _smbiosBoostGhz = ReadSmbiosType4MaxBoostGhz();
+            _cachedCpuBoostGhz = ResolveCachedBoostPeakGhz(
+                SettingsService.Instance.Current,
+                _cpuName,
+                _cpuBaseGhz);
+            CurrentSnapshot.CpuName = _cpuName;
+            CurrentSnapshot.CpuVendor = _cpuVendor;
+            CurrentSnapshot.CpuCores = _cpuCores;
+            CurrentSnapshot.CpuBaseGhz = _cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN;
+            CurrentSnapshot.CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : (_cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN);
+            CurrentSnapshot.CpuBoostPeakGhz = ResolveCpuBoostPeakGhz(
+                _cpuBaseGhz, _cpuMaxGhz, _cpuIdBoostGhz, _observedCpuBoostGhz, _smbiosBoostGhz, _cachedCpuBoostGhz);
+        }
+
+        internal static double ReadSmbiosType4MaxBoostGhz()
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    @"root\wmi",
+                    "SELECT SMBiosData FROM MSSmBios_RawSMBiosTables");
+                foreach (ManagementObject row in searcher.Get())
+                {
+                    using (row)
+                    {
+                        if (row["SMBiosData"] is byte[] rawData)
+                        {
+                            double parsed = ParseSmbiosType4MaxBoostGhz(rawData);
+                            if (parsed > 0)
+                            {
+                                return parsed;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Keep live/CPUID fallback when firmware SMBIOS WMI tables are unavailable.
+            }
+
+            return 0;
+        }
+
+        internal static double ParseSmbiosType4MaxBoostGhz(byte[]? rawData)
+        {
+            if (rawData == null || rawData.Length < 24)
+            {
+                return 0;
+            }
+
+            double bestGhz = 0;
+            int i = 0;
+            while (i + 4 <= rawData.Length)
+            {
+                byte type = rawData[i];
+                byte len = rawData[i + 1];
+                if (len < 4 || i + len > rawData.Length)
+                {
+                    break;
+                }
+
+                // Type 4: Processor Information (Max Speed WORD at 0x14; Socket Status at 0x18).
+                if (type == 4 && len >= 0x16)
+                {
+                    bool populated = len <= 0x18 || rawData[i + 0x18] == 0 || (rawData[i + 0x18] & 0x40) != 0;
+                    if (populated)
+                    {
+                        int maxMhz = rawData[i + 0x14] | (rawData[i + 0x15] << 8);
+                        if (maxMhz > 100 && maxMhz <= 10000)
+                        {
+                            bestGhz = Math.Max(bestGhz, Math.Round(maxMhz / 1000.0, 2));
+                        }
+                    }
+                }
+
+                if (type == 127)
+                {
+                    break;
+                }
+
+                int j = i + len;
+                while (j + 1 < rawData.Length && !(rawData[j] == 0 && rawData[j + 1] == 0))
+                {
+                    j++;
+                }
+
+                if (j + 1 >= rawData.Length)
+                {
+                    break;
+                }
+
+                i = j + 2;
+            }
+
+            return bestGhz;
+        }
+
+        internal static double ReadCpuIdMaxBoostGhz()
+        {
+            try
+            {
+                if (!X86Base.IsSupported)
+                {
+                    return 0;
+                }
+
+                var (maxLeaf, _, _, _) = X86Base.CpuId(0, 0);
+                if (maxLeaf < 0x16)
+                {
+                    return 0;
+                }
+
+                var (baseReg, maxReg, _, _) = X86Base.CpuId(0x16, 0);
+                int maxMhz = maxReg & 0xFFFF;
+                int baseMhz = baseReg & 0xFFFF;
+                if (maxMhz > 100 && maxMhz <= 10000 && (baseMhz <= 0 || maxMhz > baseMhz))
+                {
+                    return Math.Round(maxMhz / 1000.0, 2);
+                }
+            }
+            catch
+            {
+            }
+
+            return 0;
+        }
+
+        internal static double ResolveCpuBoostPeakGhz(
+            double baseGhz,
+            double maxWmiGhz,
+            double cpuIdBoostGhz,
+            double observedBoostGhz,
+            double smbiosBoostGhz = 0,
+            double cachedBoostGhz = 0)
+        {
+            double best = 0;
+            double minBoost = double.IsFinite(baseGhz) && baseGhz > 0 ? baseGhz * 1.02 : 0;
+            foreach (double candidate in new[] { maxWmiGhz, smbiosBoostGhz, cpuIdBoostGhz, cachedBoostGhz, observedBoostGhz })
+            {
+                if (double.IsFinite(candidate) &&
+                    candidate > minBoost &&
+                    candidate <= 10.0 &&
+                    candidate > best)
+                {
+                    best = candidate;
+                }
+            }
+
+            return best > 0 ? Math.Round(best, 2) : double.NaN;
+        }
+
+        internal static double ResolveCachedBoostPeakGhz(
+            AppSettings? settings,
+            string? cpuName,
+            double baseGhz)
+        {
+            if (settings == null ||
+                string.IsNullOrWhiteSpace(cpuName) ||
+                string.IsNullOrWhiteSpace(settings.CachedBoostPeakCpuName))
+            {
+                return 0;
+            }
+
+            if (!string.Equals(
+                    settings.CachedBoostPeakCpuName.Trim(),
+                    cpuName.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
+            double minBoost = double.IsFinite(baseGhz) && baseGhz > 0 ? baseGhz * 1.02 : 0;
+            double cached = settings.CachedBoostPeakGhz;
+            return double.IsFinite(cached) && cached > minBoost && cached <= 10.0
+                ? Math.Round(cached, 2)
+                : 0;
+        }
+
+        internal static bool TryUpdateCachedBoostPeak(
+            AppSettings? settings,
+            string? cpuName,
+            double baseGhz,
+            double detectedPeakGhz)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(cpuName))
+            {
+                return false;
+            }
+
+            double minBoost = double.IsFinite(baseGhz) && baseGhz > 0 ? baseGhz * 1.02 : 0;
+            if (!double.IsFinite(detectedPeakGhz) ||
+                detectedPeakGhz <= minBoost ||
+                detectedPeakGhz > 10.0)
+            {
+                return false;
+            }
+
+            string normalizedCpu = cpuName.Trim();
+            double roundedPeak = Math.Round(detectedPeakGhz, 2);
+            double existingForCpu = ResolveCachedBoostPeakGhz(settings, normalizedCpu, baseGhz);
+            bool sameCpu = string.Equals(
+                settings.CachedBoostPeakCpuName?.Trim(),
+                normalizedCpu,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (sameCpu && roundedPeak <= existingForCpu + 0.005)
+            {
+                return false;
+            }
+
+            settings.CachedBoostPeakCpuName = normalizedCpu;
+            settings.CachedBoostPeakGhz = roundedPeak;
+            return true;
+        }
+
+        internal static double ObserveConsecutiveBoostSample(
+            double sampleGhz,
+            double baseGhz,
+            double confirmedPeakGhz,
+            ref double pendingCandidateGhz)
+        {
+            double confirmed = double.IsFinite(confirmedPeakGhz) && confirmedPeakGhz > 0
+                ? Math.Round(confirmedPeakGhz, 2)
+                : 0;
+            double minBoost = double.IsFinite(baseGhz) && baseGhz > 0 ? baseGhz * 1.02 : 0;
+            if (!double.IsFinite(sampleGhz) ||
+                sampleGhz <= minBoost ||
+                sampleGhz > 10.0)
+            {
+                pendingCandidateGhz = 0;
+                return confirmed;
+            }
+
+            double roundedSample = Math.Round(sampleGhz, 2);
+            if (roundedSample <= confirmed + 0.005)
+            {
+                pendingCandidateGhz = 0;
+                return confirmed;
+            }
+
+            if (pendingCandidateGhz <= confirmed + 0.005)
+            {
+                pendingCandidateGhz = roundedSample;
+                return confirmed;
+            }
+
+            double nextConfirmed = Math.Round(Math.Min(pendingCandidateGhz, roundedSample), 2);
+            pendingCandidateGhz = roundedSample > nextConfirmed + 0.005 ? roundedSample : 0;
+            return nextConfirmed;
+        }
+
+        internal static bool TryClearCachedBoostPeak(AppSettings? settings)
+        {
+            if (settings == null)
+            {
+                return false;
+            }
+
+            bool hadCache = !string.IsNullOrWhiteSpace(settings.CachedBoostPeakCpuName) ||
+                            settings.CachedBoostPeakGhz > 0;
+            settings.CachedBoostPeakCpuName = "";
+            settings.CachedBoostPeakGhz = 0;
+            return hadCache;
+        }
+
+        /// <summary>Clears the cached per-CPU boost peak so lowered BIOS/PBO limits can re-detect cleanly.</summary>
+        public bool ClearCachedBoostPeak()
+        {
+            bool hadCache = TryClearCachedBoostPeak(SettingsService.Instance.Current);
+            _cachedCpuBoostGhz = 0;
+            _observedCpuBoostGhz = 0;
+            _pendingCpuBoostGhz = 0;
+
+            HardwareSnapshot updated = CloneSnapshot(CurrentSnapshot);
+            updated.CpuBoostPeakGhz = ResolveCpuBoostPeakGhz(
+                _cpuBaseGhz, _cpuMaxGhz, _cpuIdBoostGhz, 0, _smbiosBoostGhz, 0);
+            CurrentSnapshot = updated;
+
+            if (hadCache)
+            {
+                SettingsService.Instance.Save();
+            }
+
+            TelemetryUpdated?.Invoke(updated);
+            return hadCache;
+        }
+
+        private void PersistBoostPeakIfHigher(double peakGhz)
+        {
+            if (!double.IsFinite(peakGhz) || string.IsNullOrWhiteSpace(_cpuName))
+            {
+                return;
+            }
+
+            AppSettings settings = SettingsService.Instance.Current;
+            if (TryUpdateCachedBoostPeak(settings, _cpuName, _cpuBaseGhz, peakGhz))
+            {
+                _cachedCpuBoostGhz = settings.CachedBoostPeakGhz;
+                SettingsService.Instance.SaveWithoutNotification();
+            }
         }
 
         private void ReadCpuPhysicalCoreCount()
@@ -545,6 +854,7 @@ namespace CryoTray.Services
                 CpuMeasuredGhz = source.CpuMeasuredGhz,
                 CpuBaseGhz = source.CpuBaseGhz,
                 CpuMaxGhz = source.CpuMaxGhz,
+                CpuBoostPeakGhz = source.CpuBoostPeakGhz,
                 CpuLoad = source.CpuLoad,
                 CpuPackageWatts = source.CpuPackageWatts,
                 CpuCoresTelemetry = source.CpuCoresTelemetry,
@@ -591,6 +901,15 @@ namespace CryoTray.Services
                     {
                         _cpuVendor = ResolveCpuVendor(null, _cpuName);
                     }
+
+                    double matchingCached = ResolveCachedBoostPeakGhz(
+                        SettingsService.Instance.Current,
+                        _cpuName,
+                        _cpuBaseGhz);
+                    if (matchingCached > _cachedCpuBoostGhz)
+                    {
+                        _cachedCpuBoostGhz = matchingCached;
+                    }
                 }
             }
         }
@@ -626,6 +945,17 @@ namespace CryoTray.Services
 
         private void OnSettingsChanged()
         {
+            double previousCached = _cachedCpuBoostGhz;
+            _cachedCpuBoostGhz = ResolveCachedBoostPeakGhz(
+                SettingsService.Instance.Current,
+                _cpuName,
+                _cpuBaseGhz);
+            if (previousCached > 0 && _cachedCpuBoostGhz <= 0)
+            {
+                _observedCpuBoostGhz = 0;
+            }
+            _pendingCpuBoostGhz = 0;
+
             if (!_isInitialized)
             {
                 return;
@@ -710,6 +1040,9 @@ namespace CryoTray.Services
             bool readStorage = TelemetryPollPolicy.IsStorageRefreshDue(
                 _lastStorageRefreshUtc, DateTime.UtcNow, demand);
             bool readFans = TelemetryPollPolicy.ShouldReadFans(demand);
+            IReadOnlyList<(string Letter, ulong AvailableFreeBytes, ulong TotalBytes)>? mountedVolumes = readStorage
+                ? ReadMountedDriveVolumes()
+                : null;
 
             var snapshot = new HardwareSnapshot
             {
@@ -717,6 +1050,7 @@ namespace CryoTray.Services
                 CpuCores = _cpuCores,
                 CpuBaseGhz = _cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN,
                 CpuMaxGhz = _cpuMaxGhz > 0 ? _cpuMaxGhz : (_cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN),
+                CpuBoostPeakGhz = ResolveCpuBoostPeakGhz(_cpuBaseGhz, _cpuMaxGhz, _cpuIdBoostGhz, _observedCpuBoostGhz, _smbiosBoostGhz, _cachedCpuBoostGhz),
                 PawnIoInstalled = pawnIoInstalled,
                 CoolingModeActive = PowerPlanService.Instance.IsCoolingModeActive,
                 Timestamp = DateTime.Now
@@ -795,7 +1129,7 @@ namespace CryoTray.Services
                     }
                     else if (hardware.HardwareType == HardwareType.Storage)
                     {
-                        drives.Add(CreateDriveTelemetry(hardware, driveIndex++));
+                        drives.Add(CreateDriveTelemetry(hardware, driveIndex++, mountedVolumes));
                     }
                 }
             }
@@ -883,10 +1217,47 @@ namespace CryoTray.Services
                 _cpuBaseGhz = Math.Round(currentClock.Value / 1000.0, 2);
             }
 
+            double? sampleClockMhz = null;
+            if (cpuSensors.PeakCoreClockMhz.HasValue &&
+                double.IsFinite(cpuSensors.PeakCoreClockMhz.Value))
+            {
+                sampleClockMhz = cpuSensors.PeakCoreClockMhz.Value;
+            }
+            else if (!double.IsFinite(measuredClock) &&
+                     currentClock.HasValue &&
+                     double.IsFinite(currentClock.Value))
+            {
+                sampleClockMhz = currentClock.Value;
+            }
+
+            if (sampleClockMhz.HasValue && sampleClockMhz.Value <= 10000)
+            {
+                double sampleGhz = Math.Round(sampleClockMhz.Value / 1000.0, 2);
+                double baselineBoost = ResolveCpuBoostPeakGhz(
+                    _cpuBaseGhz, _cpuMaxGhz, _cpuIdBoostGhz, _observedCpuBoostGhz, _smbiosBoostGhz, _cachedCpuBoostGhz);
+                double baselineFloor = double.IsFinite(baselineBoost) ? baselineBoost : 0;
+                double confirmed = ObserveConsecutiveBoostSample(
+                    sampleGhz,
+                    _cpuBaseGhz,
+                    baselineFloor,
+                    ref _pendingCpuBoostGhz);
+                if (confirmed > _observedCpuBoostGhz)
+                {
+                    _observedCpuBoostGhz = confirmed;
+                }
+            }
+            else
+            {
+                _pendingCpuBoostGhz = 0;
+            }
+
             snapshot.CpuBaseGhz = _cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN;
             snapshot.CpuMaxGhz = _cpuMaxGhz > 0
                 ? _cpuMaxGhz
                 : (_cpuBaseGhz > 0 ? _cpuBaseGhz : double.NaN);
+            snapshot.CpuBoostPeakGhz = ResolveCpuBoostPeakGhz(
+                _cpuBaseGhz, _cpuMaxGhz, _cpuIdBoostGhz, _observedCpuBoostGhz, _smbiosBoostGhz, _cachedCpuBoostGhz);
+            PersistBoostPeakIfHigher(snapshot.CpuBoostPeakGhz);
             snapshot.CpuGhz = currentClock.HasValue && double.IsFinite(currentClock.Value) && currentClock.Value > 0
                 ? Math.Round(currentClock.Value / 1000.0, 2)
                 : double.NaN;
@@ -1389,7 +1760,10 @@ namespace CryoTray.Services
             return cached;
         }
 
-        private DriveTelemetry CreateDriveTelemetry(IHardware hardware, int index)
+        private DriveTelemetry CreateDriveTelemetry(
+            IHardware hardware,
+            int index,
+            IReadOnlyList<(string Letter, ulong AvailableFreeBytes, ulong TotalBytes)>? mountedVolumes = null)
         {
             double? compositeTemp = null;
             double? firstTemp = null;
@@ -1440,6 +1814,9 @@ namespace CryoTray.Services
             int? healthPercent = lifePercent
                 ?? (percentageUsed.HasValue ? 100 - percentageUsed.Value : null);
             CachedDriveMetadata metadata = ReadDriveMetadata(hardware);
+            (double freeSpaceGb, double mountedTotalGb) = ResolveDriveSpaceGb(
+                metadata.DriveLetters,
+                mountedVolumes);
 
             return new DriveTelemetry
             {
@@ -1450,11 +1827,95 @@ namespace CryoTray.Services
                 StatusText = DescribeDriveHealth(healthPercent),
                 DriveLetters = metadata.DriveLetters,
                 CapacityGb = totalSpace.HasValue ? Math.Round(totalSpace.Value, 1) : 0,
+                FreeSpaceGb = freeSpaceGb,
+                MountedTotalSpaceGb = mountedTotalGb,
                 PhysicalDriveNumber = metadata.PhysicalDriveNumber,
                 SerialNumber = metadata.SerialNumber,
                 HardwareIdentifier = hardware.Identifier.ToString(),
                 IsSolidState = metadata.IsSolidState
             };
+        }
+
+        private static IReadOnlyList<(string Letter, ulong AvailableFreeBytes, ulong TotalBytes)> ReadMountedDriveVolumes()
+        {
+            var volumes = new List<(string Letter, ulong AvailableFreeBytes, ulong TotalBytes)>();
+            try
+            {
+                foreach (DriveInfo info in DriveInfo.GetDrives())
+                {
+                    try
+                    {
+                        if (!info.IsReady || string.IsNullOrWhiteSpace(info.Name))
+                        {
+                            continue;
+                        }
+
+                        string letter = info.Name.Trim().TrimEnd('\\', ':').ToUpperInvariant();
+                        if (letter.Length == 0 || info.TotalSize <= 0 || info.AvailableFreeSpace < 0)
+                        {
+                            continue;
+                        }
+
+                        volumes.Add((letter, (ulong)info.AvailableFreeSpace, (ulong)info.TotalSize));
+                    }
+                    catch
+                    {
+                        // Ignore volumes that become unavailable mid-scan.
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore drive enumeration failures.
+            }
+
+            return volumes;
+        }
+
+        internal static (double FreeGb, double TotalGb) ResolveDriveSpaceGb(
+            string? driveLetters,
+            IReadOnlyList<(string Letter, ulong AvailableFreeBytes, ulong TotalBytes)>? volumes)
+        {
+            if (string.IsNullOrWhiteSpace(driveLetters) || volumes == null || volumes.Count == 0)
+            {
+                return (double.NaN, double.NaN);
+            }
+
+            const double bytesPerGiB = 1024.0 * 1024.0 * 1024.0;
+            ulong freeBytes = 0;
+            ulong totalBytes = 0;
+            bool matched = false;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string rawToken in driveLetters.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string letter = rawToken.Trim().TrimEnd('\\', ':').ToUpperInvariant();
+                if (letter.Length == 0 || !seen.Add(letter))
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < volumes.Count; i++)
+                {
+                    var vol = volumes[i];
+                    if (string.Equals(vol.Letter, letter, StringComparison.OrdinalIgnoreCase) && vol.TotalBytes > 0)
+                    {
+                        freeBytes += vol.AvailableFreeBytes;
+                        totalBytes += vol.TotalBytes;
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!matched || totalBytes == 0)
+            {
+                return (double.NaN, double.NaN);
+            }
+
+            return (
+                Math.Round(freeBytes / bytesPerGiB, 1),
+                Math.Round(totalBytes / bytesPerGiB, 1));
         }
 
         internal static bool IsValidDriveTemperature(double celsius)
@@ -1567,6 +2028,19 @@ namespace CryoTray.Services
                     if (coreMatch.Success && int.TryParse(coreMatch.Groups[2].Value, out int coreIndex))
                     {
                         UpsertCoreValue(set.Clocks, GetKindOrder(coreMatch.Groups[1].Value), coreIndex, value);
+                        double peakCandidate = value;
+                        if (sensor.Max.HasValue &&
+                            double.IsFinite(sensor.Max.Value) &&
+                            sensor.Max.Value > peakCandidate &&
+                            sensor.Max.Value <= 10000)
+                        {
+                            peakCandidate = sensor.Max.Value;
+                        }
+
+                        if (!set.PeakCoreClockMhz.HasValue || peakCandidate > set.PeakCoreClockMhz.Value)
+                        {
+                            set.PeakCoreClockMhz = peakCandidate;
+                        }
                     }
                 }
                 else if (sensor.SensorType == SensorType.Power && value > 0)

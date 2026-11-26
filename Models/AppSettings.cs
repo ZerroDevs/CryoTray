@@ -3,6 +3,14 @@ using System.Collections.Generic;
 
 namespace CryoTray.Models
 {
+    public sealed class ExternalPowerProfileSetting
+    {
+        public string Guid { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string AccentColor { get; set; } = "#6E859E";
+        public bool IsCooling { get; set; } = false;
+    }
+
     public class AppSettings
     {
         public const string DefaultRamTrayBadgeColor = "#62B0E8";
@@ -48,6 +56,7 @@ namespace CryoTray.Models
         public bool ShowCpuBadge { get; set; } = true;
         public bool ShowRamBadge { get; set; } = false;
         public bool CpuTrayWhiteDigits { get; set; } = false;
+        public bool SyncCpuTrayBadgeColor { get; set; } = false;
         public bool GpuTrayWhiteDigits { get; set; } = false;
         public bool RamTrayWhiteDigits { get; set; } = false;
         public string RamTrayBadgeColor { get; set; } = DefaultRamTrayBadgeColor;
@@ -92,7 +101,11 @@ namespace CryoTray.Models
         public string NormalPowerPlanGuid { get; set; } = "381b4222-f694-41f0-9685-ff5bb260df2e"; // Balanced
         public string PreferredCoolingProfile { get; set; } = "Cooling";
         public string PreferredGamingProfile { get; set; } = PowerProfiles.BalancedKey;
+        public List<string> HiddenPowerProfiles { get; set; } = new();
+        public List<ExternalPowerProfileSetting> ExternalPowerProfiles { get; set; } = new();
         public string OriginalActivePowerPlanGuid { get; set; } = "";
+        public string CachedBoostPeakCpuName { get; set; } = "";
+        public double CachedBoostPeakGhz { get; set; } = 0;
         public int MaxCpuThrottlePercent { get; set; } = 99; // Default 99%
         public int PerfBoostMode { get; set; } = 0; // 0 = Disabled (Default), 1 = Enabled
 

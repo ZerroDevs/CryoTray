@@ -296,6 +296,15 @@ namespace CryoTray.Services
             ref Guid PowerSettingGuid,
             out uint AcValueIndex);
 
+        [DllImport("powrprof.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern uint PowerReadDCValueIndex(
+            IntPtr RootPowerKey,
+            ref Guid SchemeGuid,
+            ref Guid SubGroupOfPowerSettingsGuid,
+            ref Guid PowerSettingGuid,
+            out uint DcValueIndex);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         public static extern IntPtr LocalFree(IntPtr hMem);
@@ -310,6 +319,7 @@ namespace CryoTray.Services
         public static readonly Guid GUID_PROCESSOR_THROTTLE_MAX = new("bc5038f7-23e0-4960-96da-33abaf5935ec");
         public static readonly Guid GUID_PROCESSOR_THROTTLE_MIN = new("893dee8e-2bef-41e0-89c6-b55d0929964c");
         public static readonly Guid GUID_PROCESSOR_PERFBOOST_MODE = new("be337238-0d82-4146-a960-4f3749d470c7");
+        public static readonly Guid GUID_PROCESSOR_FREQUENCY_MAX = new("75b0ae3f-bce0-45a7-8c89-c9611c25e100");
 
         public const uint ACCESS_SCHEME = 16;
     }

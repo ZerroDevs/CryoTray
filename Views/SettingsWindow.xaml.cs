@@ -97,6 +97,7 @@ namespace CryoTray.Views
         public SettingsWindow()
         {
             InitializeComponent();
+            RefreshCachedBoostPeakUi();
             TextScaleService.Attach(this);
             _gpuSliderApplyTimer = new DispatcherTimer
             {
@@ -227,6 +228,11 @@ namespace CryoTray.Views
                     RefreshAutoPurgeStatus();
                 }
 
+                if (PanelCpu != null && PanelCpu.Visibility == Visibility.Visible)
+                {
+                    RefreshCachedBoostPeakUi();
+                }
+
                 if (PanelAutopilot != null && PanelAutopilot.Visibility == Visibility.Visible)
                 {
                     RefreshTimerResolutionUi();
@@ -264,6 +270,10 @@ namespace CryoTray.Views
                 try
                 {
                     SyncProfileSelectorsFromSettings(s);
+                    if (ChkSyncCpuTrayColor != null && ChkSyncCpuTrayColor.IsChecked != s.SyncCpuTrayBadgeColor)
+                    {
+                        ChkSyncCpuTrayColor.IsChecked = s.SyncCpuTrayBadgeColor;
+                    }
                     if (ChkOverlayClickThrough != null && ChkOverlayClickThrough.IsChecked != s.OverlayClickThrough)
                     {
                         ChkOverlayClickThrough.IsChecked = s.OverlayClickThrough;
@@ -345,6 +355,7 @@ namespace CryoTray.Views
                 }
 
                 UpdateNotificationControlStates();
+                UpdateTrayBadgeSampleTexts();
             }));
         }
 
@@ -454,6 +465,7 @@ namespace CryoTray.Views
             SelectTrayBadgeMetric(CmbCpuBadgeMetric, s.CpuTrayBadgeMetric);
             RdoCpuBlackDigits.IsChecked = !s.CpuTrayWhiteDigits;
             RdoCpuWhiteDigits.IsChecked = s.CpuTrayWhiteDigits;
+            ChkSyncCpuTrayColor.IsChecked = s.SyncCpuTrayBadgeColor;
             ChkMergeTrayIcons.IsChecked = s.MergeTrayIcons;
             _coolingOnFrameColor = App.NormalizeHexColor(App.ResolveFrameColor(s.CoolingOnFrameColor, App.DefaultCoolingOnFrameColor));
             _coolingOffFrameColor = App.NormalizeHexColor(App.ResolveFrameColor(s.CoolingOffFrameColor, App.DefaultCoolingOffFrameColor));
@@ -490,6 +502,7 @@ namespace CryoTray.Views
             ChkShowCpuClock.IsChecked = s.ShowCpuClock;
             ChkShowCpuBaseSpeed.IsChecked = s.ShowCpuBaseSpeed;
             ChkShowCpuLoad.IsChecked = s.ShowCpuLoad;
+            RefreshCachedBoostPeakUi();
             ChkLimitWatch.IsChecked = s.LimitWatchEnabled;
             ChkShowCpuGraph.IsChecked = s.ShowCpuGraph;
             SelectTimeframeCombo(CmbCpuGraphTimeframe, s.CpuGraphTimeframeMinutes);
@@ -588,6 +601,7 @@ namespace CryoTray.Views
             ApplyUpdateState();
             RefreshLastCheckedText();
             RefreshDownloadCacheUi();
+            RefreshCachedBoostPeakUi();
             RefreshActivityUi();
             RefreshAutopilotWhitelist();
             RefreshDiskDriveListSafely();
@@ -621,7 +635,8 @@ namespace CryoTray.Views
             {
                 DependencyObject child = VisualTreeHelper.GetChild(root, i);
                 if (child is FrameworkElement { Name: "PnlFanAliases" or "PnlDiskDrives" or
-                    "PnlAutopilotWhitelist" or "PnlActivity" or "PnlSettingsSearchResults" })
+                    "PnlAutopilotWhitelist" or "PnlActivity" or "PnlSettingsSearchResults" or
+                    "PnlBuiltInProfileVisibility" or "PnlExternalPowerProfiles" })
                 {
                     continue;
                 }
@@ -685,6 +700,14 @@ namespace CryoTray.Views
                 lower.Contains("battery"))
             {
                 words.Add("battery power status");
+            }
+            if (name.Contains("ManageProfiles", StringComparison.OrdinalIgnoreCase))
+            {
+                words.Add("hide show all eco work legacy custom windows plan import pin power");
+            }
+            if (name.Contains("CachedBoostPeak", StringComparison.OrdinalIgnoreCase))
+            {
+                words.Add("boost peak cache clear ghz pbo overclock reset");
             }
 
             return string.Join(" ", words);
@@ -1253,7 +1276,10 @@ namespace CryoTray.Views
             _isBinding = true;
             try
             {
-                LoadPowerProfiles(SettingsService.Instance.Current);
+                var settings = SettingsService.Instance.Current;
+                LoadPowerProfiles(settings);
+                RefreshManageProfilesUi(settings);
+                UpdateTrayBadgeSampleTexts();
             }
             finally
             {
@@ -1410,13 +1436,24 @@ namespace CryoTray.Views
                 };
                 Grid.SetColumn(nameText, 0);
 
-                var profileChoices = PowerProfiles.GamingProfiles
+                var baseChoices = PowerProfiles.GetVisibleMenuProfiles(SettingsService.Instance.Current)
                     .Select(CreateProfileChoice)
                     .ToList();
                 string selectedKey = AutopilotService.ResolveProfileKey(
                     entry,
                     SettingsService.Instance.Current.AutopilotAppProfiles,
-                    SettingsService.Instance.Current.PreferredGamingProfile);
+                    SettingsService.Instance.Current.PreferredGamingProfile,
+                    SettingsService.Instance.Current);
+                var profileChoices = new List<PowerProfileChoice>(baseChoices);
+                if (!profileChoices.Any(choice =>
+                        string.Equals(choice.Key, selectedKey, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var fallbackProfile = PowerProfiles.Resolve(selectedKey, SettingsService.Instance.Current);
+                    if (fallbackProfile != null)
+                    {
+                        profileChoices.Add(CreateProfileChoice(fallbackProfile));
+                    }
+                }
                 var profileCombo = new ComboBox
                 {
                     ItemsSource = profileChoices,
@@ -2175,6 +2212,7 @@ namespace CryoTray.Views
             s.GpuTrayWhiteDigits = RdoGpuWhiteDigits.IsChecked == true;
             s.ShowCpuBadge = ChkShowCpuBadge.IsChecked == true;
             s.CpuTrayWhiteDigits = RdoCpuWhiteDigits.IsChecked == true;
+            s.SyncCpuTrayBadgeColor = ChkSyncCpuTrayColor.IsChecked == true;
             s.CpuTrayBadgeMetric = ReadTrayBadgeMetric(CmbCpuBadgeMetric);
             s.GpuTrayBadgeMetric = ReadTrayBadgeMetric(CmbGpuBadgeMetric);
             s.ShowRamBadge = ChkShowRamBadge.IsChecked == true;
@@ -2322,6 +2360,7 @@ namespace CryoTray.Views
 
             Dispatcher.BeginInvoke(new Action(() =>
             {
+                RefreshPowerProfileChoices();
                 RefreshFanAliasListSafely();
                 RefreshAutopilotWhitelist();
                 RefreshDiskDriveListSafely();
@@ -2483,11 +2522,43 @@ namespace CryoTray.Views
             TxtSampleCpuOnBlack.Text = cpuSample;
             TxtSampleCpuOffWhite.Text = cpuSample;
             TxtSampleCpuOnWhite.Text = cpuSample;
+            bool syncCpuColor = ChkSyncCpuTrayColor?.IsChecked == true;
+            var activeProfile = PowerPlanService.Instance.ActiveProfile;
+            var coolingSampleProfile = activeProfile is { IsCooling: true }
+                ? activeProfile
+                : PowerProfiles.GetCooling(settings.PreferredCoolingProfile, settings);
+            var offSampleProfile = activeProfile is { IsCooling: false }
+                ? activeProfile
+                : PowerProfiles.GetGaming(settings.PreferredGamingProfile, settings);
+            ApplyCpuSampleBadgeColor(
+                BdrSampleCpuOffBlack,
+                CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    syncCpuColor, offSampleProfile, coolingModeActive: false, whiteDigits: false, merged: false));
+            ApplyCpuSampleBadgeColor(
+                BdrSampleCpuOnBlack,
+                CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    syncCpuColor, coolingSampleProfile, coolingModeActive: true, whiteDigits: false, merged: false));
+            ApplyCpuSampleBadgeColor(
+                BdrSampleCpuOffWhite,
+                CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    syncCpuColor, offSampleProfile, coolingModeActive: false, whiteDigits: true, merged: false));
+            ApplyCpuSampleBadgeColor(
+                BdrSampleCpuOnWhite,
+                CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    syncCpuColor, coolingSampleProfile, coolingModeActive: true, whiteDigits: true, merged: false));
             TxtSampleGpuBlack.Text = gpuSample;
             TxtSampleGpuWhite.Text = gpuSample;
             TxtSampleRamBlack.Text = ramSample;
             TxtSampleRamWhite.Text = ramSample;
             UpdateRamBadgeColorUi();
+        }
+
+        private static void ApplyCpuSampleBadgeColor(Border? border, System.Drawing.Color color)
+        {
+            if (border != null)
+            {
+                border.Background = CreateFrozenBrush(Color.FromRgb(color.R, color.G, color.B));
+            }
         }
 
         private void BtnColorCoolingOn_Click(object sender, RoutedEventArgs e)
@@ -2621,6 +2692,32 @@ namespace CryoTray.Views
         {
             UpdateCpuDisplayControlStates();
             if (!_isBinding) SaveUiIntoSettings();
+        }
+
+        private void RefreshCachedBoostPeakUi()
+        {
+            if (TxtCachedBoostPeakStatus == null || BtnClearCachedBoostPeak == null)
+            {
+                return;
+            }
+
+            AppSettings s = SettingsService.Instance.Current;
+            bool hasCache = s.CachedBoostPeakGhz > 0 &&
+                            double.IsFinite(s.CachedBoostPeakGhz) &&
+                            !string.IsNullOrWhiteSpace(s.CachedBoostPeakCpuName);
+            TxtCachedBoostPeakStatus.Text = hasCache
+                ? LocalizationService.Format(
+                    "Settings_CachedBoostPeakValue",
+                    Math.Round(s.CachedBoostPeakGhz, 2).ToString("0.00", CultureInfo.InvariantCulture),
+                    s.CachedBoostPeakCpuName.Trim())
+                : LocalizationService.Get("Settings_CachedBoostPeakNone");
+            BtnClearCachedBoostPeak.IsEnabled = hasCache;
+        }
+
+        private void BtnClearCachedBoostPeak_Click(object sender, RoutedEventArgs e)
+        {
+            HardwareMonitorService.Instance.ClearCachedBoostPeak();
+            RefreshCachedBoostPeakUi();
         }
 
         private void CmbCpuGraphTimeframe_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -3142,7 +3239,7 @@ namespace CryoTray.Views
 
         private void LoadPowerProfiles(AppSettings settings)
         {
-            var coolingChoices = PowerProfiles.CoolingProfiles
+            var coolingChoices = PowerProfiles.GetVisibleCoolingProfiles(settings)
                 .Select(CreateProfileChoice)
                 .ToList();
             CmbCoolingProfile.ItemsSource = coolingChoices;
@@ -3151,7 +3248,7 @@ namespace CryoTray.Views
                 ?? coolingChoices[0];
             UpdateProfileDescription(TxtCoolingProfileDesc, CmbCoolingProfile.SelectedItem as PowerProfileChoice);
 
-            var gamingChoices = PowerProfiles.GamingProfiles
+            var gamingChoices = PowerProfiles.GetVisibleGamingProfiles(settings)
                 .Select(CreateProfileChoice)
                 .ToList();
             CmbGamingProfile.ItemsSource = gamingChoices;
@@ -3159,6 +3256,7 @@ namespace CryoTray.Views
                 string.Equals(choice.Key, settings.PreferredGamingProfile, StringComparison.OrdinalIgnoreCase))
                 ?? gamingChoices.First(choice => choice.Key == PowerProfiles.BalancedKey);
             UpdateProfileDescription(TxtGamingProfileDesc, CmbGamingProfile.SelectedItem as PowerProfileChoice);
+            RefreshManageProfilesUi(settings);
         }
 
         private static PowerProfileChoice CreateProfileChoice(PowerProfileDefinition profile)
@@ -3169,10 +3267,565 @@ namespace CryoTray.Views
             return new PowerProfileChoice
             {
                 Key = profile.Key,
-                DisplayName = $"{LocalizationService.Get(profile.NameKey)} · {LocalizationService.Get(profile.BadgeKey)}",
-                Description = LocalizationService.Get(profile.DescriptionKey),
+                DisplayName = $"{LocalizationService.GetProfileName(profile)} · {LocalizationService.GetProfileBadge(profile)}",
+                Description = LocalizationService.GetProfileDescription(profile),
                 AccentBrush = brush
             };
+        }
+
+        private void ManageProfilesToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            bool expanded = ManageProfilesToggle?.IsChecked == true;
+            if (PnlManageProfilesContent != null)
+            {
+                PnlManageProfilesContent.Visibility = expanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (TxtManageProfilesChevron != null)
+            {
+                TxtManageProfilesChevron.Text = expanded ? "▾" : "›";
+            }
+
+            if (expanded && !_isBinding)
+            {
+                RefreshPowerProfileChoices();
+                Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Loaded,
+                    new Action(() =>
+                    {
+                        if (!_isClosed && ManageProfilesToggle?.IsChecked == true)
+                        {
+                            PnlManageProfilesContent?.BringIntoView();
+                        }
+                    }));
+            }
+        }
+
+        private void RefreshManageProfilesUi(AppSettings settings)
+        {
+            if (PnlBuiltInProfileVisibility == null || PnlExternalPowerProfiles == null ||
+                CmbAvailableWindowsPlans == null || BtnAddWindowsPlan == null ||
+                TxtNoPinnedWindowsPlans == null || TxtNoAvailableWindowsPlans == null)
+            {
+                return;
+            }
+
+            RefreshBuiltInVisibilityList(settings);
+            RefreshExternalPowerProfilesUi(settings);
+        }
+
+        private void RefreshBuiltInVisibilityList(AppSettings settings)
+        {
+            PnlBuiltInProfileVisibility!.Children.Clear();
+            if (BtnShowAllProfiles != null)
+            {
+                int hiddenCount = PowerProfiles.MenuProfiles.Count(p =>
+                    PowerProfiles.CanHide(p) && PowerProfiles.IsHidden(p.Key, settings));
+                BtnShowAllProfiles.Visibility = hiddenCount > 0
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            var primaryBrush = ThemeService.GetBrush("TextPrimaryBrush");
+            var secondaryBrush = ThemeService.GetBrush("TextSecondaryBrush");
+            var mutedBrush = ThemeService.GetBrush("TextMutedBrush");
+
+            foreach (var profile in PowerProfiles.MenuProfiles)
+            {
+                bool canHide = PowerProfiles.CanHide(profile);
+                bool isVisible = !PowerProfiles.IsHidden(profile.Key, settings);
+
+                var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var content = new StackPanel { Orientation = Orientation.Horizontal };
+                content.Children.Add(new System.Windows.Shapes.Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = CreateFrozenBrush((Color)ColorConverter.ConvertFromString(profile.Palette.Accent)),
+                    Margin = new Thickness(0, 0, 7, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                content.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.GetProfileName(profile),
+                    Foreground = primaryBrush,
+                    FontSize = 12.5,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                var cb = new CheckBox
+                {
+                    Content = content,
+                    ContentTemplate = null,
+                    IsChecked = isVisible,
+                    IsEnabled = canHide,
+                    Opacity = canHide ? 1.0 : 0.72,
+                    Tag = profile.Key,
+                    Margin = new Thickness(0, 2, 0, 2),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                AutomationProperties.SetName(cb, LocalizationService.GetProfileName(profile));
+                cb.Checked += BuiltInProfileVisibility_Changed;
+                cb.Unchecked += BuiltInProfileVisibility_Changed;
+                Grid.SetColumn(cb, 0);
+                row.Children.Add(cb);
+
+                string badgeText = canHide
+                    ? LocalizationService.GetProfileBadge(profile)
+                    : LocalizationService.Get("Settings_RequiredProfileBadge");
+                var badge = new TextBlock
+                {
+                    Text = badgeText,
+                    Foreground = canHide ? secondaryBrush : mutedBrush,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 2, 0)
+                };
+                Grid.SetColumn(badge, 1);
+                row.Children.Add(badge);
+
+                PnlBuiltInProfileVisibility.Children.Add(row);
+            }
+        }
+
+        private void BtnShowAllProfiles_Click(object sender, RoutedEventArgs e)
+        {
+            var settings = SettingsService.Instance.Current;
+            if (settings.HiddenPowerProfiles == null || settings.HiddenPowerProfiles.Count == 0)
+            {
+                return;
+            }
+
+            settings.HiddenPowerProfiles.Clear();
+            SettingsService.Instance.Save();
+            RefreshPowerProfileChoices();
+            RefreshAutopilotWhitelist();
+        }
+
+        private bool _isRefreshingExternalProfiles;
+
+        private void RefreshExternalPowerProfilesUi(AppSettings settings)
+        {
+            if (!_isRefreshingExternalProfiles &&
+                PowerPlanService.Instance.PruneMissingExternalProfiles(notify: false) > 0)
+            {
+                _isRefreshingExternalProfiles = true;
+                bool previousBinding = _isBinding;
+                _isBinding = true;
+                try
+                {
+                    LoadPowerProfiles(settings);
+                    RefreshAutopilotWhitelist();
+                }
+                finally
+                {
+                    _isBinding = previousBinding;
+                    _isRefreshingExternalProfiles = false;
+                }
+                return;
+            }
+
+            var installed = PowerPlanService.Instance.GetAvailableExternalSchemes();
+            var installedByGuid = installed.ToDictionary(s => s.Guid);
+
+            settings.ExternalPowerProfiles ??= new List<ExternalPowerProfileSetting>();
+            var pinnedGuids = new HashSet<Guid>();
+            foreach (var entry in settings.ExternalPowerProfiles)
+            {
+                if (Guid.TryParse(entry.Guid, out Guid parsed) && parsed != Guid.Empty)
+                {
+                    pinnedGuids.Add(parsed);
+                }
+            }
+
+            var available = installed
+                .Where(scheme => !pinnedGuids.Contains(scheme.Guid))
+                .ToList();
+            CmbAvailableWindowsPlans!.ItemsSource = available;
+            CmbAvailableWindowsPlans.SelectedIndex = available.Count > 0 ? 0 : -1;
+            CmbAvailableWindowsPlans.IsEnabled = available.Count > 0;
+            BtnAddWindowsPlan!.IsEnabled = available.Count > 0;
+            TxtNoAvailableWindowsPlans!.Visibility = available.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            PnlExternalPowerProfiles!.Children.Clear();
+            var boxBackground = ThemeService.GetBrush("WindowBackgroundBrush");
+            var boxBorder = ThemeService.GetBrush("InputBorderBrush");
+            var primaryBrush = ThemeService.GetBrush("TextPrimaryBrush");
+            var borderStrong = ThemeService.GetBrush("BorderStrongBrush");
+            var dangerBrush = ThemeService.GetBrush("DangerTextBrush");
+
+            foreach (var entry in settings.ExternalPowerProfiles)
+            {
+                if (!Guid.TryParse(entry.Guid, out Guid guid) || guid == Guid.Empty)
+                {
+                    continue;
+                }
+
+                string normalizedHex = ProfilePalette.NormalizeHex(entry.AccentColor);
+                var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var swatchColor = (Color)ColorConverter.ConvertFromString(normalizedHex);
+                var swatchBtn = new Button
+                {
+                    Width = 24,
+                    Height = 22,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    Background = CreateFrozenBrush(swatchColor),
+                    BorderBrush = borderStrong,
+                    BorderThickness = new Thickness(1),
+                    Tag = entry.Guid,
+                    Cursor = Cursors.Hand,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                AutomationProperties.SetName(
+                    swatchBtn,
+                    LocalizationService.Format("Settings_ExternalPlanColorAutomation", entry.Name));
+                swatchBtn.Click += ExternalPlanColor_Click;
+                Grid.SetColumn(swatchBtn, 0);
+                row.Children.Add(swatchBtn);
+
+                var nameBox = new TextBox
+                {
+                    Text = entry.Name,
+                    Tag = entry.Guid,
+                    MaxLength = 48,
+                    Height = 24,
+                    Padding = new Thickness(6, 2, 6, 2),
+                    Background = boxBackground,
+                    Foreground = primaryBrush,
+                    BorderBrush = boxBorder,
+                    BorderThickness = new Thickness(1),
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 6, 0)
+                };
+                AutomationProperties.SetName(
+                    nameBox,
+                    LocalizationService.Format("Settings_ExternalPlanNameAutomation", entry.Name));
+                nameBox.LostKeyboardFocus += ExternalPlanName_LostKeyboardFocus;
+                nameBox.KeyDown += ExternalPlanName_KeyDown;
+                Grid.SetColumn(nameBox, 1);
+                row.Children.Add(nameBox);
+
+                var modeCombo = new ComboBox
+                {
+                    Tag = entry.Guid,
+                    Width = 106,
+                    Height = 24,
+                    Margin = new Thickness(0, 0, 6, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Style = (Style)FindResource("SettingsMiniComboStyle")
+                };
+                var offItem = new ComboBoxItem
+                {
+                    Content = LocalizationService.Get("Settings_ExternalPlanModeOff"),
+                    Tag = "Off"
+                };
+                var coolingItem = new ComboBoxItem
+                {
+                    Content = LocalizationService.Get("Settings_ExternalPlanModeCooling"),
+                    Tag = "Cooling"
+                };
+                modeCombo.Items.Add(offItem);
+                modeCombo.Items.Add(coolingItem);
+                modeCombo.SelectedItem = entry.IsCooling ? coolingItem : offItem;
+                AutomationProperties.SetName(
+                    modeCombo,
+                    LocalizationService.Format("Settings_ExternalPlanModeAutomation", entry.Name));
+                modeCombo.SelectionChanged += ExternalPlanMode_SelectionChanged;
+                Grid.SetColumn(modeCombo, 2);
+                row.Children.Add(modeCombo);
+
+                if (!installedByGuid.ContainsKey(guid))
+                {
+                    var missing = new TextBlock
+                    {
+                        Text = LocalizationService.Get("Settings_ExternalPlanMissing"),
+                        Foreground = dangerBrush,
+                        FontSize = 10.5,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 6, 0)
+                    };
+                    Grid.SetColumn(missing, 3);
+                    row.Children.Add(missing);
+                }
+
+                var removeBtn = new Button
+                {
+                    Content = "×",
+                    Tag = entry.Guid,
+                    Style = (Style)FindResource("AutopilotRemoveButton"),
+                    ToolTip = LocalizationService.Get("Settings_ExternalPlanRemove")
+                };
+                AutomationProperties.SetName(removeBtn, LocalizationService.Get("Settings_ExternalPlanRemove"));
+                removeBtn.Click += BtnRemoveExternalPlan_Click;
+                Grid.SetColumn(removeBtn, 4);
+                row.Children.Add(removeBtn);
+
+                PnlExternalPowerProfiles.Children.Add(row);
+            }
+
+            TxtNoPinnedWindowsPlans!.Visibility = PnlExternalPowerProfiles.Children.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        private void BuiltInProfileVisibility_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isBinding || PnlBuiltInProfileVisibility == null)
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            var hidden = new List<string>();
+            foreach (var cb in PnlBuiltInProfileVisibility.Children
+                         .OfType<Grid>()
+                         .SelectMany(g => g.Children.OfType<CheckBox>()))
+            {
+                if (cb.Tag is not string key)
+                {
+                    continue;
+                }
+
+                var profile = PowerProfiles.Get(key);
+                if (PowerProfiles.CanHide(profile) && cb.IsChecked != true)
+                {
+                    hidden.Add(profile!.Key);
+                }
+            }
+
+            settings.HiddenPowerProfiles = hidden;
+            bool fallbackApplied = false;
+            if (PowerProfiles.IsHidden(settings.PreferredCoolingProfile, settings))
+            {
+                settings.PreferredCoolingProfile = PowerProfiles.CoolingKey;
+                fallbackApplied = true;
+            }
+            if (PowerProfiles.IsHidden(settings.PreferredGamingProfile, settings))
+            {
+                settings.PreferredGamingProfile = PowerProfiles.BalancedKey;
+                fallbackApplied = true;
+            }
+
+            SettingsService.Instance.Save();
+            RefreshPowerProfileChoices();
+            RefreshAutopilotWhitelist();
+            if (fallbackApplied)
+            {
+                PowerPlanService.Instance.RefreshActiveProfile();
+            }
+        }
+
+        private void BtnAddWindowsPlan_Click(object sender, RoutedEventArgs e)
+        {
+            if (CmbAvailableWindowsPlans?.SelectedItem is not PowerSchemeInfo scheme)
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            settings.ExternalPowerProfiles ??= new List<ExternalPowerProfileSetting>();
+            if (settings.ExternalPowerProfiles.Any(entry =>
+                    Guid.TryParse(entry.Guid, out Guid existing) && existing == scheme.Guid))
+            {
+                return;
+            }
+
+            settings.ExternalPowerProfiles.Add(new ExternalPowerProfileSetting
+            {
+                Guid = scheme.Guid.ToString("D"),
+                Name = string.IsNullOrWhiteSpace(scheme.Name) ? scheme.Guid.ToString("D") : scheme.Name.Trim(),
+                AccentColor = "#6E859E"
+            });
+
+            SettingsService.Instance.Save();
+            RefreshPowerProfileChoices();
+            RefreshAutopilotWhitelist();
+        }
+
+        private void ExternalPlanColor_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: string guidText })
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            var entry = FindExternalProfileEntry(settings, guidText);
+            if (entry == null)
+            {
+                return;
+            }
+
+            PickColor(entry.AccentColor, "#6E859E", hex =>
+            {
+                entry.AccentColor = hex;
+                RefreshPowerProfileChoices();
+                RefreshAutopilotWhitelist();
+                PowerPlanService.Instance.RefreshActiveProfile();
+            });
+        }
+
+        private void ExternalPlanName_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (sender is TextBox tb)
+            {
+                SaveExternalPlanName(tb);
+            }
+        }
+
+        private void ExternalPlanName_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter && sender is TextBox tb)
+            {
+                SaveExternalPlanName(tb);
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        }
+
+        private void SaveExternalPlanName(TextBox tb)
+        {
+            if (_isBinding || tb.Tag is not string guidText)
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            var entry = FindExternalProfileEntry(settings, guidText);
+            if (entry == null)
+            {
+                return;
+            }
+
+            string trimmed = (tb.Text ?? "").Trim();
+            if (trimmed.Length == 0 || string.Equals(trimmed, entry.Name, StringComparison.Ordinal))
+            {
+                tb.Text = entry.Name;
+                return;
+            }
+
+            entry.Name = trimmed;
+            SettingsService.Instance.Save();
+            RefreshPowerProfileChoices();
+            RefreshAutopilotWhitelist();
+            PowerPlanService.Instance.RefreshActiveProfile();
+        }
+
+        private void ExternalPlanMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isBinding ||
+                sender is not ComboBox { Tag: string guidText, SelectedItem: ComboBoxItem { Tag: string modeTag } })
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            var entry = FindExternalProfileEntry(settings, guidText);
+            if (entry == null || !Guid.TryParse(entry.Guid, out Guid targetGuid))
+            {
+                return;
+            }
+
+            bool isCooling = string.Equals(modeTag, "Cooling", StringComparison.OrdinalIgnoreCase);
+            if (entry.IsCooling == isCooling)
+            {
+                return;
+            }
+
+            entry.IsCooling = isCooling;
+            string extKey = PowerProfiles.MakeExternalKey(targetGuid);
+            bool resetPreferred = false;
+            if (isCooling &&
+                string.Equals(settings.PreferredGamingProfile, extKey, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.PreferredGamingProfile = PowerProfiles.BalancedKey;
+                resetPreferred = true;
+            }
+            else if (!isCooling &&
+                     string.Equals(settings.PreferredCoolingProfile, extKey, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.PreferredCoolingProfile = PowerProfiles.CoolingKey;
+                resetPreferred = true;
+            }
+
+            SettingsService.Instance.Save();
+            RefreshPowerProfileChoices();
+            RefreshAutopilotWhitelist();
+            if (resetPreferred || PowerPlanService.Instance.GetActiveSchemeGuid() == targetGuid)
+            {
+                PowerPlanService.Instance.RefreshActiveProfile();
+            }
+        }
+
+        private void BtnRemoveExternalPlan_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: string guidText } ||
+                !Guid.TryParse(guidText, out Guid targetGuid))
+            {
+                return;
+            }
+
+            var settings = SettingsService.Instance.Current;
+            settings.ExternalPowerProfiles ??= new List<ExternalPowerProfileSetting>();
+            settings.ExternalPowerProfiles.RemoveAll(entry =>
+                Guid.TryParse(entry.Guid, out Guid parsed) && parsed == targetGuid);
+
+            string extKey = PowerProfiles.MakeExternalKey(targetGuid);
+            bool resetPreferred = false;
+            if (string.Equals(settings.PreferredCoolingProfile, extKey, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.PreferredCoolingProfile = PowerProfiles.CoolingKey;
+                resetPreferred = true;
+            }
+
+            if (string.Equals(settings.PreferredGamingProfile, extKey, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.PreferredGamingProfile = PowerProfiles.BalancedKey;
+                resetPreferred = true;
+            }
+
+            if (settings.AutopilotAppProfiles != null)
+            {
+                foreach (var appKey in settings.AutopilotAppProfiles
+                             .Where(pair => string.Equals(pair.Value, extKey, StringComparison.OrdinalIgnoreCase))
+                             .Select(pair => pair.Key)
+                             .ToList())
+                {
+                    settings.AutopilotAppProfiles.Remove(appKey);
+                }
+            }
+
+            SettingsService.Instance.Save();
+            RefreshPowerProfileChoices();
+            RefreshAutopilotWhitelist();
+            if (resetPreferred || PowerPlanService.Instance.GetActiveSchemeGuid() == targetGuid)
+            {
+                PowerPlanService.Instance.RefreshActiveProfile();
+            }
+        }
+
+        private static ExternalPowerProfileSetting? FindExternalProfileEntry(AppSettings settings, string guidText)
+        {
+            if (!Guid.TryParse(guidText, out Guid targetGuid) || settings.ExternalPowerProfiles == null)
+            {
+                return null;
+            }
+
+            return settings.ExternalPowerProfiles.FirstOrDefault(entry =>
+                Guid.TryParse(entry.Guid, out Guid parsed) && parsed == targetGuid);
         }
 
         private static void UpdateProfileDescription(TextBlock? target, PowerProfileChoice? choice)

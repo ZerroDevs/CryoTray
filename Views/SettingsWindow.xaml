@@ -23,6 +23,16 @@
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Margin" Value="0,10,0,10"/>
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   FontSize="13"
+                                   TextWrapping="Wrap"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
@@ -47,16 +57,9 @@
                                       HorizontalAlignment="Center"
                                       VerticalAlignment="Center"/>
                             </Border>
-                            <ContentPresenter Grid.Column="1" VerticalAlignment="Center">
-                                <ContentPresenter.ContentTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                                   FontSize="13"
-                                                   TextWrapping="Wrap"/>
-                                    </DataTemplate>
-                                </ContentPresenter.ContentTemplate>
-                            </ContentPresenter>
+                            <ContentPresenter Grid.Column="1"
+                                              VerticalAlignment="Center"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"/>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
@@ -1171,22 +1174,23 @@
                         </Grid>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <RadioButton x:Name="RdoCpuBlackDigits" GroupName="CpuTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_BlackDigits}" Checked="SettingChanged"/>
-                            <Border Width="22" Height="20" Background="#FFBDAF" CornerRadius="1" Margin="10,0,4,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                            <Border x:Name="BdrSampleCpuOffBlack" Width="22" Height="20" Background="#FFBDAF" CornerRadius="1" Margin="10,0,4,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
                                 <TextBlock x:Name="TxtSampleCpuOffBlack" Text="--" Foreground="#141414" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <Border Width="22" Height="20" Background="#8AD2F1" CornerRadius="1" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                            <Border x:Name="BdrSampleCpuOnBlack" Width="22" Height="20" Background="#8AD2F1" CornerRadius="1" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
                                 <TextBlock x:Name="TxtSampleCpuOnBlack" Text="--" Foreground="#141414" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <RadioButton x:Name="RdoCpuWhiteDigits" GroupName="CpuTrayDigits" Style="{StaticResource SettingsRadioButtonStyle}" Content="{DynamicResource Settings_WhiteDigits}" Checked="SettingChanged"/>
-                            <Border Width="22" Height="20" Background="#C44830" CornerRadius="1" Margin="10,0,4,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                            <Border x:Name="BdrSampleCpuOffWhite" Width="22" Height="20" Background="#C44830" CornerRadius="1" Margin="10,0,4,0" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
                                 <TextBlock x:Name="TxtSampleCpuOffWhite" Text="--" Foreground="#FFFFFF" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <Border Width="22" Height="20" Background="#1B6CB3" CornerRadius="1" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
+                            <Border x:Name="BdrSampleCpuOnWhite" Width="22" Height="20" Background="#1B6CB3" CornerRadius="1" VerticalAlignment="Center" FlowDirection="LeftToRight" IsHitTestVisible="False">
                                 <TextBlock x:Name="TxtSampleCpuOnWhite" Text="--" Foreground="#FFFFFF" FontSize="11.5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </StackPanel>
+                        <CheckBox x:Name="ChkSyncCpuTrayColor" Content="{DynamicResource Settings_SyncCpuTrayColor}" Checked="ChkTrayBadge_Changed" Unchecked="ChkTrayBadge_Changed" Margin="0,6,0,0"/>
                     </StackPanel>
 
                     <CheckBox x:Name="ChkMergeTrayIcons" Content="{DynamicResource Settings_MergeTrayIcons}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,4,0,0"/>
@@ -1296,7 +1300,33 @@
                     <CheckBox x:Name="ChkShowCpuPower" Content="{DynamicResource Settings_ShowCpuPower}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkShowCpuClock" Content="{DynamicResource Settings_ShowCpuClock}" Checked="ChkCpuDisplay_Changed" Unchecked="ChkCpuDisplay_Changed" Margin="0,0,0,6"/>
                     <CheckBox x:Name="ChkShowCpuBaseSpeed" Content="{DynamicResource Settings_ShowCpuBaseSpeed}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,6"/>
-                    <CheckBox x:Name="ChkShowCpuLoad" Content="{DynamicResource Settings_ShowCpuLoad}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,10"/>
+                    <CheckBox x:Name="ChkShowCpuLoad" Content="{DynamicResource Settings_ShowCpuLoad}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="28,0,0,8"/>
+                    <Grid Margin="28,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
+                            <TextBlock x:Name="TxtCachedBoostPeakTitle"
+                                       Text="{DynamicResource Settings_CachedBoostPeakTitle}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="12"/>
+                            <TextBlock x:Name="TxtCachedBoostPeakStatus"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="11"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <Button x:Name="BtnClearCachedBoostPeak"
+                                Grid.Column="1"
+                                Content="{DynamicResource Settings_ClearCachedBoostPeak}"
+                                ToolTip="{DynamicResource Settings_ClearCachedBoostPeakTooltip}"
+                                AutomationProperties.Name="{DynamicResource Settings_ClearCachedBoostPeak}"
+                                Style="{StaticResource SettingsFooterButton}"
+                                Padding="10,3"
+                                FontSize="11.5"
+                                VerticalAlignment="Center"
+                                Click="BtnClearCachedBoostPeak_Click"/>
+                    </Grid>
                     <CheckBox x:Name="ChkLimitWatch" Content="{DynamicResource Settings_LimitWatch}" Checked="SettingChanged" Unchecked="SettingChanged" Margin="0,0,0,0"/>
                     <TextBlock Text="{DynamicResource Settings_LimitWatchDesc}" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="28,2,0,10"/>
 
@@ -1359,7 +1389,129 @@
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <TextBlock x:Name="TxtGamingProfileDesc" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,14"/>
+                    <TextBlock x:Name="TxtGamingProfileDesc" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,10"/>
+
+                    <ToggleButton x:Name="ManageProfilesToggle"
+                                  Style="{StaticResource SettingsDisclosureToggleStyle}"
+                                  IsChecked="False"
+                                  Checked="ManageProfilesToggle_Changed"
+                                  Unchecked="ManageProfilesToggle_Changed"
+                                  Margin="0,0,0,10"
+                                  AutomationProperties.Name="{DynamicResource Settings_ManageProfilesTitle}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TxtManageProfilesChevron"
+                                       Grid.Column="0"
+                                       Text="›"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TxtManageProfilesTitle"
+                                       Grid.Column="1"
+                                       Text="{DynamicResource Settings_ManageProfilesTitle}"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontSize="12.5"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </ToggleButton>
+                    <StackPanel x:Name="PnlManageProfilesContent" Visibility="Collapsed" Margin="0,0,0,14">
+                        <TextBlock Text="{DynamicResource Settings_ManageProfilesDesc}"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,10"/>
+
+                        <Grid Margin="0,0,0,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="{DynamicResource Settings_VisibleBuiltInProfiles}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <Button x:Name="BtnShowAllProfiles"
+                                    Grid.Column="1"
+                                    Content="{DynamicResource Settings_ShowAllProfiles}"
+                                    Style="{StaticResource SettingsFooterButton}"
+                                    Padding="8,2"
+                                    FontSize="11"
+                                    Visibility="Collapsed"
+                                    Click="BtnShowAllProfiles_Click"
+                                    VerticalAlignment="Center"/>
+                        </Grid>
+                        <TextBlock Text="{DynamicResource Settings_VisibleBuiltInDesc}"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,6"/>
+                        <Border Background="{DynamicResource InputBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="8,4"
+                                Margin="0,0,0,12">
+                            <StackPanel x:Name="PnlBuiltInProfileVisibility"/>
+                        </Border>
+
+                        <TextBlock Text="{DynamicResource Settings_PinnedWindowsPlans}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,3"/>
+                        <TextBlock Text="{DynamicResource Settings_PinnedWindowsPlansDesc}"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,6"/>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="CmbAvailableWindowsPlans"
+                                      Grid.Column="0"
+                                      Margin="0,0,8,0"
+                                      DisplayMemberPath="Name"
+                                      AutomationProperties.Name="{DynamicResource Settings_PinnedWindowsPlans}"/>
+                            <Button x:Name="BtnAddWindowsPlan"
+                                    Grid.Column="1"
+                                    Content="{DynamicResource Settings_AddWindowsPlan}"
+                                    Click="BtnAddWindowsPlan_Click"
+                                    Style="{StaticResource SettingsFooterButton}"
+                                    Padding="12,5"/>
+                        </Grid>
+                        <TextBlock x:Name="TxtNoAvailableWindowsPlans"
+                                   Text="{DynamicResource Settings_NoAvailableWindowsPlans}"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed"
+                                   Margin="0,0,0,6"/>
+                        <Border Background="{DynamicResource InputBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="8,4">
+                            <Grid>
+                                <TextBlock x:Name="TxtNoPinnedWindowsPlans"
+                                           Text="{DynamicResource Settings_NoPinnedWindowsPlans}"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           FontSize="11.5"
+                                           TextWrapping="Wrap"
+                                           Margin="4,6"/>
+                                <StackPanel x:Name="PnlExternalPowerProfiles"/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
 
                     <Rectangle Height="1" Fill="{DynamicResource DividerBrush}" Margin="0,4,0,18"/>
 

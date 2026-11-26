@@ -16,6 +16,8 @@ namespace CryoTray.Models
         public string SerialNumber { get; set; } = "";
         public string HardwareIdentifier { get; set; } = "";
         public bool? IsSolidState { get; set; }
+        public double FreeSpaceGb { get; set; } = double.NaN;
+        public double MountedTotalSpaceGb { get; set; } = double.NaN;
     }
 
     public class GpuTelemetry
@@ -97,6 +99,7 @@ namespace CryoTray.Models
         public double CpuMeasuredGhz { get; set; } = double.NaN;
         public double CpuBaseGhz { get; set; } = double.NaN;
         public double CpuMaxGhz { get; set; } = double.NaN;
+        public double CpuBoostPeakGhz { get; set; } = double.NaN;
         public double CpuLoad { get; set; } = double.NaN;
         public int? CpuPackageWatts { get; set; }
         public List<CoreTelemetry> CpuCoresTelemetry { get; set; } = new();

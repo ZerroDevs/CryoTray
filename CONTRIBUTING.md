@@ -49,8 +49,9 @@ dotnet build -c Release
 CryoTray targets `net10.0-windows` with both `UseWPF=true` and `UseWindowsForms=true`.
 
 ### Run Automated Verification Tests
-CryoTray includes a built-in automated test suite that validates ring buffers, power plan integration, system queries, GDI leak prevention, WPF window instantiation, per-core sensor logic, storage cleanup guards, GPU power bounds and defaults, and download-timer warning/cancel safety:
+CryoTray includes both a non-destructive unit suite (`/test-unit`) and a full hardware/power-plan integration test suite (`/test`):
 ```powershell
+dotnet bin\Release\net10.0-windows\CryoTray.dll /test-unit
 dotnet bin\Release\net10.0-windows\CryoTray.dll /test
 ```
 *All verification tests must pass before submitting a pull request.*
@@ -132,8 +133,8 @@ fix(tray): prevent tooltip cutoff when merged badge is active
 
 ### 8. Versioning Scheme (`VERSION`)
 CryoTray uses three-part semantic versioning rooted at `0.0.100`:
-- **Current Baseline**: `0.0.106` (defined in the root `VERSION` file).
-- **Subsequent Updates**: Increment sequentially (`0.0.106`, `0.0.107`, `0.0.108`, etc.).
+- **Current Baseline**: `0.0.107` (defined in the root `VERSION` file).
+- **Subsequent Updates**: Increment sequentially (`0.0.107`, `0.0.108`, `0.0.109`, etc.).
 - **Automatic Stamping**: `CryoTray.csproj` dynamically reads `VERSION` to stamp `AssemblyVersion`, `FileVersion`, and `InformationalVersion` on build.
 - **Automated Releases**: The release workflow (`.github/workflows/release.yml`) monitors changes to `VERSION` on `main` and creates matching tags (e.g., `v0.0.100`, `v0.0.101`) and release artifacts with SHA-256 digests.
 

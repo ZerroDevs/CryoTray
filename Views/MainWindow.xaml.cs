@@ -100,6 +100,7 @@ namespace CryoTray.Views
             public required TextBlock HealthText { get; init; }
             public required TextBlock TooltipTitle { get; init; }
             public required TextBlock TooltipHealth { get; init; }
+            public TextBlock? TooltipFreeSpace { get; init; }
             public Border? TempBorder { get; init; }
             public TextBlock? TempText { get; init; }
             public TextBlock? UnitText { get; init; }
@@ -166,6 +167,7 @@ namespace CryoTray.Views
             Closing += MainWindow_Closing;
             Closed += MainWindow_Closed;
             AutopilotService.Instance.StateChanged += OnAutopilotStateChanged;
+            UpdateCpuGhzTooltip(HardwareMonitorService.Instance.CurrentSnapshot);
         }
 
         private void SetupFanAnimation()
@@ -483,8 +485,10 @@ namespace CryoTray.Views
                 return;
             }
 
-            string profileName = LocalizationService.Get(
-                PowerProfiles.Get(state.ProfileKey)?.NameKey ?? "Common_Unknown");
+            var resolvedProfile = PowerProfiles.Resolve(state.ProfileKey, SettingsService.Instance.Current);
+            string profileName = resolvedProfile != null
+                ? LocalizationService.GetProfileName(resolvedProfile)
+                : LocalizationService.Get("Common_Unknown");
             TxtAutopilotStatus.Text = LocalizationService.Format(
                 "Main_AutopilotGameMode", profileName);
             TxtAutopilotStatus.ToolTip = string.IsNullOrWhiteSpace(state.ProcessName)
@@ -658,7 +662,11 @@ namespace CryoTray.Views
 
         private void OnCoolingModeChanged(bool isCooling)
         {
-            Dispatcher.Invoke(() => UpdateTheme(PowerPlanService.Instance.ActiveProfile, true));
+            Dispatcher.Invoke(() =>
+            {
+                UpdateTheme(PowerPlanService.Instance.ActiveProfile, true);
+                UpdateCpuGhzTooltip(HardwareMonitorService.Instance.CurrentSnapshot);
+            });
         }
 
         private void OnProfileChanged()
@@ -667,6 +675,7 @@ namespace CryoTray.Views
             {
                 UpdateTheme(PowerPlanService.Instance.ActiveProfile, true);
                 UpdateActiveProfileLabel();
+                UpdateCpuGhzTooltip(HardwareMonitorService.Instance.CurrentSnapshot);
             }));
         }
 
@@ -689,12 +698,12 @@ namespace CryoTray.Views
 
             _profileBaseText = profile == null
                 ? ""
-                : $"{LocalizationService.Get(profile.NameKey)} · {LocalizationService.Get(profile.BadgeKey)}";
+                : $"{LocalizationService.GetProfileName(profile)} · {LocalizationService.GetProfileBadge(profile)}";
             _lastProfileDurationMinutes = -1;
             RefreshProfileDurationText();
             TxtActivePowerProfile.ToolTip = profile == null
                 ? null
-                : LocalizationService.Get(profile.DescriptionKey);
+                : LocalizationService.GetProfileDescription(profile);
         }
 
         /// <summary>
@@ -764,13 +773,13 @@ namespace CryoTray.Views
             PowerProfileMenu.Items.Clear();
 
             var settings = SettingsService.Instance.Current;
-            string coolingKey = PowerProfiles.GetCooling(settings.PreferredCoolingProfile).Key;
-            string gamingKey = PowerProfiles.GetGaming(settings.PreferredGamingProfile).Key;
+            string coolingKey = PowerProfiles.GetCooling(settings.PreferredCoolingProfile, settings).Key;
+            string gamingKey = PowerProfiles.GetGaming(settings.PreferredGamingProfile, settings).Key;
 
             int rowIndex = 0;
-            AddPowerProfileGroup("Main_ProfileMenu_Cooling", PowerProfiles.CoolingProfiles, coolingKey, ref rowIndex);
+            AddPowerProfileGroup("Main_ProfileMenu_Cooling", PowerProfiles.GetVisibleCoolingProfiles(settings), coolingKey, ref rowIndex);
             AddPowerProfileMenuSeparator();
-            AddPowerProfileGroup("Main_ProfileMenu_CoolingOff", PowerProfiles.GamingProfiles, gamingKey, ref rowIndex);
+            AddPowerProfileGroup("Main_ProfileMenu_CoolingOff", PowerProfiles.GetVisibleGamingProfiles(settings), gamingKey, ref rowIndex);
         }
 
         private void AddPowerProfileGroup(
@@ -820,8 +829,8 @@ namespace CryoTray.Views
                 }
                 AutomationProperties.SetName(
                     item,
-                    $"{LocalizationService.Get(profile.NameKey)} · {LocalizationService.Get(profile.BadgeKey)}");
-                AutomationProperties.SetHelpText(item, LocalizationService.Get(profile.DescriptionKey));
+                    $"{LocalizationService.GetProfileName(profile)} · {LocalizationService.GetProfileBadge(profile)}");
+                AutomationProperties.SetHelpText(item, LocalizationService.GetProfileDescription(profile));
                 item.Click += PowerProfileMenuItem_Click;
                 PowerProfileMenu.Items.Add(item);
                 rowIndex++;
@@ -866,7 +875,7 @@ namespace CryoTray.Views
 
             var name = new TextBlock
             {
-                Text = LocalizationService.Get(profile.NameKey),
+                Text = LocalizationService.GetProfileName(profile),
                 FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 12, 0),
@@ -878,7 +887,7 @@ namespace CryoTray.Views
 
             var badge = new TextBlock
             {
-                Text = LocalizationService.Get(profile.BadgeKey),
+                Text = LocalizationService.GetProfileBadge(profile),
                 FontSize = 11,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center
@@ -897,13 +906,13 @@ namespace CryoTray.Views
                 return;
             }
 
-            var profile = PowerProfiles.Get(key);
+            var settings = SettingsService.Instance.Current;
+            var profile = PowerProfiles.Resolve(key, settings);
             if (profile == null)
             {
                 return;
             }
 
-            var settings = SettingsService.Instance.Current;
             if (profile.IsCooling)
             {
                 settings.PreferredCoolingProfile = profile.Key;
@@ -926,8 +935,8 @@ namespace CryoTray.Views
             }
 
             var settings = SettingsService.Instance.Current;
-            string coolingKey = PowerProfiles.GetCooling(settings.PreferredCoolingProfile).Key;
-            string gamingKey = PowerProfiles.GetGaming(settings.PreferredGamingProfile).Key;
+            string coolingKey = PowerProfiles.GetCooling(settings.PreferredCoolingProfile, settings).Key;
+            string gamingKey = PowerProfiles.GetGaming(settings.PreferredGamingProfile, settings).Key;
 
             foreach (var item in PowerProfileMenu.Items.OfType<MenuItem>())
             {
@@ -936,7 +945,7 @@ namespace CryoTray.Views
                     continue;
                 }
 
-                var profile = PowerProfiles.Get(key);
+                var profile = PowerProfiles.Resolve(key, settings);
                 if (profile == null)
                 {
                     continue;
@@ -948,6 +957,12 @@ namespace CryoTray.Views
                     StringComparison.OrdinalIgnoreCase);
             }
         }
+
+        internal static bool ShouldUseProfileCoolingToggleColors(PowerProfileDefinition? profile, bool isHighContrast) =>
+            !isHighContrast &&
+            profile is { IsCooling: true } &&
+            !string.Equals(profile.Key, PowerProfiles.CoolingKey, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(profile.Key, PowerProfiles.LegacyKey, StringComparison.OrdinalIgnoreCase);
 
         private void UpdateTheme(PowerProfileDefinition? profile, bool animate)
         {
@@ -979,16 +994,22 @@ namespace CryoTray.Views
 
             if (isCooling)
             {
-                // Cooling and Legacy keep the exact original blue ON treatment.
+                // Cooling and Legacy keep the exact original blue ON treatment; Eco uses its own palette.
+                bool useProfileToggle = ShouldUseProfileCoolingToggleColors(profile, ThemeService.IsHighContrast);
                 TogglePillBorder.Width = LocalizationService.Instance.IsArabic ? 68 : 48;
-                TogglePillBorder.Background = ThemeService.GetBrush(
-                    ThemeService.IsHighContrast ? "AccentBrush" : "AccentButtonBrush");
+                TogglePillBorder.Background = useProfileToggle
+                    ? new SolidColorBrush(ParseColor(palette.ToggleTrack))
+                    : ThemeService.GetBrush(ThemeService.IsHighContrast ? "AccentBrush" : "AccentButtonBrush");
                 TxtToggleState.Text = LocalizationService.Get("Common_On");
-                TxtToggleState.Foreground = ThemeService.GetBrush("AccentButtonTextBrush");
+                TxtToggleState.Foreground = useProfileToggle
+                    ? new SolidColorBrush(ParseColor(palette.ToggleText))
+                    : ThemeService.GetBrush("AccentButtonTextBrush");
                 TxtToggleState.HorizontalAlignment = HorizontalAlignment.Left;
                 TxtToggleState.Margin = new Thickness(7, 0, 0, 0);
 
-                ToggleThumb.Fill = ThemeService.GetBrush("AccentButtonTextBrush");
+                ToggleThumb.Fill = useProfileToggle
+                    ? new SolidColorBrush(ParseColor(palette.ToggleThumb))
+                    : ThemeService.GetBrush("AccentButtonTextBrush");
                 ToggleThumb.HorizontalAlignment = HorizontalAlignment.Right;
                 ToggleThumb.Margin = new Thickness(0, 0, 0, 0);
             }
@@ -1119,6 +1140,7 @@ namespace CryoTray.Views
             TxtCpuSmallLabel.Text = FormatCpuSmallRowLabel(snapshot.CpuName, snapshot.CpuVendor);
             TxtCpuClockRatio.Text = FormatCpuClockReadout(
                 snapshot.CpuGhz, snapshot.CpuBaseGhz, snapshot.CpuMaxGhz, s.ShowCpuBaseSpeed);
+            UpdateCpuGhzTooltip(snapshot);
             TxtCpuLoad.Text = double.IsFinite(snapshot.CpuLoad)
                 ? $"{Math.Round(snapshot.CpuLoad)}%"
                 : "--%";
@@ -1296,6 +1318,166 @@ namespace CryoTray.Views
             return $"{clockNow} / {clockBase}";
         }
 
+        private void UpdateCpuGhzTooltip(HardwareSnapshot? snapshot)
+        {
+            if (TxtCpuGhzTooltipTitle == null || TxtCpuGhzTooltipDetail == null ||
+                BdrCpuGhzUnit == null || CpuGhzToolTip == null)
+            {
+                return;
+            }
+
+            double baseGhz = snapshot != null && double.IsFinite(snapshot.CpuBaseGhz) && snapshot.CpuBaseGhz > 0
+                ? snapshot.CpuBaseGhz
+                : (snapshot != null && double.IsFinite(snapshot.CpuMaxGhz) && snapshot.CpuMaxGhz > 0
+                    ? snapshot.CpuMaxGhz
+                    : double.NaN);
+            double boostPeakGhz = snapshot != null ? snapshot.CpuBoostPeakGhz : double.NaN;
+
+            CpuPlanPowerLimits limits = PowerPlanService.Instance.GetActiveCpuPowerLimits();
+            var (title, detail) = FormatCpuPlanSpeedTooltip(limits, baseGhz, boostPeakGhz);
+
+            TxtCpuGhzTooltipTitle.Text = title;
+            TxtCpuGhzTooltipDetail.Text = detail;
+            CpuGhzToolTip.FlowDirection = LocalizationService.Instance.IsArabic
+                ? System.Windows.FlowDirection.RightToLeft
+                : System.Windows.FlowDirection.LeftToRight;
+            AutomationProperties.SetHelpText(BdrCpuGhzUnit, $"{title}. {detail}");
+        }
+
+        private static string GetBoostModeResourceKey(int boostMode) => boostMode switch
+        {
+            0 => "Main_BoostModeDisabled",
+            1 => "Main_BoostModeEnabled",
+            2 or 5 => "Main_BoostModeAggressive",
+            3 => "Main_BoostModeEfficientEnabled",
+            4 or 6 => "Main_BoostModeEfficientAggressive",
+            _ => "Main_BoostModeEnabled"
+        };
+
+        internal static (string Title, string Detail) FormatCpuPlanSpeedTooltip(
+            CpuPlanPowerLimits limits,
+            double baseGhz,
+            double boostPeakGhz)
+        {
+            string planName = string.IsNullOrWhiteSpace(limits.PlanName)
+                ? LocalizationService.Get("Common_Unknown")
+                : limits.PlanName.Trim();
+            string powerSource = LocalizationService.Get(
+                limits.IsOnBattery ? "Main_PowerSourceBattery" : "Main_PowerSourceAc");
+
+            bool hasBase = double.IsFinite(baseGhz) && baseGhz > 0;
+            bool hasBoostPeak = double.IsFinite(boostPeakGhz) &&
+                boostPeakGhz > 0 &&
+                (!hasBase || boostPeakGhz > baseGhz * 1.02);
+
+            double? freqCapGhz = limits.MaxFrequencyMhz > 0
+                ? Math.Round(limits.MaxFrequencyMhz / 1000.0, 2)
+                : null;
+            double? pctCapGhz = hasBase
+                ? Math.Round(baseGhz * (Math.Clamp(limits.MaxThrottlePercent, 0, 100) / 100.0), 2)
+                : null;
+
+            bool boostAllowed = limits.BoostMode > 0 &&
+                limits.MaxThrottlePercent >= 100 &&
+                (!freqCapGhz.HasValue || !hasBase || freqCapGhz.Value > baseGhz * 1.01);
+
+            if (boostAllowed)
+            {
+                double? upperGhz = null;
+                if (freqCapGhz.HasValue && hasBoostPeak)
+                {
+                    upperGhz = Math.Min(freqCapGhz.Value, boostPeakGhz);
+                }
+                else if (freqCapGhz.HasValue)
+                {
+                    upperGhz = freqCapGhz.Value;
+                }
+                else if (hasBoostPeak)
+                {
+                    upperGhz = boostPeakGhz;
+                }
+
+                string title = upperGhz.HasValue
+                    ? LocalizationService.Format(
+                        "Main_CpuPlanBoostPeakTitle",
+                        planName,
+                        upperGhz.Value.ToString("0.00", CultureInfo.InvariantCulture))
+                    : hasBase
+                        ? LocalizationService.Format(
+                            "Main_CpuPlanBoostAboveTitle",
+                            planName,
+                            baseGhz.ToString("0.00", CultureInfo.InvariantCulture))
+                        : LocalizationService.Format("Main_CpuPlanBoostTitle", planName);
+
+                string boostLabel = LocalizationService.Get(GetBoostModeResourceKey(limits.BoostMode));
+                string detail = hasBase
+                    ? LocalizationService.Format(
+                        "Main_CpuPlanDetailBoost",
+                        baseGhz.ToString("0.00", CultureInfo.InvariantCulture),
+                        boostLabel,
+                        limits.MinThrottlePercent,
+                        limits.MaxThrottlePercent,
+                        powerSource)
+                    : LocalizationService.Format(
+                        "Main_CpuPlanDetailFallback",
+                        limits.MinThrottlePercent,
+                        limits.MaxThrottlePercent,
+                        boostLabel,
+                        powerSource);
+
+                return (title, detail);
+            }
+
+            double? cappedGhz = pctCapGhz.HasValue && freqCapGhz.HasValue
+                ? Math.Min(pctCapGhz.Value, freqCapGhz.Value)
+                : pctCapGhz ?? freqCapGhz;
+
+            string capTitle = cappedGhz.HasValue
+                ? LocalizationService.Format(
+                    "Main_CpuPlanCapTitle",
+                    planName,
+                    cappedGhz.Value.ToString("0.00", CultureInfo.InvariantCulture))
+                : LocalizationService.Format("Main_CpuPlanCapPercentTitle", planName, limits.MaxThrottlePercent);
+
+            string capDetail;
+            if (hasBase && freqCapGhz.HasValue && (!pctCapGhz.HasValue || freqCapGhz.Value <= pctCapGhz.Value))
+            {
+                capDetail = LocalizationService.Format(
+                    "Main_CpuPlanDetailFreqCap",
+                    baseGhz.ToString("0.00", CultureInfo.InvariantCulture),
+                    freqCapGhz.Value.ToString("0.00", CultureInfo.InvariantCulture),
+                    powerSource);
+            }
+            else if (hasBase && limits.BoostMode == 0)
+            {
+                capDetail = LocalizationService.Format(
+                    "Main_CpuPlanDetailCapped",
+                    baseGhz.ToString("0.00", CultureInfo.InvariantCulture),
+                    limits.MaxThrottlePercent,
+                    powerSource);
+            }
+            else if (hasBase)
+            {
+                capDetail = LocalizationService.Format(
+                    "Main_CpuPlanDetailCappedPct",
+                    baseGhz.ToString("0.00", CultureInfo.InvariantCulture),
+                    limits.MinThrottlePercent,
+                    limits.MaxThrottlePercent,
+                    powerSource);
+            }
+            else
+            {
+                capDetail = LocalizationService.Format(
+                    "Main_CpuPlanDetailFallback",
+                    limits.MinThrottlePercent,
+                    limits.MaxThrottlePercent,
+                    LocalizationService.Get(GetBoostModeResourceKey(limits.BoostMode)),
+                    powerSource);
+            }
+
+            return (capTitle, capDetail);
+        }
+
         internal static string FormatCpuSmallRowLabel(string? cpuName, string? cpuVendor = null)
         {
             string vendor = !string.IsNullOrWhiteSpace(cpuVendor)
@@ -1387,6 +1569,27 @@ namespace CryoTray.Views
             }
 
             return LocalizationService.Format(isHdd ? "Main_HddIndexed" : "Main_SsdIndexed", drive.Index + 1);
+        }
+
+        internal static string FormatSsdFreeSpaceText(DriveTelemetry drive)
+        {
+            if (!double.IsFinite(drive.FreeSpaceGb) ||
+                !double.IsFinite(drive.MountedTotalSpaceGb) ||
+                drive.FreeSpaceGb < 0 ||
+                drive.MountedTotalSpaceGb <= 0)
+            {
+                return "";
+            }
+
+            int freePercent = Math.Clamp(
+                (int)Math.Round(drive.FreeSpaceGb / drive.MountedTotalSpaceGb * 100.0),
+                0,
+                100);
+            return LocalizationService.Format(
+                "Main_SsdFreeSpace",
+                drive.FreeSpaceGb.ToString("0.0", CultureInfo.InvariantCulture),
+                drive.MountedTotalSpaceGb.ToString("0.0", CultureInfo.InvariantCulture),
+                freePercent);
         }
 
         private void BuildSsdRows(List<DriveTelemetry> visibleDrives, int totalDetectedDrives, IReadOnlyCollection<string> graphDrives)
@@ -1538,10 +1741,25 @@ namespace CryoTray.Views
                 MaxWidth = 280,
                 Margin = new Thickness(0, 2, 0, 0)
             };
+            var tooltipFreeSpace = new TextBlock
+            {
+                Foreground = ThemeService.GetBrush("TextSecondaryBrush"),
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 280,
+                Margin = new Thickness(0, 2, 0, 0),
+                Visibility = Visibility.Collapsed
+            };
 
-            var tooltipContent = new StackPanel();
+            var tooltipContent = new StackPanel
+            {
+                FlowDirection = LocalizationService.Instance.IsArabic
+                    ? System.Windows.FlowDirection.RightToLeft
+                    : System.Windows.FlowDirection.LeftToRight
+            };
             tooltipContent.Children.Add(tooltipTitle);
             tooltipContent.Children.Add(tooltipHealth);
+            tooltipContent.Children.Add(tooltipFreeSpace);
 
             var tooltip = new ToolTip
             {
@@ -1618,6 +1836,7 @@ namespace CryoTray.Views
                     HealthText = healthText,
                     TooltipTitle = tooltipTitle,
                     TooltipHealth = tooltipHealth,
+                    TooltipFreeSpace = tooltipFreeSpace,
                     ChartCanvas = chartCanvas,
                     ChartHoverCanvas = chartHoverCanvas,
                     ChartUnavailableText = chartUnavailableText
@@ -1716,6 +1935,7 @@ namespace CryoTray.Views
                     HealthText = healthText,
                     TooltipTitle = tooltipTitle,
                     TooltipHealth = tooltipHealth,
+                    TooltipFreeSpace = tooltipFreeSpace,
                     TempBorder = valBorder,
                     TempText = txtVal,
                     UnitText = txtUnit
@@ -1767,6 +1987,14 @@ namespace CryoTray.Views
                     drive.SmartHealthPercent.Value,
                     LocalizationService.Health(drive.StatusText))
                 : LocalizationService.Get("Main_SsdHealthUnknown");
+            string freeSpaceText = FormatSsdFreeSpaceText(drive);
+            if (row.TooltipFreeSpace != null)
+            {
+                row.TooltipFreeSpace.Text = freeSpaceText;
+                row.TooltipFreeSpace.Visibility = string.IsNullOrEmpty(freeSpaceText)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+            }
 
             if (row.ShowGraph)
             {
@@ -1776,8 +2004,10 @@ namespace CryoTray.Views
             {
                 row.TempText.Text = hasTemperature ? $"{Math.Round(displayTemp)}" : "--";
                 row.UnitText.Text = unit;
-                AutomationProperties.SetHelpText(row.TempBorder,
-                    $"{row.RowTitleText.Text} {row.TempText.Text}{row.UnitText.Text}. {row.TooltipTitle.Text}. {row.TooltipHealth.Text}");
+                string helpText = string.IsNullOrEmpty(freeSpaceText)
+                    ? $"{row.RowTitleText.Text} {row.TempText.Text}{row.UnitText.Text}. {row.TooltipTitle.Text}. {row.TooltipHealth.Text}"
+                    : $"{row.RowTitleText.Text} {row.TempText.Text}{row.UnitText.Text}. {row.TooltipTitle.Text}. {row.TooltipHealth.Text}. {freeSpaceText}";
+                AutomationProperties.SetHelpText(row.TempBorder, helpText);
             }
         }
 
@@ -2111,7 +2341,7 @@ namespace CryoTray.Views
 
         private static PowerProfileDefinition GetCpuSampleProfile(TelemetrySample sample)
         {
-            return PowerProfiles.Get(sample.PowerProfileKey)
+            return PowerProfiles.Resolve(sample.PowerProfileKey, SettingsService.Instance.Current)
                 ?? (sample.CoolingModeActive ? PowerProfiles.CoolingProfile : PowerProfiles.BalancedProfile);
         }
 

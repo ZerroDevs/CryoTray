@@ -30,6 +30,10 @@ namespace CryoTray.Tests
             bool allPassed = true;
 
             allPassed &= TestRingBuffer();
+            allPassed &= TestPowerProfileCatalogAndPalettes();
+            allPassed &= TestProfileVisibilityAndExternalPalette();
+            allPassed &= TestProfileEnhancementsAndMissingPlanPrune();
+            allPassed &= TestCpuPlanSpeedTooltipAndDetection();
             allPassed &= TestCryoTrayPowerSchemeIntegration();
             allPassed &= TestPowerProfileWhitelistEngine();
             allPassed &= TestSystemInfoQueries();
@@ -111,6 +115,10 @@ namespace CryoTray.Tests
 
             bool allPassed = true;
             allPassed &= TestRingBuffer();
+            allPassed &= TestPowerProfileCatalogAndPalettes();
+            allPassed &= TestProfileVisibilityAndExternalPalette();
+            allPassed &= TestProfileEnhancementsAndMissingPlanPrune();
+            allPassed &= TestCpuPlanSpeedTooltipAndDetection();
             allPassed &= TestGdiLeakPrevention();
             allPassed &= TestLocalization();
             allPassed &= TestWindowsXamlInstantiation();
@@ -232,6 +240,287 @@ namespace CryoTray.Tests
             }
         }
 
+        private static bool TestPowerProfileCatalogAndPalettes()
+        {
+            Console.Write("[TEST] PowerProfile Catalog, Palettes & Eco/Work Values... ");
+            try
+            {
+                if (PowerProfiles.All.Count != 8 || PowerProfiles.SchemeGuids.Length != 8)
+                {
+                    throw new Exception($"Expected 8 CryoTray schemes, got All={PowerProfiles.All.Count}, SchemeGuids={PowerProfiles.SchemeGuids.Length}.");
+                }
+                if (PowerProfiles.MenuProfiles.Count != 9)
+                {
+                    throw new Exception($"Expected 9 menu profiles, got {PowerProfiles.MenuProfiles.Count}.");
+                }
+                if (PowerProfiles.MenuProfiles.Select(p => p.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 9 ||
+                    PowerProfiles.MenuProfiles.Select(p => p.SchemeGuid).Distinct().Count() != 9)
+                {
+                    throw new Exception("Duplicate profile key or GUID detected.");
+                }
+                if (PowerProfiles.CoolingProfiles.Count != 3 ||
+                    PowerProfiles.CoolingProfiles[0].Key != PowerProfiles.CoolingKey ||
+                    PowerProfiles.CoolingProfiles[1].Key != PowerProfiles.LegacyKey ||
+                    PowerProfiles.CoolingProfiles[2].Key != PowerProfiles.EcoKey ||
+                    !PowerProfiles.CoolingProfiles.All(p => p.IsCooling) ||
+                    PowerProfiles.GetCooling(PowerProfiles.EcoKey).Key != PowerProfiles.EcoKey)
+                {
+                    throw new Exception("CoolingProfiles catalog mismatch.");
+                }
+                if (PowerProfiles.GamingProfiles.Count != 6 ||
+                    PowerProfiles.GamingProfiles[0].Key != PowerProfiles.BalancedKey ||
+                    !PowerProfiles.GamingProfiles.All(p => !p.IsCooling) ||
+                    PowerProfiles.GetGaming(PowerProfiles.WorkKey).Key != PowerProfiles.WorkKey)
+                {
+                    throw new Exception("GamingProfiles catalog mismatch.");
+                }
+
+                foreach (var profile in PowerProfiles.MenuProfiles)
+                {
+                    string[] hexes =
+                    {
+                        profile.Palette.Accent,
+                        profile.Palette.BannerTop,
+                        profile.Palette.BannerBottom,
+                        profile.Palette.FanAccent,
+                        profile.Palette.ToggleTrack,
+                        profile.Palette.ToggleText,
+                        profile.Palette.ToggleThumb,
+                        profile.Palette.ChartLine,
+                        profile.Palette.ChartArea
+                    };
+                    foreach (string hex in hexes)
+                    {
+                        _ = System.Windows.Media.ColorConverter.ConvertFromString(hex);
+                    }
+                }
+
+                void AssertProfileSetting(PowerProfileDefinition profile, Guid subGroup, Guid setting, uint expectedAc, uint expectedDc)
+                {
+                    var match = profile.Values.FirstOrDefault(v => v.SubGroup == subGroup && v.Setting == setting);
+                    if (match.Setting != setting || match.Ac != expectedAc || match.Dc != expectedDc)
+                    {
+                        throw new Exception($"{profile.Key} setting {setting}: expected ({expectedAc}, {expectedDc}), got ({match.Ac}, {match.Dc}).");
+                    }
+                }
+
+                AssertProfileSetting(PowerProfiles.EcoProfile, PowerGuids.SubProcessor, PowerGuids.PerfBoostMode, 0, 0);
+                AssertProfileSetting(PowerProfiles.EcoProfile, PowerGuids.SubProcessor, PowerGuids.ThrottleMax, 70, 55);
+                AssertProfileSetting(PowerProfiles.EcoProfile, PowerGuids.SubProcessor, PowerGuids.PerfEpp, 95, 100);
+                AssertProfileSetting(PowerProfiles.EcoProfile, PowerGuids.SubProcessor, PowerGuids.CoreParkingMinCores, 10, 5);
+                AssertProfileSetting(PowerProfiles.EcoProfile, PowerGuids.SubProcessor, PowerGuids.SystemCoolingPolicy, 0, 0);
+
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubProcessor, PowerGuids.PerfBoostMode, 4, 3);
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubProcessor, PowerGuids.ThrottleMax, 100, 100);
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubProcessor, PowerGuids.ThrottleMin, 5, 5);
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubProcessor, PowerGuids.PerfEpp, 25, 50);
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubProcessor, PowerGuids.CoreParkingMinCores, 50, 25);
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubPcie, PowerGuids.PcieAspm, 1, 2);
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubUsb, PowerGuids.UsbSelectiveSuspend, 1, 1);
+                AssertProfileSetting(PowerProfiles.WorkProfile, PowerGuids.SubDisk, PowerGuids.PrimaryNvmeIdle, 200, 100);
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestProfileVisibilityAndExternalPalette()
+        {
+            Console.Write("[TEST] Profile Visibility, External Plans & Derived Palettes... ");
+            try
+            {
+                if (PowerProfiles.CanHide(PowerProfiles.CoolingProfile) ||
+                    PowerProfiles.CanHide(PowerProfiles.BalancedProfile) ||
+                    !PowerProfiles.CanHide(PowerProfiles.LegacyProfile) ||
+                    !PowerProfiles.CanHide(PowerProfiles.WorkProfile))
+                {
+                    throw new Exception("CanHide failed to protect Cooling and Windows Balanced.");
+                }
+
+                Guid extGuid = Guid.NewGuid();
+                Guid extCoolGuid = Guid.NewGuid();
+                string extKey = PowerProfiles.MakeExternalKey(extGuid);
+                string extCoolKey = PowerProfiles.MakeExternalKey(extCoolGuid);
+                var settings = new AppSettings
+                {
+                    HiddenPowerProfiles = new List<string>
+                    {
+                        PowerProfiles.CoolingKey,
+                        PowerProfiles.BalancedKey,
+                        PowerProfiles.LegacyKey,
+                        PowerProfiles.GamingLowKey
+                    },
+                    ExternalPowerProfiles = new List<ExternalPowerProfileSetting>
+                    {
+                        new() { Guid = extGuid.ToString("D"), Name = "OEM Turbo", AccentColor = "#FFDF5D", IsCooling = false },
+                        new() { Guid = extCoolGuid.ToString("D"), Name = "Custom Silent", AccentColor = "#11AA99", IsCooling = true },
+                        new() { Guid = PowerProfiles.CoolingProfile.SchemeGuid.ToString("D"), Name = "Blocked", AccentColor = "#123456" }
+                    }
+                };
+
+                var visibleCooling = PowerProfiles.GetVisibleCoolingProfiles(settings);
+                if (visibleCooling.Count != 3 ||
+                    visibleCooling.Any(p => p.Key == PowerProfiles.LegacyKey) ||
+                    visibleCooling[0].Key != PowerProfiles.CoolingKey ||
+                    !visibleCooling.Any(p => p.Key == extCoolKey && p.IsCooling))
+                {
+                    throw new Exception("Visible cooling filtering mismatch.");
+                }
+
+                var visibleGaming = PowerProfiles.GetVisibleGamingProfiles(settings);
+                if (visibleGaming[0].Key != PowerProfiles.BalancedKey ||
+                    visibleGaming.Any(p => p.Key == PowerProfiles.GamingLowKey) ||
+                    visibleGaming.Any(p => p.Key == extCoolKey) ||
+                    visibleGaming.Count(p => p.IsExternal) != 1)
+                {
+                    throw new Exception("Visible off/external filtering mismatch.");
+                }
+
+                var resolvedExt = PowerProfiles.Resolve(extKey, settings);
+                var resolvedExtCooling = PowerProfiles.Resolve(extCoolKey, settings);
+                var byGuidExt = PowerProfiles.FromSchemeGuid(extGuid, settings);
+                if (resolvedExt == null || byGuidExt == null ||
+                    resolvedExtCooling == null || !resolvedExtCooling.IsCooling ||
+                    !resolvedExt.IsExternal || resolvedExt.IsCooling ||
+                    resolvedExt.LiteralName != "OEM Turbo" ||
+                    PowerProfiles.IsCryoTrayScheme(extGuid))
+                {
+                    throw new Exception("External power profile resolution or ownership safety failed.");
+                }
+
+                if (PowerProfiles.GetCooling(PowerProfiles.LegacyKey, settings).Key != PowerProfiles.CoolingKey ||
+                    PowerProfiles.GetCooling(extCoolKey, settings).Key != extCoolKey ||
+                    PowerProfiles.GetCooling(extKey, settings).Key != PowerProfiles.CoolingKey ||
+                    PowerProfiles.GetGaming(PowerProfiles.GamingLowKey, settings).Key != PowerProfiles.BalancedKey ||
+                    PowerProfiles.GetGaming(extCoolKey, settings).Key != PowerProfiles.BalancedKey ||
+                    PowerProfiles.GetGaming(extKey, settings).Key != extKey)
+                {
+                    throw new Exception("Hidden/external fallback resolution failed.");
+                }
+
+                if (App.NormalizeHexColor(App.ResolveWindowAccentColor(resolvedExtCooling, new AppSettings())) != "#11AA99" ||
+                    !Views.MainWindow.ShouldUseProfileCoolingToggleColors(resolvedExtCooling, isHighContrast: false) ||
+                    LocalizationService.GetProfileBadge(resolvedExtCooling) != LocalizationService.Get("PowerProfile_ExternalCooling_Badge") ||
+                    LocalizationService.GetProfileBadge(resolvedExt) != LocalizationService.Get("PowerProfile_External_Badge"))
+                {
+                    throw new Exception("External Cooling On visual/badge behavior failed.");
+                }
+
+                static double ContrastRatio(string hex1, string hex2)
+                {
+                    static double Luminance(string hex)
+                    {
+                        var c = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
+                        static double Ch(byte v)
+                        {
+                            double s = v / 255.0;
+                            return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+                        }
+                        return (0.2126 * Ch(c.R)) + (0.7152 * Ch(c.G)) + (0.0722 * Ch(c.B));
+                    }
+                    double l1 = Luminance(hex1);
+                    double l2 = Luminance(hex2);
+                    return (Math.Max(l1, l2) + 0.05) / (Math.Min(l1, l2) + 0.05);
+                }
+
+                foreach (string pick in new[] { "#112233", "#778899", "#FFEE55", "#6B8E23", "invalid" })
+                {
+                    var palette = ProfilePalette.FromAccent(pick);
+                    _ = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(palette.Accent);
+                    _ = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(palette.ChartLine);
+                    _ = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(palette.ChartArea);
+                    double contrast = ContrastRatio(palette.ToggleTrack, palette.ToggleText);
+                    if (contrast < 4.5)
+                    {
+                        throw new Exception($"Derived toggle contrast for '{pick}' too low: {contrast:0.00}");
+                    }
+                }
+
+                Exception? staEx = null;
+                var uiThread = new Thread(() =>
+                {
+                    try
+                    {
+                        var sw = new Views.SettingsWindow();
+                        try
+                        {
+                            sw.ApplyTemplate();
+                            if (sw.FindName("PnlBuiltInProfileVisibility") is not System.Windows.Controls.StackPanel panel)
+                            {
+                                throw new Exception("PnlBuiltInProfileVisibility not found.");
+                            }
+
+                            var method = typeof(Views.SettingsWindow).GetMethod(
+                                "RefreshBuiltInVisibilityList",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                            method!.Invoke(sw, new object[] { settings });
+                            panel.Measure(new System.Windows.Size(440, 1000));
+                            panel.Arrange(new Rect(0, 0, 440, panel.DesiredSize.Height));
+                            panel.UpdateLayout();
+
+                            static IEnumerable<T> FindVisuals<T>(DependencyObject root) where T : DependencyObject
+                            {
+                                int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+                                for (int i = 0; i < count; i++)
+                                {
+                                    var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+                                    if (child is T typed)
+                                    {
+                                        yield return typed;
+                                    }
+                                    foreach (var nested in FindVisuals<T>(child))
+                                    {
+                                        yield return nested;
+                                    }
+                                }
+                            }
+
+                            var renderedTexts = FindVisuals<System.Windows.Controls.TextBlock>(panel)
+                                .Select(tb => tb.Text ?? "")
+                                .ToList();
+                            if (!renderedTexts.Any(t => t.Contains("Cooling", StringComparison.Ordinal)) ||
+                                renderedTexts.Any(t => t.Contains("StackPanel", StringComparison.Ordinal)))
+                            {
+                                throw new Exception($"Unexpected rendered built-in visibility text: {string.Join(", ", renderedTexts)}");
+                            }
+                        }
+                        finally
+                        {
+                            sw.Close();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                uiThread.SetApartmentState(ApartmentState.STA);
+                uiThread.Start();
+                uiThread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
         private static bool TestPowerProfileWhitelistEngine()
         {
             Console.Write("[TEST] Six-Profile Whitelist Engine... ");
@@ -240,17 +529,17 @@ namespace CryoTray.Tests
             try
             {
                 var guids = PowerProfiles.All.Select(profile => profile.SchemeGuid).ToList();
-                if (guids.Count != 6 || guids.Distinct().Count() != 6)
+                if (guids.Count != 8 || guids.Distinct().Count() != 8)
                 {
-                    throw new Exception("Expected six unique profile GUIDs.");
+                    throw new Exception("Expected eight unique profile GUIDs.");
                 }
                 if (guids.Contains(PowerPlanService.BalancedGuid))
                 {
                     throw new Exception("A profile reused the Balanced GUID.");
                 }
-                if (PowerProfiles.MenuProfiles.Count != 7 || PowerProfiles.SchemeGuids.Length != 6)
+                if (PowerProfiles.MenuProfiles.Count != 9 || PowerProfiles.SchemeGuids.Length != 8)
                 {
-                    throw new Exception("Expected six CryoTray schemes and seven menu profiles.");
+                    throw new Exception("Expected eight CryoTray schemes and nine menu profiles.");
                 }
                 if (PowerProfiles.GamingProfiles[0].Key != PowerProfiles.BalancedKey ||
                     PowerProfiles.GetGaming("").Key != PowerProfiles.BalancedKey)
@@ -307,6 +596,98 @@ namespace CryoTray.Tests
                     throw new Exception("Failed to activate the Legacy cooling profile.");
                 }
                 AssertSingleCryoTrayScheme(pps, PowerProfiles.LegacyProfile, "Legacy");
+
+                if (!pps.SwitchToProfile(PowerProfiles.EcoProfile))
+                {
+                    throw new Exception("Failed to activate the Eco cooling profile.");
+                }
+                if (!pps.IsCoolingModeActive)
+                {
+                    throw new Exception("Cooling Mode stayed off after activating Eco.");
+                }
+                AssertSingleCryoTrayScheme(pps, PowerProfiles.EcoProfile, "Eco");
+                AssertAcValue(
+                    PowerProfiles.EcoProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.PerfBoostMode,
+                    0,
+                    "Eco boost mode");
+                AssertAcValue(
+                    PowerProfiles.EcoProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.ThrottleMax,
+                    70,
+                    "Eco max processor state");
+                AssertAcValue(
+                    PowerProfiles.EcoProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.PerfEpp,
+                    95,
+                    "Eco EPP");
+                AssertAcValue(
+                    PowerProfiles.EcoProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.CoreParkingMinCores,
+                    10,
+                    "Eco core parking min cores");
+                AssertAcValue(
+                    PowerProfiles.EcoProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.SystemCoolingPolicy,
+                    0,
+                    "Eco passive cooling policy");
+
+                if (!pps.SwitchToProfile(PowerProfiles.WorkProfile))
+                {
+                    throw new Exception("Failed to activate the Work profile.");
+                }
+                if (pps.IsCoolingModeActive)
+                {
+                    throw new Exception("Cooling Mode stayed on after activating Work.");
+                }
+                AssertSingleCryoTrayScheme(pps, PowerProfiles.WorkProfile, "Work");
+                AssertAcValue(
+                    PowerProfiles.WorkProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.PerfBoostMode,
+                    4,
+                    "Work boost mode");
+                AssertAcValue(
+                    PowerProfiles.WorkProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.ThrottleMax,
+                    100,
+                    "Work max processor state");
+                AssertAcValue(
+                    PowerProfiles.WorkProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.PerfEpp,
+                    25,
+                    "Work EPP");
+                AssertAcValue(
+                    PowerProfiles.WorkProfile.SchemeGuid,
+                    PowerGuids.SubProcessor,
+                    PowerGuids.CoreParkingMinCores,
+                    50,
+                    "Work core parking min cores");
+                AssertAcValue(
+                    PowerProfiles.WorkProfile.SchemeGuid,
+                    PowerGuids.SubPcie,
+                    PowerGuids.PcieAspm,
+                    1,
+                    "Work PCIe ASPM");
+                AssertAcValue(
+                    PowerProfiles.WorkProfile.SchemeGuid,
+                    PowerGuids.SubUsb,
+                    PowerGuids.UsbSelectiveSuspend,
+                    1,
+                    "Work USB selective suspend");
+                AssertAcValue(
+                    PowerProfiles.WorkProfile.SchemeGuid,
+                    PowerGuids.SubDisk,
+                    PowerGuids.PrimaryNvmeIdle,
+                    200,
+                    "Work NVMe idle");
 
                 if (!pps.SwitchToProfile(PowerProfiles.BalancedProfile))
                 {
@@ -1725,6 +2106,35 @@ namespace CryoTray.Tests
                 if (badgeNone != "3" || labelNone != "SSD 3")
                 {
                     throw new Exception($"Unmounted drive mismatch: badge='{badgeNone}', label='{labelNone}'");
+                }
+
+                const ulong giB = 1024UL * 1024UL * 1024UL;
+                var fakeVolumes = new (string Letter, ulong AvailableFreeBytes, ulong TotalBytes)[]
+                {
+                    ("C", 50UL * giB, 200UL * giB),
+                    ("D", 10UL * giB, 20UL * giB),
+                    ("E", 100UL * giB, 300UL * giB)
+                };
+                var multiSpace = HardwareMonitorService.ResolveDriveSpaceGb("C, E", fakeVolumes);
+                if (Math.Abs(multiSpace.FreeGb - 150.0) > 0.01 || Math.Abs(multiSpace.TotalGb - 500.0) > 0.01)
+                {
+                    throw new Exception($"Multi-partition free space mismatch: {multiSpace}");
+                }
+
+                var unmountedSpace = HardwareMonitorService.ResolveDriveSpaceGb("", fakeVolumes);
+                if (!double.IsNaN(unmountedSpace.FreeGb) || !double.IsNaN(unmountedSpace.TotalGb))
+                {
+                    throw new Exception("Unmounted drive should return NaN space.");
+                }
+
+                driveC.FreeSpaceGb = multiSpace.FreeGb;
+                driveC.MountedTotalSpaceGb = multiSpace.TotalGb;
+                string freeText = Views.MainWindow.FormatSsdFreeSpaceText(driveC);
+                if (!freeText.Contains("150.0 / 500.0", StringComparison.Ordinal) ||
+                    !freeText.Contains("30%", StringComparison.Ordinal) ||
+                    !string.IsNullOrEmpty(Views.MainWindow.FormatSsdFreeSpaceText(driveUnmounted)))
+                {
+                    throw new Exception($"Unexpected SSD free-space tooltip string: '{freeText}'");
                 }
 
                 Console.WriteLine("PASSED");
@@ -4556,6 +4966,524 @@ namespace CryoTray.Tests
                     {
                         throw new Exception("The live PDH physical-disk write counter could not be sampled.");
                     }
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestProfileEnhancementsAndMissingPlanPrune()
+        {
+            Console.Write("[TEST] Profile Enhancements, Tray Color Sync & Search Keywords... ");
+            try
+            {
+                if (new AppSettings().SyncCpuTrayBadgeColor)
+                {
+                    throw new Exception("SyncCpuTrayBadgeColor should default to false.");
+                }
+
+                var enDict = new ResourceDictionary
+                {
+                    Source = new Uri("pack://application:,,,/Resources/Strings.en.xaml", UriKind.Absolute)
+                };
+                var arDict = new ResourceDictionary
+                {
+                    Source = new Uri("pack://application:,,,/Resources/Strings.ar.xaml", UriKind.Absolute)
+                };
+                foreach (string key in new[]
+                         {
+                             "Settings_SyncCpuTrayColor",
+                             "Settings_ShowAllProfiles",
+                             "Activity_ExternalPlanRemoved",
+                             "Alert_ExternalPlanMissingTitle",
+                             "Alert_ExternalPlanMissingBody"
+                         })
+                {
+                    string enVal = enDict[key] as string ?? "";
+                    string arVal = arDict[key] as string ?? "";
+                    if (string.IsNullOrWhiteSpace(enVal) || string.IsNullOrWhiteSpace(arVal))
+                    {
+                        throw new Exception($"Missing or empty localization value for '{key}'.");
+                    }
+
+                    if (enVal.Contains('—') || arVal.Contains('—'))
+                    {
+                        throw new Exception($"Unexpected em dash in localized copy for '{key}'.");
+                    }
+                }
+
+                if (!LocalizationService.Format("Activity_ExternalPlanRemoved", "PlanX").Contains("PlanX", StringComparison.Ordinal) ||
+                    !LocalizationService.Format("Alert_ExternalPlanMissingBody", "PlanX").Contains("PlanX", StringComparison.Ordinal))
+                {
+                    throw new Exception("External plan missing format strings did not interpolate the plan name.");
+                }
+
+                static double ContrastRatioDrawing(System.Drawing.Color bg, byte fgR, byte fgG, byte fgB)
+                {
+                    static double Luminance(byte r, byte g, byte b)
+                    {
+                        static double Ch(byte v)
+                        {
+                            double s = v / 255.0;
+                            return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+                        }
+
+                        return (0.2126 * Ch(r)) + (0.7152 * Ch(g)) + (0.0722 * Ch(b));
+                    }
+
+                    double l1 = Luminance(bg.R, bg.G, bg.B);
+                    double l2 = Luminance(fgR, fgG, fgB);
+                    return (Math.Max(l1, l2) + 0.05) / (Math.Min(l1, l2) + 0.05);
+                }
+
+                var defOffBlackEco = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    false, PowerProfiles.EcoProfile, coolingModeActive: false, whiteDigits: false, merged: false);
+                var defOffBlackUlt = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    false, PowerProfiles.GamingUltimateProfile, coolingModeActive: false, whiteDigits: false, merged: false);
+                var defOffWhite = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    false, PowerProfiles.BalancedProfile, coolingModeActive: false, whiteDigits: true, merged: false);
+                if (defOffBlackEco != defOffBlackUlt || defOffBlackEco == defOffWhite)
+                {
+                    throw new Exception("Default (unsynced) CPU badge colors ignored mode defaults or bled profile accents.");
+                }
+
+                var syncEco = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    true, PowerProfiles.EcoProfile, coolingModeActive: true, whiteDigits: true, merged: false);
+                var syncWork = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    true, PowerProfiles.WorkProfile, coolingModeActive: false, whiteDigits: true, merged: false);
+                var syncUlt = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                    true, PowerProfiles.GamingUltimateProfile, coolingModeActive: false, whiteDigits: true, merged: false);
+                if (syncEco == syncWork || syncEco == syncUlt || syncWork == syncUlt)
+                {
+                    throw new Exception("Synced CPU badge colors did not differentiate active profiles.");
+                }
+
+                var darkCustom = new PowerProfileDefinition
+                {
+                    Key = "ext:dark",
+                    Palette = ProfilePalette.FromAccent("#112233"),
+                    IsExternal = true
+                };
+                var lightCustom = new PowerProfileDefinition
+                {
+                    Key = "ext:light",
+                    Palette = ProfilePalette.FromAccent("#FFEE55"),
+                    IsExternal = true
+                };
+                foreach (var profile in new[]
+                         {
+                             PowerProfiles.CoolingProfile,
+                             PowerProfiles.EcoProfile,
+                             PowerProfiles.WorkProfile,
+                             PowerProfiles.BalancedProfile,
+                             PowerProfiles.GamingUltimateProfile,
+                             darkCustom,
+                             lightCustom
+                         })
+                {
+                    foreach (bool merged in new[] { false, true })
+                    {
+                        var bgBlack = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                            true, profile, profile.IsCooling, whiteDigits: false, merged: merged);
+                        var bgWhite = CryoTray.Tray.TrayIconManager.ResolveCpuBadgeColor(
+                            true, profile, profile.IsCooling, whiteDigits: true, merged: merged);
+                        if (ContrastRatioDrawing(bgBlack, 0x14, 0x14, 0x14) < 4.5)
+                        {
+                            throw new Exception($"Black-digit synced badge contrast too low for '{profile.Key}' (merged={merged}).");
+                        }
+                        if (ContrastRatioDrawing(bgWhite, 0xFF, 0xFF, 0xFF) < 4.5)
+                        {
+                            throw new Exception($"White-digit synced badge contrast too low for '{profile.Key}' (merged={merged}).");
+                        }
+                    }
+                }
+
+                if (PowerPlanService.Instance.PruneMissingExternalProfiles(notify: false) < 0)
+                {
+                    throw new Exception("PruneMissingExternalProfiles returned a negative count.");
+                }
+
+                var customFrameSettings = new AppSettings
+                {
+                    CoolingOnFrameColor = "#112233",
+                    CoolingOffFrameColor = "#445566"
+                };
+                if (App.NormalizeHexColor(App.ResolveWindowAccentColor(PowerProfiles.EcoProfile, customFrameSettings)) != "#2699A8" ||
+                    App.NormalizeHexColor(App.ResolveWindowAccentColor(PowerProfiles.CoolingProfile, customFrameSettings)) != "#112233" ||
+                    App.NormalizeHexColor(App.ResolveWindowAccentColor(PowerProfiles.LegacyProfile, customFrameSettings)) != "#112233" ||
+                    App.NormalizeHexColor(App.ResolveWindowAccentColor(PowerProfiles.BalancedProfile, customFrameSettings)) != "#445566" ||
+                    App.NormalizeHexColor(App.ResolveWindowAccentColor(PowerProfiles.GamingHighProfile, customFrameSettings)) != "#445566" ||
+                    App.NormalizeHexColor(App.ResolveWindowAccentColor(PowerProfiles.GamingLowProfile, customFrameSettings)) != PowerProfiles.GamingLowProfile.Palette.Accent)
+                {
+                    throw new Exception("ResolveWindowAccentColor did not sync Eco accent or frame color overrides cleanly.");
+                }
+
+                var ecoTrack = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(PowerProfiles.EcoProfile.Palette.ToggleTrack);
+                if (ContrastRatioDrawing(System.Drawing.Color.FromArgb(ecoTrack.R, ecoTrack.G, ecoTrack.B), 0xFF, 0xFF, 0xFF) < 4.5 ||
+                    !Views.MainWindow.ShouldUseProfileCoolingToggleColors(PowerProfiles.EcoProfile, isHighContrast: false) ||
+                    Views.MainWindow.ShouldUseProfileCoolingToggleColors(PowerProfiles.EcoProfile, isHighContrast: true) ||
+                    Views.MainWindow.ShouldUseProfileCoolingToggleColors(PowerProfiles.CoolingProfile, isHighContrast: false) ||
+                    Views.MainWindow.ShouldUseProfileCoolingToggleColors(PowerProfiles.LegacyProfile, isHighContrast: false))
+                {
+                    throw new Exception("Eco ON toggle palette contrast or profile gating failed.");
+                }
+
+                Exception? staEx = null;
+                var uiThread = new Thread(() =>
+                {
+                    try
+                    {
+                        var sw = new Views.SettingsWindow();
+                        try
+                        {
+                            sw.ApplyTemplate();
+                            if (sw.FindName("ChkSyncCpuTrayColor") is not System.Windows.Controls.CheckBox chkSync ||
+                                sw.FindName("BtnShowAllProfiles") is not System.Windows.Controls.Button btnShowAll ||
+                                sw.FindName("TxtManageProfilesTitle") is not System.Windows.Controls.TextBlock ||
+                                sw.FindName("BdrSampleCpuOffBlack") is not System.Windows.Controls.Border ||
+                                sw.FindName("BdrSampleCpuOnWhite") is not System.Windows.Controls.Border)
+                            {
+                                throw new Exception("Expected View/CPU enhancement controls missing in SettingsWindow.");
+                            }
+
+                            if ((chkSync.IsChecked == true) != SettingsService.Instance.Current.SyncCpuTrayBadgeColor)
+                            {
+                                throw new Exception("ChkSyncCpuTrayColor initial state mismatch.");
+                            }
+
+                            int hiddenCount = PowerProfiles.MenuProfiles.Count(p =>
+                                PowerProfiles.CanHide(p) && PowerProfiles.IsHidden(p.Key, SettingsService.Instance.Current));
+                            var expectedVis = hiddenCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+                            if (btnShowAll.Visibility != expectedVis)
+                            {
+                                throw new Exception("BtnShowAllProfiles visibility did not match hidden profile count.");
+                            }
+
+                            var kwMethod = typeof(Views.SettingsWindow).GetMethod(
+                                "GetSearchKeywords",
+                                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                            string keywords = kwMethod?.Invoke(null, new object[] { "Manage profiles", "Settings_TabCpu", "TxtManageProfilesTitle" }) as string ?? "";
+                            if (!keywords.Contains("eco", StringComparison.OrdinalIgnoreCase) ||
+                                !keywords.Contains("hide", StringComparison.OrdinalIgnoreCase) ||
+                                !keywords.Contains("pin", StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new Exception($"Manage profiles search keywords missing expected tokens: '{keywords}'.");
+                            }
+                        }
+                        finally
+                        {
+                            sw.Close();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                });
+                uiThread.SetApartmentState(ApartmentState.STA);
+                uiThread.Start();
+                uiThread.Join();
+                if (staEx != null)
+                {
+                    throw new Exception("SettingsWindow enhancement STA check failed: " + staEx.Message, staEx);
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TestCpuPlanSpeedTooltipAndDetection()
+        {
+            Console.Write("[TEST] CPU Plan Max Speed Auto-Detection & GHz Tooltip... ");
+            try
+            {
+                if (!double.IsNaN(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.80, 3.80, 0, 3.85)) ||
+                    !double.IsNaN(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.80, 0, 0, 12.5)) ||
+                    !double.IsNaN(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.80, 3.80, 0, 0, 3.80)) ||
+                    Math.Abs(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.80, 3.80, 0, 4.85) - 4.85) > 0.01 ||
+                    Math.Abs(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.80, 3.80, 0, 0, 4.85) - 4.85) > 0.01 ||
+                    Math.Abs(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.80, 3.80, 0, 4.95, 4.85) - 4.95) > 0.01 ||
+                    Math.Abs(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.40, 3.40, 5.10, 4.60) - 5.10) > 0.01)
+                {
+                    throw new Exception("ResolveCpuBoostPeakGhz threshold or selection mismatch.");
+                }
+
+                byte[] syntheticSmbios =
+                {
+                    // Type 0 BIOS stub (len = 4) + 1 string ("A\0\0")
+                    0, 4, 0, 0, (byte)'A', 0, 0,
+                    // Type 4 populated CPU socket (len = 26): MaxSpeed at +0x14 = 4850 (0x12F2), CurrentSpeed at +0x16 = 3800 (0x0ED8), Status at +0x18 = 0x41
+                    4, 26, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xF2, 0x12, 0xD8, 0x0E, 0x41, 0, 0, 0,
+                    // Type 4 unpopulated second socket (Status bit 6 = 0, MaxSpeed = 5500) - must be ignored
+                    4, 26, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x7C, 0x15, 0xD8, 0x0E, 0x01, 0, 0, 0
+                };
+                if (Math.Abs(HardwareMonitorService.ParseSmbiosType4MaxBoostGhz(syntheticSmbios) - 4.85) > 0.01 ||
+                    HardwareMonitorService.ParseSmbiosType4MaxBoostGhz(null) != 0 ||
+                    HardwareMonitorService.ParseSmbiosType4MaxBoostGhz(new byte[] { 4, 2, 0, 0, 0 }) != 0)
+                {
+                    throw new Exception("ParseSmbiosType4MaxBoostGhz failed SMBIOS Type 4 or malformed guard check.");
+                }
+
+                var boostCacheSettings = new AppSettings();
+                if (HardwareMonitorService.TryUpdateCachedBoostPeak(boostCacheSettings, "AMD Ryzen 7 5800X", 3.80, 3.85) ||
+                    HardwareMonitorService.TryUpdateCachedBoostPeak(boostCacheSettings, "AMD Ryzen 7 5800X", 3.80, 11.20) ||
+                    !HardwareMonitorService.TryUpdateCachedBoostPeak(boostCacheSettings, "AMD Ryzen 7 5800X", 3.80, 4.85) ||
+                    boostCacheSettings.CachedBoostPeakCpuName != "AMD Ryzen 7 5800X" ||
+                    Math.Abs(boostCacheSettings.CachedBoostPeakGhz - 4.85) > 0.01)
+                {
+                    throw new Exception("Initial TryUpdateCachedBoostPeak behavior mismatch.");
+                }
+
+                // Lower or equal peaks should NOT rewrite cache; higher peak MUST update cache.
+                if (HardwareMonitorService.TryUpdateCachedBoostPeak(boostCacheSettings, "AMD Ryzen 7 5800X", 3.80, 4.70) ||
+                    HardwareMonitorService.TryUpdateCachedBoostPeak(boostCacheSettings, "AMD Ryzen 7 5800X", 3.80, 4.85) ||
+                    !HardwareMonitorService.TryUpdateCachedBoostPeak(boostCacheSettings, "amd ryzen 7 5800x", 3.80, 4.95) ||
+                    Math.Abs(boostCacheSettings.CachedBoostPeakGhz - 4.95) > 0.01)
+                {
+                    throw new Exception("Upward boost cache re-save check failed.");
+                }
+
+                // Cold startup in Eco should resolve saved boost ceiling immediately for matching CPU, never for swapped CPU.
+                double resolvedFromCache = HardwareMonitorService.ResolveCachedBoostPeakGhz(
+                    boostCacheSettings, "AMD Ryzen 7 5800X", 3.80);
+                double swappedCpuCache = HardwareMonitorService.ResolveCachedBoostPeakGhz(
+                    boostCacheSettings, "AMD Ryzen 9 5950X", 3.40);
+                if (Math.Abs(resolvedFromCache - 4.95) > 0.01 ||
+                    Math.Abs(HardwareMonitorService.ResolveCpuBoostPeakGhz(3.80, 3.80, 0, 0, 0, resolvedFromCache) - 4.95) > 0.01 ||
+                    swappedCpuCache != 0)
+                {
+                    throw new Exception("CPU model cache lookup or swap reset failed.");
+                }
+
+                if (!HardwareMonitorService.TryUpdateCachedBoostPeak(boostCacheSettings, "AMD Ryzen 7 5700X", 3.40, 4.65) ||
+                    boostCacheSettings.CachedBoostPeakCpuName != "AMD Ryzen 7 5700X" ||
+                    Math.Abs(boostCacheSettings.CachedBoostPeakGhz - 4.65) > 0.01)
+                {
+                    throw new Exception("New CPU model did not replace prior CPU boost cache.");
+                }
+
+                if (!HardwareMonitorService.TryClearCachedBoostPeak(boostCacheSettings) ||
+                    boostCacheSettings.CachedBoostPeakCpuName.Length != 0 ||
+                    boostCacheSettings.CachedBoostPeakGhz != 0 ||
+                    HardwareMonitorService.ResolveCachedBoostPeakGhz(boostCacheSettings, "AMD Ryzen 7 5700X", 3.40) != 0 ||
+                    HardwareMonitorService.TryClearCachedBoostPeak(boostCacheSettings))
+                {
+                    throw new Exception("TryClearCachedBoostPeak did not reset cached CPU boost cleanly.");
+                }
+
+                // Two-sample filter: single isolated spike is ignored; 2 consecutive higher samples confirm cleanly.
+                double pendingBoost = 0;
+                double confirmedBoost = 4.85;
+                confirmedBoost = HardwareMonitorService.ObserveConsecutiveBoostSample(9.90, 3.80, confirmedBoost, ref pendingBoost);
+                if (Math.Abs(confirmedBoost - 4.85) > 0.01 || Math.Abs(pendingBoost - 9.90) > 0.01)
+                {
+                    throw new Exception("Single boost spike must arm candidate without raising confirmed ceiling.");
+                }
+
+                confirmedBoost = HardwareMonitorService.ObserveConsecutiveBoostSample(4.85, 3.80, confirmedBoost, ref pendingBoost);
+                if (Math.Abs(confirmedBoost - 4.85) > 0.01 || pendingBoost != 0)
+                {
+                    throw new Exception("Return to baseline did not clear single-sample spike candidate.");
+                }
+
+                confirmedBoost = HardwareMonitorService.ObserveConsecutiveBoostSample(4.95, 3.80, confirmedBoost, ref pendingBoost);
+                if (Math.Abs(confirmedBoost - 4.85) > 0.01)
+                {
+                    throw new Exception("First sample above baseline should not confirm boost peak yet.");
+                }
+
+                confirmedBoost = HardwareMonitorService.ObserveConsecutiveBoostSample(5.02, 3.80, confirmedBoost, ref pendingBoost);
+                if (Math.Abs(confirmedBoost - 4.95) > 0.01 || Math.Abs(pendingBoost - 5.02) > 0.01)
+                {
+                    throw new Exception($"Second consecutive sample mismatch: confirmed={confirmedBoost}, pending={pendingBoost}");
+                }
+
+                confirmedBoost = HardwareMonitorService.ObserveConsecutiveBoostSample(5.02, 3.80, confirmedBoost, ref pendingBoost);
+                if (Math.Abs(confirmedBoost - 5.02) > 0.01 || pendingBoost != 0)
+                {
+                    throw new Exception("Step-up consecutive boost sample did not settle at 5.02 GHz.");
+                }
+
+                // Glitch right before a valid higher peak confirms only the lower real value (never 9.90).
+                double glitchPending = 0;
+                double glitchConfirmed = HardwareMonitorService.ObserveConsecutiveBoostSample(9.90, 3.80, 4.85, ref glitchPending);
+                glitchConfirmed = HardwareMonitorService.ObserveConsecutiveBoostSample(4.95, 3.80, glitchConfirmed, ref glitchPending);
+                if (Math.Abs(glitchConfirmed - 4.95) > 0.01 || glitchPending != 0)
+                {
+                    throw new Exception($"Glitch+real transition promoted wrong ceiling: {glitchConfirmed}");
+                }
+
+                // Pre-boost unknown baseline requires 2 consecutive live samples above base * 1.02.
+                double freshPending = 0;
+                double freshConfirmed = HardwareMonitorService.ObserveConsecutiveBoostSample(4.65, 3.80, 0, ref freshPending);
+                if (freshConfirmed != 0)
+                {
+                    throw new Exception("Single cold-start boost sample should not bypass 2-sample guard.");
+                }
+
+                freshConfirmed = HardwareMonitorService.ObserveConsecutiveBoostSample(4.65, 3.80, freshConfirmed, ref freshPending);
+                if (Math.Abs(freshConfirmed - 4.65) > 0.01 || freshPending != 0)
+                {
+                    throw new Exception("Two consecutive cold-start boost samples did not confirm 4.65 GHz.");
+                }
+
+                var snapWithBoost = new HardwareSnapshot
+                {
+                    CpuBaseGhz = 3.80,
+                    CpuMaxGhz = 3.80,
+                    CpuBoostPeakGhz = 4.85
+                };
+                if (Math.Abs(HardwareMonitorService.CloneSnapshot(snapWithBoost).CpuBoostPeakGhz - 4.85) > 0.01)
+                {
+                    throw new Exception("CloneSnapshot dropped CpuBoostPeakGhz.");
+                }
+
+                var ecoAc = Views.MainWindow.FormatCpuPlanSpeedTooltip(
+                    new CpuPlanPowerLimits(Guid.Empty, "CryoTray — Eco", IsOnBattery: false, MinThrottlePercent: 5, MaxThrottlePercent: 70, BoostMode: 0, MaxFrequencyMhz: 0),
+                    baseGhz: 3.80,
+                    boostPeakGhz: 4.85);
+                if (!ecoAc.Title.Contains("2.66", StringComparison.Ordinal) ||
+                    !ecoAc.Detail.Contains("70%", StringComparison.Ordinal) ||
+                    !ecoAc.Detail.Contains("3.80", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected Eco AC tooltip: '{ecoAc.Title}' / '{ecoAc.Detail}'");
+                }
+
+                var ecoDc = Views.MainWindow.FormatCpuPlanSpeedTooltip(
+                    new CpuPlanPowerLimits(Guid.Empty, "CryoTray — Eco", IsOnBattery: true, MinThrottlePercent: 5, MaxThrottlePercent: 55, BoostMode: 0, MaxFrequencyMhz: 0),
+                    baseGhz: 3.80,
+                    boostPeakGhz: 4.85);
+                if (!ecoDc.Title.Contains("2.09", StringComparison.Ordinal) ||
+                    !ecoDc.Detail.Contains("55%", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected Eco DC tooltip: '{ecoDc.Title}' / '{ecoDc.Detail}'");
+                }
+
+                var cooling = Views.MainWindow.FormatCpuPlanSpeedTooltip(
+                    new CpuPlanPowerLimits(Guid.Empty, "CryoTray — Cooling", IsOnBattery: false, MinThrottlePercent: 5, MaxThrottlePercent: 99, BoostMode: 0, MaxFrequencyMhz: 0),
+                    baseGhz: 3.80,
+                    boostPeakGhz: 4.85);
+                if (!cooling.Title.Contains("3.76", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected Cooling tooltip: '{cooling.Title}'");
+                }
+
+                var workPeak = Views.MainWindow.FormatCpuPlanSpeedTooltip(
+                    new CpuPlanPowerLimits(Guid.Empty, "CryoTray — Work", IsOnBattery: false, MinThrottlePercent: 5, MaxThrottlePercent: 100, BoostMode: 4, MaxFrequencyMhz: 0),
+                    baseGhz: 3.80,
+                    boostPeakGhz: 4.85);
+                if (!workPeak.Title.Contains("4.85", StringComparison.Ordinal) ||
+                    !workPeak.Detail.Contains("5%", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected Work boost tooltip: '{workPeak.Title}' / '{workPeak.Detail}'");
+                }
+
+                var balancedUnmeasured = Views.MainWindow.FormatCpuPlanSpeedTooltip(
+                    new CpuPlanPowerLimits(Guid.Empty, "Windows Balanced", IsOnBattery: false, MinThrottlePercent: 5, MaxThrottlePercent: 100, BoostMode: 2, MaxFrequencyMhz: 0),
+                    baseGhz: 3.80,
+                    boostPeakGhz: double.NaN);
+                if (!balancedUnmeasured.Title.Contains("3.80", StringComparison.Ordinal) ||
+                    !balancedUnmeasured.Detail.Contains("100%", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected Balanced tooltip: '{balancedUnmeasured.Title}' / '{balancedUnmeasured.Detail}'");
+                }
+
+                var mhzCapped = Views.MainWindow.FormatCpuPlanSpeedTooltip(
+                    new CpuPlanPowerLimits(Guid.Empty, "Custom External", IsOnBattery: false, MinThrottlePercent: 5, MaxThrottlePercent: 100, BoostMode: 2, MaxFrequencyMhz: 2400),
+                    baseGhz: 3.80,
+                    boostPeakGhz: 4.85);
+                if (!mhzCapped.Title.Contains("2.40", StringComparison.Ordinal) ||
+                    !mhzCapped.Detail.Contains("2.40", StringComparison.Ordinal))
+                {
+                    throw new Exception($"Unexpected PROCFREQMAX capped tooltip: '{mhzCapped.Title}' / '{mhzCapped.Detail}'");
+                }
+
+                var liveLimits = PowerPlanService.Instance.GetActiveCpuPowerLimits();
+                if (string.IsNullOrWhiteSpace(liveLimits.PlanName) ||
+                    liveLimits.MaxThrottlePercent < 0 || liveLimits.MaxThrottlePercent > 100 ||
+                    liveLimits.BoostMode < 0 || liveLimits.BoostMode > 6)
+                {
+                    throw new Exception($"GetActiveCpuPowerLimits returned invalid values: {liveLimits}");
+                }
+
+                Exception? staEx = null;
+                var uiThread = new Thread(() =>
+                {
+                    try
+                    {
+                        var mw = new Views.MainWindow();
+                        try
+                        {
+                            mw.ApplyTemplate();
+                            if (mw.FindName("BdrCpuGhzUnit") is not System.Windows.Controls.Border bdr ||
+                                mw.FindName("CpuGhzToolTip") is not System.Windows.Controls.ToolTip tip ||
+                                mw.FindName("TxtCpuGhzTooltipTitle") is not System.Windows.Controls.TextBlock txtTitle ||
+                                mw.FindName("TxtCpuGhzTooltipDetail") is not System.Windows.Controls.TextBlock txtDetail)
+                            {
+                                throw new Exception("CPU GHz tooltip elements missing in MainWindow.");
+                            }
+
+                            if (!ReferenceEquals(bdr.ToolTip, tip) ||
+                                string.IsNullOrWhiteSpace(txtTitle.Text) ||
+                                string.IsNullOrWhiteSpace(txtDetail.Text))
+                            {
+                                throw new Exception("CPU GHz tooltip was not populated on MainWindow startup.");
+                            }
+                        }
+                        finally
+                        {
+                            mw.Close();
+                        }
+
+                        var sw = new Views.SettingsWindow();
+                        try
+                        {
+                            sw.ApplyTemplate();
+                            if (sw.FindName("TxtCachedBoostPeakTitle") is not System.Windows.Controls.TextBlock boostTitle ||
+                                sw.FindName("TxtCachedBoostPeakStatus") is not System.Windows.Controls.TextBlock boostStatus ||
+                                sw.FindName("BtnClearCachedBoostPeak") is not System.Windows.Controls.Button boostClear ||
+                                string.IsNullOrWhiteSpace(boostTitle.Text) ||
+                                string.IsNullOrWhiteSpace(boostStatus.Text))
+                            {
+                                throw new Exception("Cached boost peak clear controls missing or empty in SettingsWindow.");
+                            }
+
+                            var cur = SettingsService.Instance.Current;
+                            bool expectEnabled = cur.CachedBoostPeakGhz > 0 &&
+                                !string.IsNullOrWhiteSpace(cur.CachedBoostPeakCpuName);
+                            if (boostClear.IsEnabled != expectEnabled)
+                            {
+                                throw new Exception("BtnClearCachedBoostPeak initial IsEnabled state mismatch.");
+                            }
+                        }
+                        finally
+                        {
+                            sw.Close();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                });
+                uiThread.SetApartmentState(ApartmentState.STA);
+                uiThread.Start();
+                uiThread.Join();
+                if (staEx != null)
+                {
+                    throw new Exception("MainWindow CPU GHz tooltip STA check failed: " + staEx.Message, staEx);
                 }
 
                 Console.WriteLine("PASSED");

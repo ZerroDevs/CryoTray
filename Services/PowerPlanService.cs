@@ -17,6 +17,15 @@ namespace CryoTray.Services
         public bool IsActive { get; set; }
     }
 
+    public sealed record CpuPlanPowerLimits(
+        Guid SchemeGuid,
+        string PlanName,
+        bool IsOnBattery,
+        int MinThrottlePercent,
+        int MaxThrottlePercent,
+        int BoostMode,
+        int MaxFrequencyMhz);
+
     public class PowerPlanService
     {
         private static PowerPlanService? _instance;
@@ -50,6 +59,7 @@ namespace CryoTray.Services
 
         /// <summary>Raised when the active plan changes away from a CryoTray profile by something else.</summary>
         public event Action<PowerPlanDrift>? PlanDrifted;
+        public event Action<string>? ExternalPlanMissing;
 
         public sealed class PowerPlanDrift
         {
@@ -159,6 +169,56 @@ namespace CryoTray.Services
             return schemeGuid.ToString();
         }
 
+        public CpuPlanPowerLimits GetActiveCpuPowerLimits()
+        {
+            Guid activeGuid = GetActiveSchemeGuid();
+            var profile = ActiveProfile;
+            if (profile == null || profile.SchemeGuid != activeGuid)
+            {
+                profile = activeGuid != Guid.Empty
+                    ? PowerProfiles.FromSchemeGuid(activeGuid, SettingsService.Instance.Current)
+                    : null;
+            }
+
+            string planName = profile != null
+                ? LocalizationService.GetProfileName(profile)
+                : (activeGuid != Guid.Empty ? ReadSchemeFriendlyName(activeGuid) : LocalizationService.Get("Common_Unknown"));
+
+            bool isOnBattery = NativeMethods.GetSystemPowerStatus(out var powerStatus) &&
+                powerStatus.ACLineStatus == 0;
+
+            uint minThrottle = activeGuid != Guid.Empty
+                ? ReadProcessorSetting(activeGuid, PowerGuids.ThrottleMin, isOnBattery, 5)
+                : 5;
+            uint maxThrottle = activeGuid != Guid.Empty
+                ? ReadProcessorSetting(activeGuid, PowerGuids.ThrottleMax, isOnBattery, 100)
+                : 100;
+            uint boostMode = activeGuid != Guid.Empty
+                ? ReadProcessorSetting(activeGuid, PowerGuids.PerfBoostMode, isOnBattery, 2)
+                : 2;
+            uint maxFreqMhz = activeGuid != Guid.Empty
+                ? ReadProcessorSetting(activeGuid, NativeMethods.GUID_PROCESSOR_FREQUENCY_MAX, isOnBattery, 0)
+                : 0;
+
+            return new CpuPlanPowerLimits(
+                activeGuid,
+                planName,
+                isOnBattery,
+                Math.Clamp((int)minThrottle, 0, 100),
+                Math.Clamp((int)maxThrottle, 0, 100),
+                Math.Clamp((int)boostMode, 0, 6),
+                maxFreqMhz > 0 && maxFreqMhz <= 20000 ? (int)maxFreqMhz : 0);
+        }
+
+        private static uint ReadProcessorSetting(Guid schemeGuid, Guid settingGuid, bool isOnBattery, uint fallback)
+        {
+            Guid sub = PowerGuids.SubProcessor;
+            uint rc = isOnBattery
+                ? NativeMethods.PowerReadDCValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref settingGuid, out uint val)
+                : NativeMethods.PowerReadACValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref settingGuid, out val);
+            return rc == 0 ? val : fallback;
+        }
+
         /// <summary>Returns the installed legacy cooling scheme, creating it from Balanced when missing.</summary>
         public Guid EnsureCryoTrayCoolingScheme()
         {
@@ -222,7 +282,7 @@ namespace CryoTray.Services
                 });
             }
 
-            SetActiveProfile(PowerProfiles.FromSchemeGuid(activeGuid));
+            SetActiveProfile(PowerProfiles.FromSchemeGuid(activeGuid, SettingsService.Instance.Current));
         }
 
         internal static bool IsExternalDrift(PowerProfileDefinition? previous, Guid activeGuid)
@@ -239,7 +299,101 @@ namespace CryoTray.Services
 
         public PowerProfileDefinition? GetActiveProfile()
         {
-            return PowerProfiles.FromSchemeGuid(GetActiveSchemeGuid());
+            return PowerProfiles.FromSchemeGuid(GetActiveSchemeGuid(), SettingsService.Instance.Current);
+        }
+
+        public List<PowerSchemeInfo> GetAvailableExternalSchemes()
+        {
+            return GetInstalledSchemes()
+                .Where(scheme =>
+                    scheme.Guid != BalancedGuid &&
+                    !PowerProfiles.IsCryoTrayScheme(scheme.Guid) &&
+                    !IsOwnedCryoTrayScheme(scheme))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Removes pinned external Windows schemes that no longer exist in Windows, resets any
+        /// preferred or Autopilot reference to Balanced, and returns how many entries were pruned.
+        /// </summary>
+        public int PruneMissingExternalProfiles(bool notify = true)
+        {
+            var settings = SettingsService.Instance.Current;
+            if (settings.ExternalPowerProfiles == null || settings.ExternalPowerProfiles.Count == 0)
+            {
+                return 0;
+            }
+
+            var installed = GetInstalledSchemes();
+            if (installed.Count == 0)
+            {
+                return 0;
+            }
+
+            var installedGuids = new HashSet<Guid>(installed.Select(s => s.Guid));
+            var removedNames = new List<string>();
+            var removedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            lock (_switchLock)
+            {
+                var remaining = new List<ExternalPowerProfileSetting>();
+                foreach (var entry in settings.ExternalPowerProfiles)
+                {
+                    if (Guid.TryParse(entry.Guid, out Guid guid) &&
+                        guid != Guid.Empty &&
+                        installedGuids.Contains(guid))
+                    {
+                        remaining.Add(entry);
+                        continue;
+                    }
+
+                    string label = string.IsNullOrWhiteSpace(entry.Name)
+                        ? entry.Guid
+                        : entry.Name.Trim();
+                    removedNames.Add(label);
+                    if (guid != Guid.Empty)
+                    {
+                        removedKeys.Add(PowerProfiles.MakeExternalKey(guid));
+                    }
+                }
+
+                if (removedNames.Count == 0)
+                {
+                    return 0;
+                }
+
+                settings.ExternalPowerProfiles = remaining;
+                if (!string.IsNullOrWhiteSpace(settings.PreferredCoolingProfile) &&
+                    removedKeys.Contains(settings.PreferredCoolingProfile))
+                {
+                    settings.PreferredCoolingProfile = PowerProfiles.CoolingKey;
+                }
+                if (!string.IsNullOrWhiteSpace(settings.PreferredGamingProfile) &&
+                    removedKeys.Contains(settings.PreferredGamingProfile))
+                {
+                    settings.PreferredGamingProfile = PowerProfiles.BalancedKey;
+                }
+
+                if (settings.AutopilotAppProfiles != null)
+                {
+                    foreach (var appKey in settings.AutopilotAppProfiles
+                                 .Where(pair => removedKeys.Contains(pair.Value))
+                                 .Select(pair => pair.Key)
+                                 .ToList())
+                    {
+                        settings.AutopilotAppProfiles.Remove(appKey);
+                    }
+                }
+
+                SettingsService.Instance.Save();
+            }
+
+            if (notify)
+            {
+                ExternalPlanMissing?.Invoke(string.Join(", ", removedNames));
+            }
+
+            return removedNames.Count;
         }
 
         public Guid GetNormalPowerPlanGuid()
@@ -272,7 +426,7 @@ namespace CryoTray.Services
         private void SetActiveProfile(PowerProfileDefinition? profile)
         {
             bool cooling = profile?.IsCooling == true;
-            bool profileChanged = !ReferenceEquals(ActiveProfile, profile);
+            bool profileChanged = !ProfileEquals(ActiveProfile, profile);
             bool coolingChanged = IsCoolingModeActive != cooling;
 
             ActiveProfile = profile;
@@ -289,12 +443,31 @@ namespace CryoTray.Services
             }
         }
 
+        private static bool ProfileEquals(PowerProfileDefinition? left, PowerProfileDefinition? right)
+        {
+            if (ReferenceEquals(left, right))
+            {
+                return true;
+            }
+
+            if (left == null || right == null)
+            {
+                return false;
+            }
+
+            return left.SchemeGuid == right.SchemeGuid &&
+                left.IsCooling == right.IsCooling &&
+                string.Equals(left.Key, right.Key, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(left.LiteralName, right.LiteralName, StringComparison.Ordinal) &&
+                string.Equals(left.Palette.Accent, right.Palette.Accent, StringComparison.OrdinalIgnoreCase);
+        }
+
         public void SetCoolingMode(bool enable)
         {
             var settings = SettingsService.Instance.Current;
             PowerProfileDefinition target = enable
-                ? PowerProfiles.GetCooling(settings.PreferredCoolingProfile)
-                : PowerProfiles.GetGaming(settings.PreferredGamingProfile);
+                ? PowerProfiles.GetCooling(settings.PreferredCoolingProfile, settings)
+                : PowerProfiles.GetGaming(settings.PreferredGamingProfile, settings);
 
             SwitchToProfile(target);
         }
@@ -316,21 +489,42 @@ namespace CryoTray.Services
                 return false;
             }
 
+            string? missingPlanName = null;
+            bool switched;
+
             lock (_switchLock)
             {
                 CaptureOriginalPlan();
 
-                if (profile.IsWindowsDefault)
+                if (profile.IsWindowsDefault || profile.IsExternal)
                 {
-                    Guid balanced = profile.SchemeGuid;
-                    uint balancedStatus = NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref balanced);
-                    if (balancedStatus != 0 && GetActiveSchemeGuid() != balanced)
+                    Guid targetScheme = profile.SchemeGuid;
+                    if (profile.IsExternal && !IsSchemeInstalled(targetScheme))
                     {
+                        missingPlanName = RemoveMissingExternalProfileLocked(profile);
+                        switched = SwitchToProfile(profile.IsCooling
+                            ? PowerProfiles.CoolingProfile
+                            : PowerProfiles.BalancedProfile);
+                        goto NotifyMissing;
+                    }
+
+                    uint directStatus = NativeMethods.PowerSetActiveScheme(IntPtr.Zero, ref targetScheme);
+                    if (directStatus != 0 && GetActiveSchemeGuid() != targetScheme)
+                    {
+                        if (profile.IsExternal && !IsSchemeInstalled(targetScheme))
+                        {
+                            missingPlanName = RemoveMissingExternalProfileLocked(profile);
+                            switched = SwitchToProfile(profile.IsCooling
+                                ? PowerProfiles.CoolingProfile
+                                : PowerProfiles.BalancedProfile);
+                            goto NotifyMissing;
+                        }
+
                         RefreshState();
                         return false;
                     }
 
-                    DeleteOtherCryoTraySchemes(balanced);
+                    DeleteOtherCryoTraySchemes(targetScheme);
                     SetActiveProfile(profile);
                     return true;
                 }
@@ -355,6 +549,47 @@ namespace CryoTray.Services
                 SetActiveProfile(profile);
                 return true;
             }
+
+        NotifyMissing:
+            if (!string.IsNullOrWhiteSpace(missingPlanName))
+            {
+                ExternalPlanMissing?.Invoke(missingPlanName);
+            }
+            return switched;
+        }
+
+        private static string RemoveMissingExternalProfileLocked(PowerProfileDefinition profile)
+        {
+            var settings = SettingsService.Instance.Current;
+            string name = LocalizationService.GetProfileName(profile);
+
+            settings.ExternalPowerProfiles ??= new List<ExternalPowerProfileSetting>();
+            settings.ExternalPowerProfiles.RemoveAll(entry =>
+                Guid.TryParse(entry.Guid, out Guid parsed) && parsed == profile.SchemeGuid);
+
+            if (string.Equals(settings.PreferredCoolingProfile, profile.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.PreferredCoolingProfile = PowerProfiles.CoolingKey;
+            }
+
+            if (string.Equals(settings.PreferredGamingProfile, profile.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.PreferredGamingProfile = PowerProfiles.BalancedKey;
+            }
+
+            if (settings.AutopilotAppProfiles != null)
+            {
+                foreach (var appKey in settings.AutopilotAppProfiles
+                             .Where(pair => string.Equals(pair.Value, profile.Key, StringComparison.OrdinalIgnoreCase))
+                             .Select(pair => pair.Key)
+                             .ToList())
+                {
+                    settings.AutopilotAppProfiles.Remove(appKey);
+                }
+            }
+
+            SettingsService.Instance.Save();
+            return name;
         }
 
         /// <summary>Reapplies the preferred profile when the active plan is a known profile.</summary>
@@ -369,18 +604,18 @@ namespace CryoTray.Services
 
             var settings = SettingsService.Instance.Current;
             PowerProfileDefinition target = active.IsCooling
-                ? PowerProfiles.GetCooling(settings.PreferredCoolingProfile)
-                : PowerProfiles.GetGaming(settings.PreferredGamingProfile);
+                ? PowerProfiles.GetCooling(settings.PreferredCoolingProfile, settings)
+                : PowerProfiles.GetGaming(settings.PreferredGamingProfile, settings);
 
-            if (!ReferenceEquals(target, active))
+            if (!string.Equals(target.Key, active.Key, StringComparison.OrdinalIgnoreCase))
             {
                 SwitchToProfile(target);
                 return;
             }
 
-            if (active.IsWindowsDefault)
+            if (active.IsWindowsDefault || active.IsExternal)
             {
-                SetActiveProfile(active);
+                SetActiveProfile(target);
                 return;
             }
 
