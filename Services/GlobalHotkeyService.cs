@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 
 namespace CryoTray.Services
@@ -14,11 +14,83 @@ namespace CryoTray.Services
         public const int CoolingHotkeyId = 9001;
         public const int RamOptimizeHotkeyId = 9002;
         private IntPtr _hWnd = IntPtr.Zero;
+        private IntPtr _ownedHwnd = IntPtr.Zero;
+        private IntPtr _hInstance = IntPtr.Zero;
+        private string? _windowClassName;
+        private NativeMethods.WndProcDelegate? _wndProcDelegate;
+        private Action<int>? _hotkeyCallback;
         private bool _isRegistered;
         private bool _isRamRegistered;
 
         public bool IsRegistered => _isRegistered;
         public bool IsRamHotkeyRegistered => _isRamRegistered;
+
+        internal IntPtr EnsureMessageWindow(Action<int> onHotkey)
+        {
+            _hotkeyCallback = onHotkey;
+            if (_ownedHwnd != IntPtr.Zero)
+            {
+                return _ownedHwnd;
+            }
+
+            _hInstance = NativeMethods.GetModuleHandleW(null);
+            _windowClassName = $"CryoTrayHotkey_{Guid.NewGuid():N}";
+            _wndProcDelegate = WndProc;
+
+            var wc = new NativeMethods.WNDCLASSEXW
+            {
+                cbSize = (uint)Marshal.SizeOf<NativeMethods.WNDCLASSEXW>(),
+                lpfnWndProc = _wndProcDelegate,
+                hInstance = _hInstance,
+                lpszClassName = _windowClassName
+            };
+            NativeMethods.RegisterClassExW(ref wc);
+
+            _ownedHwnd = NativeMethods.CreateWindowExW(
+                0,
+                _windowClassName,
+                string.Empty,
+                0,
+                0, 0, 0, 0,
+                NativeMethods.HWND_MESSAGE,
+                IntPtr.Zero,
+                _hInstance,
+                IntPtr.Zero);
+
+            return _ownedHwnd;
+        }
+
+        internal void DisposeMessageWindow()
+        {
+            Unregister();
+            UnregisterRamHotkey();
+            _hotkeyCallback = null;
+
+            if (_ownedHwnd != IntPtr.Zero)
+            {
+                NativeMethods.DestroyWindow(_ownedHwnd);
+                _ownedHwnd = IntPtr.Zero;
+            }
+
+            if (!string.IsNullOrEmpty(_windowClassName))
+            {
+                NativeMethods.UnregisterClassW(_windowClassName, _hInstance);
+                _windowClassName = null;
+            }
+
+            _wndProcDelegate = null;
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            if (msg == NativeMethods.WM_HOTKEY)
+            {
+                _hotkeyCallback?.Invoke(wParam.ToInt32());
+                return IntPtr.Zero;
+            }
+
+            return NativeMethods.DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
 
         public bool Register(IntPtr hWnd, string modifiers, string key)
         {
@@ -152,7 +224,7 @@ namespace CryoTray.Services
             return trimmed.ToUpperInvariant();
         }
 
-        private static uint ResolveVirtualKey(string? key)
+        internal static uint ResolveVirtualKey(string? key)
         {
             if (string.IsNullOrWhiteSpace(key))
             {
@@ -165,9 +237,13 @@ namespace CryoTray.Services
                 return (uint)('0' + (trimmed[0] - '0'));
             }
 
-            if (Enum.TryParse<Keys>(trimmed, true, out var keyVal) && keyVal != Keys.None)
+            if (Enum.TryParse<Key>(trimmed, true, out var wpfKey) && wpfKey != Key.None)
             {
-                return (uint)keyVal;
+                int vk = KeyInterop.VirtualKeyFromKey(wpfKey);
+                if (vk > 0)
+                {
+                    return (uint)vk;
+                }
             }
 
             if (trimmed.Length == 1 && char.IsAsciiLetter(trimmed[0]))

@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
-using CryoTray.Services;
 
 namespace CryoTray.Services
 {
@@ -14,6 +13,8 @@ namespace CryoTray.Services
         public static readonly TimeSpan DefaultDelay = TimeSpan.FromSeconds(1.5);
         public static readonly TimeSpan LoadedDelay = TimeSpan.FromSeconds(3.5);
         public static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(2.5);
+        public static readonly TimeSpan InteractionCooldown = TimeSpan.FromMilliseconds(1200);
+        public static readonly TimeSpan MinDeactivatedInterval = TimeSpan.FromSeconds(5);
 
         private static MemoryTrimService? _instance;
         public static MemoryTrimService Instance => _instance ??= new MemoryTrimService();
@@ -21,8 +22,57 @@ namespace CryoTray.Services
         private readonly object _lock = new();
         private Timer? _debounceTimer;
         private int _trimInFlight;
+        private long _lastTrimCompletedUtcTicks;
+        private long _suppressUntilUtcTicks;
         private bool _shuttingDown;
         private int _pendingGeneration;
+
+        /// <summary>
+        /// Temporarily defers working-set trims during brief UI bursts (such as tab switches)
+        /// without blocking trims for the full lifetime of open windows.
+        /// </summary>
+        public void PauseForInteraction(TimeSpan? duration = null)
+        {
+            TimeSpan effective = duration ?? InteractionCooldown;
+            if (effective <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            long untilTicks = DateTime.UtcNow.Add(effective).Ticks;
+            while (true)
+            {
+                long current = Interlocked.Read(ref _suppressUntilUtcTicks);
+                if (untilTicks <= current)
+                {
+                    break;
+                }
+
+                if (Interlocked.CompareExchange(ref _suppressUntilUtcTicks, untilTicks, current) == current)
+                {
+                    break;
+                }
+            }
+
+            lock (_lock)
+            {
+                if (_shuttingDown || _debounceTimer == null)
+                {
+                    return;
+                }
+
+                long remainingTicks = Interlocked.Read(ref _suppressUntilUtcTicks) - DateTime.UtcNow.Ticks;
+                if (remainingTicks <= 0)
+                {
+                    return;
+                }
+
+                TimeSpan pushedDelay = TimeSpan.FromTicks(remainingTicks) + TimeSpan.FromMilliseconds(100);
+                int generation = ++_pendingGeneration;
+                _debounceTimer.Dispose();
+                _debounceTimer = new Timer(OnTimerElapsed, generation, pushedDelay, Timeout.InfiniteTimeSpan);
+            }
+        }
 
         internal Action? TrimExecutorForTest { get; set; }
         internal int ScheduledCountForTest { get; private set; }
@@ -43,8 +93,17 @@ namespace CryoTray.Services
             }
         }
 
-        public void ScheduleTrim(TimeSpan? delay = null)
+        public void ScheduleTrim(TimeSpan? delay = null, bool skipIfRecentlyTrimmed = false)
         {
+            if (skipIfRecentlyTrimmed)
+            {
+                long lastTicks = Interlocked.Read(ref _lastTrimCompletedUtcTicks);
+                if (lastTicks > 0 && DateTime.UtcNow.Ticks - lastTicks < MinDeactivatedInterval.Ticks)
+                {
+                    return;
+                }
+            }
+
             TimeSpan effectiveDelay = delay ?? DefaultDelay;
             if (effectiveDelay < TimeSpan.FromMilliseconds(50))
             {
@@ -93,6 +152,8 @@ namespace CryoTray.Services
         internal void ResetForTest()
         {
             CancelPending(shuttingDown: false);
+            Interlocked.Exchange(ref _suppressUntilUtcTicks, 0);
+            Interlocked.Exchange(ref _lastTrimCompletedUtcTicks, 0);
             lock (_lock)
             {
                 _shuttingDown = false;
@@ -141,7 +202,15 @@ namespace CryoTray.Services
                     return;
                 }
 
+                long remainingTicks = Interlocked.Read(ref _suppressUntilUtcTicks) - DateTime.UtcNow.Ticks;
+                if (remainingTicks > 0)
+                {
+                    ScheduleTrim(TimeSpan.FromTicks(remainingTicks) + TimeSpan.FromMilliseconds(100));
+                    return;
+                }
+
                 ExecutedCountForTest++;
+                Interlocked.Exchange(ref _lastTrimCompletedUtcTicks, DateTime.UtcNow.Ticks);
                 Action? custom = TrimExecutorForTest;
                 if (custom != null)
                 {
@@ -158,6 +227,7 @@ namespace CryoTray.Services
 
                 using var process = Process.GetCurrentProcess();
                 NativeMethods.EmptyWorkingSet(process.Handle);
+                Interlocked.Exchange(ref _lastTrimCompletedUtcTicks, DateTime.UtcNow.Ticks);
             }
             catch
             {

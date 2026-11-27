@@ -324,8 +324,8 @@ namespace CryoTray.Services
         {
             try
             {
-                return System.Windows.Forms.SystemInformation.PowerStatus.PowerLineStatus ==
-                    System.Windows.Forms.PowerLineStatus.Offline;
+                return NativeMethods.GetSystemPowerStatus(out var status) &&
+                       status.ACLineStatus == 0;
             }
             catch
             {

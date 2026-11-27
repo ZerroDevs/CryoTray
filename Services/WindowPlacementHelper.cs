@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
-using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Services
 {
@@ -18,10 +18,10 @@ namespace CryoTray.Services
                 double scaleY = dpi.DpiScaleY > 0 ? dpi.DpiScaleY : 1.0;
 
                 IntPtr handle = new WindowInteropHelper(window).Handle;
-                if (handle != IntPtr.Zero)
+                if (handle != IntPtr.Zero &&
+                    TryGetMonitorInfoFromWindow(handle, out var info))
                 {
-                    var screen = WinForms.Screen.FromHandle(handle);
-                    return ToDipRect(screen.WorkingArea, scaleX, scaleY);
+                    return ToDipRect(info.rcWork, scaleX, scaleY);
                 }
 
                 if (double.IsFinite(window.Left) && double.IsFinite(window.Top) &&
@@ -51,15 +51,9 @@ namespace CryoTray.Services
 
             try
             {
-                var screens = WinForms.Screen.AllScreens;
-                if (screens.Length > 0)
+                var workAreas = EnumerateMonitorWorkAreasDips(scaleX, scaleY);
+                if (workAreas.Count > 0)
                 {
-                    var workAreas = new List<Rect>(screens.Length);
-                    foreach (var screen in screens)
-                    {
-                        workAreas.Add(ToDipRect(screen.WorkingArea, scaleX, scaleY));
-                    }
-
                     var bounds = new Rect(leftDip, topDip, Math.Max(1, widthDip), Math.Max(1, heightDip));
                     return FindTargetWorkArea(workAreas, bounds, SystemParameters.WorkArea);
                 }
@@ -69,6 +63,49 @@ namespace CryoTray.Services
             }
 
             return SystemParameters.WorkArea;
+        }
+
+        internal static bool TryGetMonitorBoundsFromWindow(IntPtr hwnd, out NativeMethods.RECT bounds)
+        {
+            if (TryGetMonitorInfoFromWindow(hwnd, out var info))
+            {
+                bounds = info.rcMonitor;
+                return true;
+            }
+
+            bounds = default;
+            return false;
+        }
+
+        private static bool TryGetMonitorInfoFromWindow(IntPtr hwnd, out NativeMethods.MONITORINFO info)
+        {
+            info = new NativeMethods.MONITORINFO
+            {
+                cbSize = (uint)Marshal.SizeOf<NativeMethods.MONITORINFO>()
+            };
+
+            IntPtr monitor = NativeMethods.MonitorFromWindow(hwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            return monitor != IntPtr.Zero && NativeMethods.GetMonitorInfoW(monitor, ref info);
+        }
+
+        private static List<Rect> EnumerateMonitorWorkAreasDips(double scaleX, double scaleY)
+        {
+            var workAreas = new List<Rect>();
+            uint infoSize = (uint)Marshal.SizeOf<NativeMethods.MONITORINFO>();
+            NativeMethods.EnumDisplayMonitors(
+                IntPtr.Zero,
+                IntPtr.Zero,
+                (IntPtr hMonitor, IntPtr _, ref NativeMethods.RECT _, IntPtr _) =>
+                {
+                    var info = new NativeMethods.MONITORINFO { cbSize = infoSize };
+                    if (NativeMethods.GetMonitorInfoW(hMonitor, ref info))
+                    {
+                        workAreas.Add(ToDipRect(info.rcWork, scaleX, scaleY));
+                    }
+                    return true;
+                },
+                IntPtr.Zero);
+            return workAreas;
         }
 
         internal static Rect FindTargetWorkArea(
@@ -155,13 +192,13 @@ namespace CryoTray.Services
             return ClampToWorkArea(workArea, targetLeft, targetTop, childWidth, childHeight, gap);
         }
 
-        private static Rect ToDipRect(System.Drawing.Rectangle pixelRect, double scaleX, double scaleY)
+        private static Rect ToDipRect(NativeMethods.RECT pixelRect, double scaleX, double scaleY)
         {
             return new Rect(
                 pixelRect.Left / scaleX,
                 pixelRect.Top / scaleY,
-                pixelRect.Width / scaleX,
-                pixelRect.Height / scaleY);
+                (pixelRect.Right - pixelRect.Left) / scaleX,
+                (pixelRect.Bottom - pixelRect.Top) / scaleY);
         }
     }
 }

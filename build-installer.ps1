@@ -1,15 +1,17 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Publishes the self-contained x64 CryoTray build and packages it with Inno Setup.
+    Publishes Full Offline and/or Lite CryoTray builds and packages installers & portable zips.
 .DESCRIPTION
-    Reads the version from VERSION, runs dotnet publish into publish\win-x64, locates
-    Inno Setup 6 (installing it with winget when absent), compiles
-    Installer\Output\CryoTray-Setup-<version>.exe, and packages the portable
-    release\CryoTray-<version>-win-x64.zip with the bundled PawnIO setup.
+    Reads VERSION, runs dotnet publish for Full (self-contained) and/or Lite (framework-dependent)
+    into publish\win-x64 and publish\win-x64-lite, locates Inno Setup 6, compiles
+    Installer\Output\*.exe, and packages release\CryoTray-*.zip with PawnIO_setup.exe & SHA-256.
 #>
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet('All', 'Full', 'Lite')]
+    [string]$Variant = 'All'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -18,7 +20,6 @@ $repoRoot = $PSScriptRoot
 $versionFile = Join-Path $repoRoot 'VERSION'
 $projectFile = Join-Path $repoRoot 'CryoTray.csproj'
 $issPath = Join-Path $repoRoot 'Installer\CryoTray.iss'
-$publishDir = Join-Path $repoRoot 'publish\win-x64'
 
 Write-Host 'CryoTray release build' -ForegroundColor Cyan
 
@@ -45,24 +46,7 @@ if (-not (Test-Path -LiteralPath $issPath -PathType Leaf)) {
     throw "Inno Setup script not found: $issPath"
 }
 
-$outputExe = Join-Path $repoRoot "Installer\Output\CryoTray-Setup-$Version.exe"
-
-Write-Host "Version: $Version"
-
-if (Test-Path -LiteralPath $publishDir) {
-    Remove-Item -LiteralPath $publishDir -Recurse -Force
-}
-
-Write-Host 'Publishing self-contained win-x64 build...'
-& dotnet publish $projectFile -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false "-p:Version=$Version" -o $publishDir
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish failed with exit code $LASTEXITCODE."
-}
-
-$publishedExe = Join-Path $publishDir 'CryoTray.exe'
-if (-not (Test-Path -LiteralPath $publishedExe -PathType Leaf)) {
-    throw "Published application not found: $publishedExe"
-}
+Write-Host "Version: $Version | Variant: $Variant"
 
 function Find-Iscc {
     $candidates = @()
@@ -123,40 +107,71 @@ if ($isccVersionCandidate -and $isccVersionCandidate -match '^(\d+)\.(\d+)\.(\d+
     }
     Write-Host "Inno Setup version: $isccVer"
 }
-Write-Host 'Compiling installer...'
-
-& $iscc "/DAppVersion=$Version" $issPath
-if ($LASTEXITCODE -ne 0) {
-    throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
-}
-
-if (-not (Test-Path -LiteralPath $outputExe -PathType Leaf)) {
-    throw "Installer was not created: $outputExe"
-}
-
-$sizeMb = [math]::Round((Get-Item -LiteralPath $outputExe).Length / 1MB, 2)
-Write-Host "Installer created: $outputExe ($sizeMb MB)" -ForegroundColor Green
-
-$setupHash = (Get-FileHash -LiteralPath $outputExe -Algorithm SHA256).Hash.ToLowerInvariant()
-"$setupHash  $(Split-Path -Leaf $outputExe)" | Set-Content -LiteralPath "$outputExe.sha256" -Encoding ascii
-
 $releaseDir = Join-Path $repoRoot 'release'
-$portableZip = Join-Path $releaseDir "CryoTray-$Version-win-x64.zip"
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
-# The installer embeds PawnIO from Resources; add it to the published payload only
-# after Inno has compiled so the portable archive can ship it without duplicating
-# it inside the installed application directory.
-Copy-Item -LiteralPath $pawnIoSetup -Destination (Join-Path $publishDir 'PawnIO_setup.exe') -Force
+function Invoke-CryoTrayPackage {
+    param(
+        [string]$BuildVariant,
+        [bool]$SelfContained,
+        [string]$PublishFolder,
+        [string]$SetupBaseName,
+        [string]$ZipName
+    )
 
-Write-Host 'Creating portable zip...'
-Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $portableZip -Force
-if (-not (Test-Path -LiteralPath $portableZip -PathType Leaf)) {
-    throw "Portable archive was not created: $portableZip"
+    if (Test-Path -LiteralPath $PublishFolder) {
+        Remove-Item -LiteralPath $PublishFolder -Recurse -Force
+    }
+
+    Write-Host "Publishing $BuildVariant win-x64 build (self-contained=$($SelfContained.ToString().ToLowerInvariant()))..."
+    & dotnet publish $projectFile -c Release -r win-x64 --self-contained ($SelfContained.ToString().ToLowerInvariant()) -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false "-p:Version=$Version" -o $PublishFolder
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish ($BuildVariant) failed with exit code $LASTEXITCODE."
+    }
+
+    $publishedExe = Join-Path $PublishFolder 'CryoTray.exe'
+    if (-not (Test-Path -LiteralPath $publishedExe -PathType Leaf)) {
+        throw "Published application not found: $publishedExe"
+    }
+
+    Write-Host "Compiling $BuildVariant installer..."
+    & $iscc "/DAppVersion=$Version" "/DVariant=$BuildVariant" $issPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Inno Setup compilation ($BuildVariant) failed with exit code $LASTEXITCODE."
+    }
+
+    $outputExe = Join-Path $repoRoot "Installer\Output\$SetupBaseName.exe"
+    if (-not (Test-Path -LiteralPath $outputExe -PathType Leaf)) {
+        throw "Installer was not created: $outputExe"
+    }
+
+    $sizeMb = [math]::Round((Get-Item -LiteralPath $outputExe).Length / 1MB, 2)
+    Write-Host "Installer created: $outputExe ($sizeMb MB)" -ForegroundColor Green
+
+    $setupHash = (Get-FileHash -LiteralPath $outputExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$setupHash  $(Split-Path -Leaf $outputExe)" | Set-Content -LiteralPath "$outputExe.sha256" -Encoding ascii
+
+    # Embed PawnIO_setup.exe only after ISCC finishes so portable zip ships it without duplicating it in installer payload.
+    Copy-Item -LiteralPath $pawnIoSetup -Destination (Join-Path $PublishFolder 'PawnIO_setup.exe') -Force
+
+    $portableZip = Join-Path $releaseDir $ZipName
+    Write-Host "Creating $BuildVariant portable zip..."
+    Compress-Archive -Path (Join-Path $PublishFolder '*') -DestinationPath $portableZip -Force
+    if (-not (Test-Path -LiteralPath $portableZip -PathType Leaf)) {
+        throw "Portable archive was not created: $portableZip"
+    }
+
+    $zipHash = (Get-FileHash -LiteralPath $portableZip -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$zipHash  $(Split-Path -Leaf $portableZip)" | Set-Content -LiteralPath "$portableZip.sha256" -Encoding ascii
+
+    $zipSizeMb = [math]::Round((Get-Item -LiteralPath $portableZip).Length / 1MB, 2)
+    Write-Host "Portable zip created: $portableZip ($zipSizeMb MB)" -ForegroundColor Green
 }
 
-$zipHash = (Get-FileHash -LiteralPath $portableZip -Algorithm SHA256).Hash.ToLowerInvariant()
-"$zipHash  $(Split-Path -Leaf $portableZip)" | Set-Content -LiteralPath "$portableZip.sha256" -Encoding ascii
+if ($Variant -eq 'All' -or $Variant -eq 'Full') {
+    Invoke-CryoTrayPackage -BuildVariant 'Full' -SelfContained $true -PublishFolder (Join-Path $repoRoot 'publish\win-x64') -SetupBaseName "CryoTray-Setup-$Version" -ZipName "CryoTray-$Version-win-x64.zip"
+}
 
-$zipSizeMb = [math]::Round((Get-Item -LiteralPath $portableZip).Length / 1MB, 2)
-Write-Host "Portable zip created: $portableZip ($zipSizeMb MB)" -ForegroundColor Green
+if ($Variant -eq 'All' -or $Variant -eq 'Lite') {
+    Invoke-CryoTrayPackage -BuildVariant 'Lite' -SelfContained $false -PublishFolder (Join-Path $repoRoot 'publish\win-x64-lite') -SetupBaseName "CryoTray-Lite-Setup-$Version" -ZipName "CryoTray-Lite-$Version-win-x64.zip"
+}

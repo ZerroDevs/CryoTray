@@ -22,7 +22,6 @@ using CryoTray.Models;
 using CryoTray.Services;
 using CryoTray.Tray;
 using Microsoft.Win32;
-using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Views
 {
@@ -63,6 +62,15 @@ namespace CryoTray.Views
         private double _gpuHoverX;
         private IDisposable? _telemetryLease;
         private DispatcherTimer? _chartRenderTimer;
+        private DateTime _lastChartRedrawUtc = DateTime.MinValue;
+        private static readonly TimeSpan UnfocusedChartRedrawInterval = TimeSpan.FromSeconds(3);
+        private static readonly Typeface ChartScaleTypeface = new("Segoe UI");
+        private static readonly Dictionary<uint, SolidColorBrush> ChartSolidBrushCache = new();
+        private static readonly Dictionary<ulong, LinearGradientBrush> ChartGradientBrushCache = new();
+        private static readonly Dictionary<ulong, Pen> ChartPenCache = new();
+        private static readonly Brush SsdChartAreaBrush = GetCachedVerticalGradient(
+            Color.FromArgb(110, 176, 176, 176),
+            Color.FromArgb(14, 176, 176, 176));
         private SsdRowView? _activeHoverDriveRow;
         private string _profileDurationKey = "";
         private DateTime _profileStartedUtc;
@@ -92,6 +100,159 @@ namespace CryoTray.Views
             var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
             brush.Freeze();
             return brush;
+        }
+
+        private static uint PackArgb(Color color) =>
+            ((uint)color.A << 24) | ((uint)color.R << 16) | ((uint)color.G << 8) | color.B;
+
+        private static SolidColorBrush GetCachedSolidBrush(Color color)
+        {
+            uint key = PackArgb(color);
+            if (ChartSolidBrushCache.TryGetValue(key, out SolidColorBrush? cached))
+            {
+                return cached;
+            }
+
+            if (ChartSolidBrushCache.Count >= 64)
+            {
+                ChartSolidBrushCache.Clear();
+            }
+
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            ChartSolidBrushCache[key] = brush;
+            return brush;
+        }
+
+        private static LinearGradientBrush GetCachedVerticalGradient(Color top, Color bottom)
+        {
+            ulong key = ((ulong)PackArgb(top) << 32) | PackArgb(bottom);
+            if (ChartGradientBrushCache.TryGetValue(key, out LinearGradientBrush? cached))
+            {
+                return cached;
+            }
+
+            if (ChartGradientBrushCache.Count >= 64)
+            {
+                ChartGradientBrushCache.Clear();
+            }
+
+            var brush = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(0, 1)
+            };
+            brush.GradientStops.Add(new GradientStop(top, 0));
+            brush.GradientStops.Add(new GradientStop(bottom, 1));
+            brush.Freeze();
+            ChartGradientBrushCache[key] = brush;
+            return brush;
+        }
+
+        private static Pen GetCachedPen(Color color, double thickness, bool rounded = true)
+        {
+            ulong key = ((ulong)PackArgb(color) << 32)
+                | ((ulong)(int)Math.Round(thickness * 100.0) << 1)
+                | (rounded ? 1UL : 0UL);
+            if (ChartPenCache.TryGetValue(key, out Pen? cached))
+            {
+                return cached;
+            }
+
+            if (ChartPenCache.Count >= 64)
+            {
+                ChartPenCache.Clear();
+            }
+
+            var pen = new Pen(GetCachedSolidBrush(color), thickness);
+            if (rounded)
+            {
+                pen.StartLineCap = PenLineCap.Round;
+                pen.EndLineCap = PenLineCap.Round;
+                pen.LineJoin = PenLineJoin.Round;
+            }
+            pen.Freeze();
+            ChartPenCache[key] = pen;
+            return pen;
+        }
+
+        internal sealed class ChartVisualHost : FrameworkElement
+        {
+            private readonly DrawingVisual _gridVisual = new();
+            private readonly DrawingVisual _dataVisual = new();
+            private readonly VisualCollection _visuals;
+            private string _gridSignature = "";
+
+            public ChartVisualHost(bool gridOnTop = false)
+            {
+                _visuals = new VisualCollection(this);
+                if (gridOnTop)
+                {
+                    _visuals.Add(_dataVisual);
+                    _visuals.Add(_gridVisual);
+                }
+                else
+                {
+                    _visuals.Add(_gridVisual);
+                    _visuals.Add(_dataVisual);
+                }
+                IsHitTestVisible = false;
+            }
+
+            protected override int VisualChildrenCount => _visuals?.Count ?? 0;
+            protected override Visual GetVisualChild(int index) => _visuals[index];
+
+            public void RenderGridIfChanged(string signature, Action<DrawingContext, double> draw)
+            {
+                if (string.Equals(_gridSignature, signature, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _gridSignature = signature;
+                double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+                using DrawingContext dc = _gridVisual.RenderOpen();
+                draw(dc, pixelsPerDip);
+            }
+
+            public DrawingContext OpenData() => _dataVisual.RenderOpen();
+
+            public void ClearData()
+            {
+                using DrawingContext _ = _dataVisual.RenderOpen();
+            }
+
+            public void ClearAll()
+            {
+                _gridSignature = "";
+                using (DrawingContext _ = _gridVisual.RenderOpen()) { }
+                using (DrawingContext _ = _dataVisual.RenderOpen()) { }
+            }
+        }
+
+        internal static ChartVisualHost GetOrCreateChartHost(Canvas canvas, bool gridOnTop = false)
+        {
+            if (canvas.Children.Count == 1 && canvas.Children[0] is ChartVisualHost existing)
+            {
+                return existing;
+            }
+
+            canvas.Children.Clear();
+            var host = new ChartVisualHost(gridOnTop);
+            canvas.Children.Add(host);
+            return host;
+        }
+
+        private static void ClearChartCanvas(Canvas canvas)
+        {
+            if (canvas.Children.Count == 1 && canvas.Children[0] is ChartVisualHost host)
+            {
+                host.ClearAll();
+            }
+            else if (canvas.Children.Count > 0)
+            {
+                canvas.Children.Clear();
+            }
         }
 
         private sealed class SsdRowView
@@ -185,8 +346,8 @@ namespace CryoTray.Views
                 RepeatBehavior = RepeatBehavior.Forever
             };
 
-            // The fan is decorative; 30 fps keeps it smooth with less render work.
-            Timeline.SetDesiredFrameRate(_fanAnimation, 30);
+            // The fan is decorative; 15 fps keeps it smooth with minimal SoftwareOnly CPU use.
+            Timeline.SetDesiredFrameRate(_fanAnimation, 15);
             Storyboard.SetTarget(_fanAnimation, FanRotor);
             Storyboard.SetTargetProperty(_fanAnimation, new PropertyPath("(UIElement.RenderTransform).(RotateTransform.Angle)"));
             _fanStoryboard.Children.Add(_fanAnimation);
@@ -195,9 +356,18 @@ namespace CryoTray.Views
         private void MainWindow_Activated(object? sender, EventArgs e)
         {
             StartFanAnimation();
+            MemoryTrimService.Instance.PauseForInteraction(TimeSpan.FromSeconds(1.5));
+            _lastChartRedrawUtc = DateTime.MinValue;
             if (IsLoaded)
             {
                 UpdateTelemetryUI(HardwareMonitorService.Instance.CurrentSnapshot);
+                if (IsVisible && WindowState != WindowState.Minimized)
+                {
+                    _chartsDirty = false;
+                    _lastChartRedrawUtc = DateTime.UtcNow;
+                    DrawCpuChart();
+                    DrawGpuChart();
+                }
             }
         }
 
@@ -206,7 +376,7 @@ namespace CryoTray.Views
             StopFanAnimation();
             if (!_isClosing)
             {
-                MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromSeconds(2));
+                MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromSeconds(2), skipIfRecentlyTrimmed: true);
             }
         }
 
@@ -235,6 +405,10 @@ namespace CryoTray.Views
             if (WindowState == WindowState.Minimized)
             {
                 StopFanAnimation();
+                if (!_isClosing)
+                {
+                    MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromMilliseconds(400));
+                }
                 return;
             }
 
@@ -247,7 +421,7 @@ namespace CryoTray.Views
 
         private void UpdateDashboardDemand()
         {
-            bool active = IsVisible && WindowState != WindowState.Minimized;
+            bool active = !_isClosing && IsVisible && WindowState != WindowState.Minimized;
             if (active)
             {
                 if (_telemetryLease == null)
@@ -337,6 +511,7 @@ namespace CryoTray.Views
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             _isClosing = true;
+            MemoryTrimService.Instance.ScheduleTrim();
             HideChartTooltips();
             CloseRamBreakdownToolTip();
             if (RamScopeMenu != null)
@@ -1294,6 +1469,16 @@ namespace CryoTray.Views
             _chartsDirty = true;
         }
 
+        private bool ShouldThrottleUnfocusedChartRedraw()
+        {
+            if (IsActive || _cpuHoverActive || _gpuHoverActive || _activeHoverDriveRow != null)
+            {
+                return false;
+            }
+
+            return DateTime.UtcNow - _lastChartRedrawUtc < UnfocusedChartRedrawInterval;
+        }
+
         private void ChartRenderTimer_Tick(object? sender, EventArgs e)
         {
             if (!_chartsDirty || !IsVisible || WindowState == WindowState.Minimized)
@@ -1301,7 +1486,13 @@ namespace CryoTray.Views
                 return;
             }
 
+            if (ShouldThrottleUnfocusedChartRedraw())
+            {
+                return;
+            }
+
             _chartsDirty = false;
+            _lastChartRedrawUtc = DateTime.UtcNow;
             DrawCpuChart();
             DrawGpuChart();
         }
@@ -2315,7 +2506,7 @@ namespace CryoTray.Views
                     : Visibility.Visible;
             }
 
-            if (row.ShowGraph)
+            if (row.ShowGraph && !ShouldThrottleUnfocusedChartRedraw())
             {
                 DrawDriveChart(row, drive, timeframeMinutes, isFahrenheit, unit);
             }
@@ -2338,16 +2529,20 @@ namespace CryoTray.Views
             }
 
             Canvas canvas = row.ChartCanvas;
-            canvas.Children.Clear();
             row.ChartHoverCanvas.Children.Clear();
             double w = canvas.ActualWidth;
             double h = canvas.ActualHeight;
             if (w <= 0 || h <= 0)
             {
+                ClearChartCanvas(canvas);
                 return;
             }
 
-            DrawInlineGridLines(canvas, w, h, horizontalBands: 4, verticalBands: 4, "#2C2C2C");
+            ChartVisualHost host = GetOrCreateChartHost(canvas);
+            Color gridColor = ThemeService.GetColor("ChartGridBrush");
+            string gridSig = $"SSD|{w:F1}|{h:F1}|{PackArgb(gridColor)}";
+            host.RenderGridIfChanged(gridSig, (dc, _) =>
+                DrawGridLinesCore(dc, w, h, horizontalBands: 4, verticalBands: 4, GetCachedPen(gridColor, 1, rounded: false)));
 
             int windowSamples = TimeframeMinutesToSamples(timeframeMinutes);
             var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(windowSamples)
@@ -2370,6 +2565,7 @@ namespace CryoTray.Views
 
             if (samples.Count < 2)
             {
+                host.ClearData();
                 row.ChartUnavailableText.Visibility = Visibility.Visible;
                 if (ReferenceEquals(_activeHoverDriveRow, row))
                 {
@@ -2393,29 +2589,12 @@ namespace CryoTray.Views
                 points.Add(new Point(i * stepX, y));
             }
 
-            var areaBrush = new LinearGradientBrush
+            Color lineColor = ThemeService.GetColor("ChartLineBrush");
+            using (DrawingContext dc = host.OpenData())
             {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(0, 1)
-            };
-            areaBrush.GradientStops.Add(new GradientStop(Color.FromArgb(110, 176, 176, 176), 0));
-            areaBrush.GradientStops.Add(new GradientStop(Color.FromArgb(14, 176, 176, 176), 1));
-
-            canvas.Children.Add(new System.Windows.Shapes.Path
-            {
-                Data = CreateSmoothAreaGeometry(points, h),
-                Fill = areaBrush
-            });
-
-            canvas.Children.Add(new System.Windows.Shapes.Path
-            {
-                Data = CreateSmoothLineGeometry(points),
-                Stroke = ThemeService.GetBrush("ChartLineBrush"),
-                StrokeThickness = 1.5,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeLineJoin = PenLineJoin.Round
-            });
+                dc.DrawGeometry(SsdChartAreaBrush, null, CreateSmoothAreaGeometry(points, h));
+                dc.DrawGeometry(null, GetCachedPen(lineColor, 1.5, rounded: true), CreateSmoothLineGeometry(points));
+            }
 
             if (row.HoverActive && ReferenceEquals(_activeHoverDriveRow, row))
             {
@@ -2462,35 +2641,18 @@ namespace CryoTray.Views
             ShowChartTooltip(SsdChartTooltip, row.ChartCanvas, x, y, width);
         }
 
-        private static void DrawInlineGridLines(Canvas canvas, double w, double h, int horizontalBands, int verticalBands, string strokeHex)
+        private static void DrawGridLinesCore(DrawingContext dc, double w, double h, int horizontalBands, int verticalBands, Pen pen)
         {
-            Brush brush = ThemeService.GetBrush("ChartGridBrush");
             for (int i = 1; i < horizontalBands; i++)
             {
                 double y = (h / horizontalBands) * i;
-                canvas.Children.Add(new Line
-                {
-                    X1 = 0,
-                    X2 = w,
-                    Y1 = y,
-                    Y2 = y,
-                    Stroke = brush,
-                    StrokeThickness = 1
-                });
+                dc.DrawLine(pen, new Point(0, y), new Point(w, y));
             }
 
             for (int i = 1; i < verticalBands; i++)
             {
                 double x = (w / verticalBands) * i;
-                canvas.Children.Add(new Line
-                {
-                    X1 = x,
-                    X2 = x,
-                    Y1 = 0,
-                    Y2 = h,
-                    Stroke = brush,
-                    StrokeThickness = 1
-                });
+                dc.DrawLine(pen, new Point(x, 0), new Point(x, h));
             }
         }
 
@@ -2499,9 +2661,9 @@ namespace CryoTray.Views
             var s = SettingsService.Instance.Current;
             if (!s.ShowCpuGraph)
             {
-                CpuChartCanvas.Children.Clear();
+                ClearChartCanvas(CpuChartCanvas);
                 CpuChartHoverCanvas.Children.Clear();
-                CpuSmallChartCanvas.Children.Clear();
+                ClearChartCanvas(CpuSmallChartCanvas);
                 CpuSmallChartHoverCanvas.Children.Clear();
                 _cpuChartEvents.Clear();
                 CpuChartTooltip.IsOpen = false;
@@ -2510,13 +2672,13 @@ namespace CryoTray.Views
 
             if (s.CpuGraphSmall)
             {
-                CpuChartCanvas.Children.Clear();
+                ClearChartCanvas(CpuChartCanvas);
                 CpuChartHoverCanvas.Children.Clear();
                 DrawCpuChartCore(CpuSmallChartCanvas, CpuSmallChartHoverCanvas, TxtCpuSmallChartUnavailable, isSmall: true);
             }
             else
             {
-                CpuSmallChartCanvas.Children.Clear();
+                ClearChartCanvas(CpuSmallChartCanvas);
                 CpuSmallChartHoverCanvas.Children.Clear();
                 DrawCpuChartCore(CpuChartCanvas, CpuChartHoverCanvas, TxtCpuChartUnavailable, isSmall: false);
             }
@@ -2524,48 +2686,41 @@ namespace CryoTray.Views
 
         private void DrawCpuChartCore(Canvas plotCanvas, Canvas hoverCanvas, TextBlock unavailableText, bool isSmall)
         {
-            plotCanvas.Children.Clear();
             hoverCanvas.Children.Clear();
             double w = plotCanvas.ActualWidth;
             double h = plotCanvas.ActualHeight;
-            if (w <= 0 || h <= 0) return;
+            if (w <= 0 || h <= 0)
+            {
+                ClearChartCanvas(plotCanvas);
+                return;
+            }
 
             double plotH = isSmall ? h : Math.Max(10, h - 26);
+            const double minT = 25;
+            const double maxT = 90;
+            bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
+            string maxLabel = isSmall ? "" : FormatScaleTemperature(maxT, isFahrenheit);
+            string minLabel = isSmall ? "" : FormatScaleTemperature(minT, isFahrenheit);
+            Color gridColor = ThemeService.GetColor("ChartGridBrush");
+            Color labelColor = ThemeService.GetColor("TextTertiaryBrush");
 
-            if (isSmall)
+            ChartVisualHost host = GetOrCreateChartHost(plotCanvas);
+            string gridSig = $"CPU|{isSmall}|{w:F1}|{h:F1}|{PackArgb(gridColor)}|{PackArgb(labelColor)}|{maxLabel}|{minLabel}";
+            host.RenderGridIfChanged(gridSig, (dc, dpi) =>
             {
-                DrawInlineGridLines(plotCanvas, w, plotH, horizontalBands: 4, verticalBands: 4, "#2C2C2C");
-            }
-            else
-            {
-                for (int i = 1; i <= 3; i++)
+                Pen gridPen = GetCachedPen(gridColor, 1, rounded: false);
+                if (isSmall)
                 {
-                    double y = (plotH / 4.0) * i;
-                    plotCanvas.Children.Add(new Line
-                    {
-                        X1 = 0,
-                        X2 = w,
-                        Y1 = y,
-                        Y2 = y,
-                        Stroke = ThemeService.GetBrush("ChartGridBrush"),
-                        StrokeThickness = 1
-                    });
+                    DrawGridLinesCore(dc, w, plotH, horizontalBands: 4, verticalBands: 4, gridPen);
                 }
-
-                for (int i = 1; i <= 2; i++)
+                else
                 {
-                    double x = (w / 3.0) * i;
-                    plotCanvas.Children.Add(new Line
-                    {
-                        X1 = x,
-                        X2 = x,
-                        Y1 = 0,
-                        Y2 = plotH,
-                        Stroke = ThemeService.GetBrush("ChartGridBrush"),
-                        StrokeThickness = 1
-                    });
+                    DrawGridLinesCore(dc, w, plotH, horizontalBands: 4, verticalBands: 3, gridPen);
+                    Brush labelBrush = GetCachedSolidBrush(Color.FromArgb((byte)Math.Round(labelColor.A * 0.7), labelColor.R, labelColor.G, labelColor.B));
+                    DrawChartScaleLabel(dc, maxLabel, 1, labelBrush, dpi);
+                    DrawChartScaleLabel(dc, minLabel, plotH - 13, labelBrush, dpi);
                 }
-            }
+            });
 
             var samples = HardwareMonitorService.Instance.RingBuffer.GetRecentSamples(_timeframeSamples)
                 .Where(sample => double.IsFinite(sample.CpuTemp) && sample.CpuTemp > 0)
@@ -2573,6 +2728,7 @@ namespace CryoTray.Views
             _cpuChartSamples = samples;
             if (samples.Count < 2)
             {
+                host.ClearData();
                 _cpuChartEvents.Clear();
                 CpuChartTooltip.IsOpen = false;
                 var current = HardwareMonitorService.Instance.CurrentSnapshot;
@@ -2585,46 +2741,38 @@ namespace CryoTray.Views
 
             unavailableText.Visibility = Visibility.Collapsed;
 
-                        double minT = 25;
-            double maxT = 90;
             double padY = isSmall ? 4.0 : 8.0;
-
-            if (!isSmall)
-            {
-                // Scale tags sit under the series, so the fill tints them instead of boxing them in.
-                bool isFahrenheit = SettingsService.Instance.Current.TemperatureUnit == "Fahrenheit";
-                AddChartScaleLabel(plotCanvas, FormatScaleTemperature(maxT, isFahrenheit), 1);
-                AddChartScaleLabel(plotCanvas, FormatScaleTemperature(minT, isFahrenheit), plotH - 13);
-            }
-
             int n = samples.Count;
             double stepX = w / Math.Max(1, n - 1);
             int maxPoints = Math.Max(16, (int)Math.Ceiling(w * 2));
+            _cpuChartEvents = SessionReportService.GetChartEvents(samples).ToList();
 
-            int start = 0;
-            while (start < n - 1)
+            using (DrawingContext dc = host.OpenData())
             {
-                PowerProfileDefinition segmentProfile = GetCpuSampleProfile(samples[start]);
-                string segmentKey = segmentProfile.Key;
-                int end = start;
-                while (end < n - 1 &&
-                       string.Equals(GetCpuSampleProfile(samples[end + 1]).Key, segmentKey, StringComparison.Ordinal))
+                int start = 0;
+                while (start < n - 1)
                 {
-                    end++;
+                    PowerProfileDefinition segmentProfile = GetCpuSampleProfile(samples[start]);
+                    string segmentKey = segmentProfile.Key;
+                    int end = start;
+                    while (end < n - 1 &&
+                           string.Equals(GetCpuSampleProfile(samples[end + 1]).Key, segmentKey, StringComparison.Ordinal))
+                    {
+                        end++;
+                    }
+
+                    int segEnd = Math.Min(end + 1, n - 1);
+                    int segmentLength = segEnd - start + 1;
+                    int segmentBudget = Math.Max(4,
+                        (int)Math.Ceiling(maxPoints * segmentLength / (double)n));
+                    var indices = ChartSampleReducer.ReduceRange(
+                        samples, start, segEnd, segmentBudget, sample => sample.CpuTemp);
+                    DrawCpuSegment(dc, samples, indices, segmentProfile, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
+                    start = end + 1;
                 }
 
-                int segEnd = Math.Min(end + 1, n - 1);
-                int segmentLength = segEnd - start + 1;
-                int segmentBudget = Math.Max(4,
-                    (int)Math.Ceiling(maxPoints * segmentLength / (double)n));
-                var indices = ChartSampleReducer.ReduceRange(
-                    samples, start, segEnd, segmentBudget, sample => sample.CpuTemp);
-                DrawCpuSegment(plotCanvas, samples, indices, segmentProfile, minT, maxT, stepX, plotH, padY, h, includeGlow: !isSmall);
-                start = end + 1;
+                DrawChartEventMarkers(dc, w, samples, _cpuChartEvents, stepX, plotH, isSmall);
             }
-
-            _cpuChartEvents = SessionReportService.GetChartEvents(samples).ToList();
-            DrawChartEventMarkers(plotCanvas, samples, _cpuChartEvents, stepX, plotH, isSmall);
 
             if (_cpuHoverActive && _cpuHoverSmall == isSmall)
             {
@@ -2642,20 +2790,23 @@ namespace CryoTray.Views
             return $"{Math.Round(value)}°";
         }
 
-        /// <summary>Small muted scale tag drawn inside a chart canvas. No layout cost beyond redraw.</summary>
-        private static void AddChartScaleLabel(Canvas canvas, string text, double top)
+        /// <summary>Draws muted scale tag directly into the cached grid DrawingVisual.</summary>
+        private static void DrawChartScaleLabel(DrawingContext dc, string text, double top, Brush foreground, double pixelsPerDip)
         {
-            var label = new TextBlock
+            if (string.IsNullOrEmpty(text))
             {
-                Text = text,
-                FontSize = 9,
-                Opacity = 0.7,
-                IsHitTestVisible = false,
-                Foreground = ThemeService.GetBrush("TextTertiaryBrush")
-            };
-            Canvas.SetLeft(label, 4);
-            Canvas.SetTop(label, top);
-            canvas.Children.Add(label);
+                return;
+            }
+
+            var ft = new FormattedText(
+                text,
+                CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                ChartScaleTypeface,
+                9.0,
+                foreground,
+                pixelsPerDip);
+            dc.DrawText(ft, new Point(4, top));
         }
 
         private static PowerProfileDefinition GetCpuSampleProfile(TelemetrySample sample)
@@ -2665,7 +2816,7 @@ namespace CryoTray.Views
         }
 
         private static void DrawCpuSegment(
-            Canvas targetCanvas,
+            DrawingContext dc,
             List<TelemetrySample> samples,
             IReadOnlyList<int> indices,
             PowerProfileDefinition profile,
@@ -2700,48 +2851,21 @@ namespace CryoTray.Views
                 ? ThemeService.GetColor("ChartBackgroundBrush")
                 : ParseColor(profile.Palette.ChartArea);
 
-            var areaBrush = new LinearGradientBrush
-            {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(0, 1)
-            };
-            areaBrush.GradientStops.Add(new GradientStop(
-                Color.FromArgb(160, areaTop.R, areaTop.G, areaTop.B), 0));
-            areaBrush.GradientStops.Add(new GradientStop(
-                Color.FromArgb(0, areaTop.R, areaTop.G, areaTop.B), 1));
+            Brush areaBrush = GetCachedVerticalGradient(
+                Color.FromArgb(160, areaTop.R, areaTop.G, areaTop.B),
+                Color.FromArgb(0, areaTop.R, areaTop.G, areaTop.B));
 
-            var area = new System.Windows.Shapes.Path
-            {
-                Data = CreateSmoothAreaGeometry(points, fillBottom),
-                Fill = areaBrush
-            };
-            targetCanvas.Children.Add(area);
+            dc.DrawGeometry(areaBrush, null, CreateSmoothAreaGeometry(points, fillBottom));
 
             Geometry lineGeometry = CreateSmoothLineGeometry(points);
             if (includeGlow)
             {
-                var glow = new System.Windows.Shapes.Path
-                {
-                    Data = lineGeometry,
-                    Stroke = new SolidColorBrush(Color.FromArgb(42, lineColor.R, lineColor.G, lineColor.B)),
-                    StrokeThickness = 3.4,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                    StrokeLineJoin = PenLineJoin.Round
-                };
-                targetCanvas.Children.Add(glow);
+                Pen glowPen = GetCachedPen(Color.FromArgb(42, lineColor.R, lineColor.G, lineColor.B), 3.4, rounded: true);
+                dc.DrawGeometry(null, glowPen, lineGeometry);
             }
 
-            var line = new System.Windows.Shapes.Path
-            {
-                Data = lineGeometry,
-                Stroke = new SolidColorBrush(lineColor),
-                StrokeThickness = 1.5,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeLineJoin = PenLineJoin.Round
-            };
-            targetCanvas.Children.Add(line);
+            Pen linePen = GetCachedPen(lineColor, 1.5, rounded: true);
+            dc.DrawGeometry(null, linePen, lineGeometry);
         }
 
         private static Geometry CreateSmoothLineGeometry(IReadOnlyList<Point> points)
@@ -2858,14 +2982,49 @@ namespace CryoTray.Views
             return $"{Math.Round(displayTemp)}°{(isFahrenheit ? "F" : "C")}";
         }
 
+        private static Geometry CreateSharpLineGeometry(IReadOnlyList<Point> points)
+        {
+            var geometry = new StreamGeometry();
+            using (var context = geometry.Open())
+            {
+                context.BeginFigure(points[0], false, false);
+                for (int i = 1; i < points.Count; i++)
+                {
+                    context.LineTo(points[i], true, false);
+                }
+            }
+            geometry.Freeze();
+            return geometry;
+        }
+
+        private static Geometry CreateSharpAreaGeometry(IReadOnlyList<Point> points, double width, double baseline)
+        {
+            var geometry = new StreamGeometry();
+            using (var context = geometry.Open())
+            {
+                context.BeginFigure(new Point(0, baseline), true, true);
+                for (int i = 0; i < points.Count; i++)
+                {
+                    context.LineTo(points[i], false, false);
+                }
+                context.LineTo(new Point(width, baseline), false, false);
+            }
+            geometry.Freeze();
+            return geometry;
+        }
+
         private void DrawGpuChart()
         {
-            GpuChartCanvas.Children.Clear();
             GpuChartHoverCanvas.Children.Clear();
             double w = GpuChartCanvas.ActualWidth;
             double h = GpuChartCanvas.ActualHeight;
-            if (w <= 0 || h <= 0) return;
+            if (w <= 0 || h <= 0)
+            {
+                ClearChartCanvas(GpuChartCanvas);
+                return;
+            }
 
+            ChartVisualHost host = GetOrCreateChartHost(GpuChartCanvas, gridOnTop: true);
             string metric = NormalizeGpuGraphMetric(SettingsService.Instance.Current.GpuGraphMetric);
             var current = HardwareMonitorService.Instance.CurrentSnapshot;
             string? activeGpuId = string.IsNullOrWhiteSpace(current.GpuIdentifier)
@@ -2880,6 +3039,7 @@ namespace CryoTray.Views
             _gpuChartGpuIdentifier = activeGpuId;
             if (samples.Count < 2)
             {
+                host.ClearAll();
                 _gpuChartEvents.Clear();
                 GpuChartTooltip.IsOpen = false;
                 bool gpuUnavailable = !IsGpuChartMetricAvailable(current, metric);
@@ -2912,7 +3072,19 @@ namespace CryoTray.Views
                 "Load" => $"{Math.Round(value)}%",
                 _ => $"{Math.Round(value)}W"
             };
+            string maxLabel = GpuScaleText(maxValue);
+            string minLabel = GpuScaleText(minValue);
+            Color gridColor = ThemeService.GetColor("ChartGridBrush");
+            Color labelColor = ThemeService.GetColor("TextTertiaryBrush");
 
+            string gridSig = $"GPU|{w:F1}|{h:F1}|{PackArgb(gridColor)}|{PackArgb(labelColor)}|{maxLabel}|{minLabel}";
+            host.RenderGridIfChanged(gridSig, (dc, dpi) =>
+            {
+                DrawGridLinesCore(dc, w, h, horizontalBands: 2, verticalBands: 4, GetCachedPen(gridColor, 1, rounded: false));
+                Brush labelBrush = GetCachedSolidBrush(Color.FromArgb((byte)Math.Round(labelColor.A * 0.7), labelColor.R, labelColor.G, labelColor.B));
+                DrawChartScaleLabel(dc, maxLabel, 1, labelBrush, dpi);
+                DrawChartScaleLabel(dc, minLabel, h - 13, labelBrush, dpi);
+            });
 
             double stepX = w / Math.Max(1, samples.Count - 1);
             int maxPoints = Math.Max(16, (int)Math.Ceiling(w * 2));
@@ -2927,12 +3099,7 @@ namespace CryoTray.Views
                     return value;
                 });
 
-            AddChartScaleLabel(GpuChartCanvas, GpuScaleText(maxValue), 1);
-            AddChartScaleLabel(GpuChartCanvas, GpuScaleText(minValue), h - 13);
-
-            var areaPoints = new PointCollection { new Point(0, h) };
-            var linePoints = new PointCollection();
-
+            var linePoints = new List<Point>(reducedIndices.Count);
             foreach (int index in reducedIndices)
             {
                 TryGetGpuChartValue(samples[index], metric, activeGpuId, out double value);
@@ -2940,55 +3107,28 @@ namespace CryoTray.Views
                 norm = Math.Clamp(norm, 0, 1);
                 double y = h - (norm * (h - 8) + 4);
                 double x = index * stepX;
-
-                areaPoints.Add(new Point(x, y));
                 linePoints.Add(new Point(x, y));
             }
 
-            areaPoints.Add(new Point(w, h));
-
             Color accent = ResolveGpuChartColor(metric);
-            var area = new Polygon
-            {
-                Points = areaPoints,
-                Fill = new SolidColorBrush(Color.FromArgb(100, accent.R, accent.G, accent.B))
-            };
-            GpuChartCanvas.Children.Add(area);
-
-            for (int i = 1; i <= 3; i++)
-            {
-                double x = (w / 4.0) * i;
-                GpuChartCanvas.Children.Add(new Line
-                {
-                    X1 = x,
-                    X2 = x,
-                    Y1 = 0,
-                    Y2 = h,
-                    Stroke = ThemeService.GetBrush("ChartGridBrush"),
-                    StrokeThickness = 1
-                });
-            }
-
-            GpuChartCanvas.Children.Add(new Line
-            {
-                X1 = 0,
-                X2 = w,
-                Y1 = h / 2,
-                Y2 = h / 2,
-                Stroke = ThemeService.GetBrush("ChartGridBrush"),
-                StrokeThickness = 1
-            });
-
-            var line = new Polyline
-            {
-                Points = linePoints,
-                Stroke = new SolidColorBrush(accent),
-                StrokeThickness = 1.5
-            };
-            GpuChartCanvas.Children.Add(line);
-
             _gpuChartEvents = SessionReportService.GetChartEvents(samples).ToList();
-            DrawChartEventMarkers(GpuChartCanvas, samples, _gpuChartEvents, stepX, h, compact: true);
+
+            using (DrawingContext dc = host.OpenData())
+            {
+                if (linePoints.Count >= 2)
+                {
+                    dc.DrawGeometry(
+                        GetCachedSolidBrush(Color.FromArgb(100, accent.R, accent.G, accent.B)),
+                        null,
+                        CreateSharpAreaGeometry(linePoints, w, h));
+                    dc.DrawGeometry(
+                        null,
+                        GetCachedPen(accent, 1.5, rounded: false),
+                        CreateSharpLineGeometry(linePoints));
+                }
+
+                DrawChartEventMarkers(dc, w, samples, _gpuChartEvents, stepX, h, compact: true);
+            }
 
             if (_gpuHoverActive)
             {
@@ -3226,7 +3366,8 @@ namespace CryoTray.Views
         }
 
         private static void DrawChartEventMarkers(
-            Canvas canvas,
+            DrawingContext dc,
+            double width,
             IReadOnlyList<TelemetrySample> samples,
             IReadOnlyList<SessionChartEvent> events,
             double stepX,
@@ -3238,7 +3379,7 @@ namespace CryoTray.Views
                 return;
             }
 
-            double width = canvas.ActualWidth;
+            double tipHeight = compact ? 4 : 5;
             foreach (SessionChartEvent item in events)
             {
                 int index = FindNearestSampleIndex(samples, item.TimestampLocal);
@@ -3256,30 +3397,19 @@ namespace CryoTray.Views
                 Color color = ResolveChartEventColor(item);
                 if (!compact)
                 {
-                    canvas.Children.Add(new Line
-                    {
-                        X1 = x,
-                        X2 = x,
-                        Y1 = 0,
-                        Y2 = height,
-                        Stroke = new SolidColorBrush(color),
-                        StrokeThickness = 1,
-                        Opacity = 0.18,
-                        IsHitTestVisible = false
-                    });
+                    Pen linePen = GetCachedPen(Color.FromArgb(46, color.R, color.G, color.B), 1, rounded: false);
+                    dc.DrawLine(linePen, new Point(x, 0), new Point(x, height));
                 }
 
-                canvas.Children.Add(new Polygon
+                var markerGeo = new StreamGeometry();
+                using (var context = markerGeo.Open())
                 {
-                    Points = new PointCollection
-                    {
-                        new Point(x - 3, 0),
-                        new Point(x + 3, 0),
-                        new Point(x, compact ? 4 : 5)
-                    },
-                    Fill = new SolidColorBrush(color),
-                    IsHitTestVisible = false
-                });
+                    context.BeginFigure(new Point(x - 3, 0), true, true);
+                    context.LineTo(new Point(x + 3, 0), false, false);
+                    context.LineTo(new Point(x, tipHeight), false, false);
+                }
+                markerGeo.Freeze();
+                dc.DrawGeometry(GetCachedSolidBrush(color), null, markerGeo);
             }
         }
 
@@ -4384,7 +4514,7 @@ namespace CryoTray.Views
             MenuRamClearStandby.IsChecked = settings.RamClearStandby;
         }
 
-        internal (System.Drawing.Bitmap ToolsMenu, System.Drawing.Bitmap RamMenu) RenderWpfContextMenusForTest()
+        internal (BitmapSource ToolsMenu, BitmapSource RamMenu) RenderWpfContextMenusForTest()
         {
             ToolsContextMenu_Opened(ToolsContextMenu, new RoutedEventArgs());
             RamScopeMenu_Opened(RamScopeMenu, new RoutedEventArgs());
@@ -4396,7 +4526,7 @@ namespace CryoTray.Views
                 RenderContextMenuBitmapForTest(RamScopeMenu));
         }
 
-        private static System.Drawing.Bitmap RenderContextMenuBitmapForTest(ContextMenu menu)
+        private static BitmapSource RenderContextMenuBitmapForTest(ContextMenu menu)
         {
             menu.ApplyTemplate();
             menu.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -4408,14 +4538,8 @@ namespace CryoTray.Views
 
             var rtb = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(menu);
-
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(rtb));
-            using var ms = new MemoryStream();
-            encoder.Save(ms);
-            ms.Position = 0;
-            using var temp = new System.Drawing.Bitmap(ms);
-            return new System.Drawing.Bitmap(temp);
+            rtb.Freeze();
+            return rtb;
         }
 
         private void MenuRamStorageCleanup_Click(object sender, RoutedEventArgs e)
@@ -4951,15 +5075,7 @@ namespace CryoTray.Views
                     return false;
                 }
 
-                var screen = WinForms.Screen.FromHandle(handle);
-                var dpi = VisualTreeHelper.GetDpi(this);
-                var bounds = screen.WorkingArea;
-
-                workArea = new Rect(
-                    bounds.Left / dpi.DpiScaleX,
-                    bounds.Top / dpi.DpiScaleY,
-                    bounds.Width / dpi.DpiScaleX,
-                    bounds.Height / dpi.DpiScaleY);
+                workArea = WindowPlacementHelper.GetMonitorWorkAreaDips(this);
                 return true;
             }
             catch

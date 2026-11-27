@@ -6,7 +6,7 @@ CryoTray actively maintains security patches for the following versions:
 
 | Version | Supported | Notes |
 | :--- | :---: | :--- |
-| `>= 0.0.100` / `main` | :white_check_mark: | Actively supported (current baseline `0.0.109`; incrementing `0.0.110`, `0.0.111`, etc.) |
+| `>= 0.0.100` / `main` | :white_check_mark: | Actively supported (current baseline `0.0.110`; incrementing `0.0.111`, `0.0.112`, etc.) |
 | `< 0.0.100` | :x: | Unsupported / unreleased builds |
 
 We strongly recommend always running the latest official release available from the [CryoTray Releases](https://github.com/ZerroDevs/CryoTray/releases) page.

@@ -77,9 +77,9 @@ New-Item -ItemType File -Force "$env:ProgramData\CryoTray\dev-mode" | Out-Null
 
 ## Architectural & Code Hygiene Guidelines
 
-### 1. WPF and Windows Forms Interop
-Because the project enables both `UseWPF` and `UseWindowsForms` (for `NotifyIcon`), `<ImplicitUsings>disable</ImplicitUsings>` is enforced in `CryoTray.csproj`.
-- Always explicitly qualify or use aliases for ambiguous types such as `Color`, `Point`, `Brush`, `Application`, and `MessageBox` (e.g., `System.Drawing.Color` for GDI bitmaps vs. `System.Windows.Media.Color` for WPF elements).
+### 1. WPF and Native Win32 Interop
+CryoTray runs strictly on WPF (`UseWPF` with `<ImplicitUsings>disable</ImplicitUsings>` enforced in `CryoTray.csproj`, zero `System.Windows.Forms` dependency) paired with direct Win32 Shell and GDI P/Invoke (`Services/NativeMethods.cs`).
+- Always explicitly qualify or use aliases when referencing GDI types alongside WPF types (for example, `System.Drawing.Color` or `System.Drawing.Bitmap` vs. `System.Windows.Media.Color`).
 
 ### 2. GDI Object Management
 Tray badges create a new GDI bitmap every second:
@@ -133,8 +133,8 @@ fix(tray): prevent tooltip cutoff when merged badge is active
 
 ### 8. Versioning Scheme (`VERSION`)
 CryoTray uses three-part semantic versioning rooted at `0.0.100`:
-- **Current Baseline**: `0.0.109` (defined in the root `VERSION` file).
-- **Subsequent Updates**: Increment sequentially (`0.0.109`, `0.0.110`, `0.0.111`, etc.).
+- **Current Baseline**: `0.0.110` (defined in the root `VERSION` file).
+- **Subsequent Updates**: Increment sequentially (`0.0.110`, `0.0.111`, `0.0.112`, etc.).
 - **Automatic Stamping**: `CryoTray.csproj` dynamically reads `VERSION` to stamp `AssemblyVersion`, `FileVersion`, and `InformationalVersion` on build.
 - **Automated Releases**: The release workflow (`.github/workflows/release.yml`) monitors changes to `VERSION` on `main` and creates matching tags (e.g., `v0.0.100`, `v0.0.101`) and release artifacts with SHA-256 digests.
 

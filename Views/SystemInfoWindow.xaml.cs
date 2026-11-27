@@ -1238,7 +1238,7 @@ namespace CryoTray.Views
                 LocalizationService.Get("Alert_FanTitle"),
                 LocalizationService.Get("Alert_FanTestBody"),
                 null,
-                System.Windows.Forms.ToolTipIcon.Info);
+                CryoTray.Tray.TrayNotificationIcon.Info);
         }
 
         private void OnNotificationSettingsChanged()

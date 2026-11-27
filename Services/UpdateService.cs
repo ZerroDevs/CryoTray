@@ -809,7 +809,17 @@ namespace CryoTray.Services
             return bareHashes.Count == 1 ? bareHashes[0] : null;
         }
 
+        internal static bool IsSelfContainedRuntime()
+        {
+            return File.Exists(Path.Combine(AppContext.BaseDirectory, "coreclr.dll"));
+        }
+
         internal static ReleaseAsset? SelectAsset(JsonElement root, bool installed)
+        {
+            return SelectAsset(root, installed, IsSelfContainedRuntime());
+        }
+
+        internal static ReleaseAsset? SelectAsset(JsonElement root, bool installed, bool isSelfContained)
         {
             if (!root.TryGetProperty("assets", out var assets) ||
                 assets.ValueKind != JsonValueKind.Array)
@@ -864,17 +874,32 @@ namespace CryoTray.Services
                 }
             }
 
+            static bool IsLiteAsset(ReleaseAsset asset) =>
+                asset.Name.Contains("-Lite", StringComparison.OrdinalIgnoreCase);
+
             if (installed)
             {
-                return candidates.FirstOrDefault(
-                    asset => asset.Kind == UpdateAssetKind.Installer);
+                return candidates.FirstOrDefault(asset =>
+                        asset.Kind == UpdateAssetKind.Installer && IsLiteAsset(asset) == !isSelfContained)
+                    ?? candidates.FirstOrDefault(asset => asset.Kind == UpdateAssetKind.Installer);
             }
 
-            var updateArchive = candidates.FirstOrDefault(asset =>
-                asset.Kind == UpdateAssetKind.Archive &&
-                asset.Name.Contains("update", StringComparison.OrdinalIgnoreCase));
+            var variantArchives = candidates
+                .Where(asset => asset.Kind == UpdateAssetKind.Archive && IsLiteAsset(asset) == !isSelfContained)
+                .ToList();
 
-            return updateArchive
+            var updateArchive = variantArchives.FirstOrDefault(asset =>
+                    asset.Name.Contains("update", StringComparison.OrdinalIgnoreCase))
+                ?? variantArchives.FirstOrDefault();
+
+            if (updateArchive != null)
+            {
+                return updateArchive;
+            }
+
+            return candidates.FirstOrDefault(asset =>
+                    asset.Kind == UpdateAssetKind.Archive &&
+                    asset.Name.Contains("update", StringComparison.OrdinalIgnoreCase))
                 ?? candidates.FirstOrDefault(asset => asset.Kind == UpdateAssetKind.Archive)
                 ?? candidates.FirstOrDefault(asset => asset.Kind == UpdateAssetKind.Executable);
         }

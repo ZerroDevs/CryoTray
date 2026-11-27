@@ -117,15 +117,32 @@ namespace CryoTray.Tests
                 """;
                 using var doc = JsonDocument.Parse(json);
 
-                var installedAsset = UpdateService.SelectAsset(doc.RootElement, installed: true);
+                var installedAsset = UpdateService.SelectAsset(doc.RootElement, installed: true, isSelfContained: true);
                 Assert(installedAsset != null);
                 Assert(installedAsset!.Kind == UpdateAssetKind.Installer);
                 Assert(installedAsset.Name == "CryoTray-Setup-0.0.104.exe");
 
-                var portableAsset = UpdateService.SelectAsset(doc.RootElement, installed: false);
+                var portableAsset = UpdateService.SelectAsset(doc.RootElement, installed: false, isSelfContained: true);
                 Assert(portableAsset != null);
                 Assert(portableAsset!.Kind == UpdateAssetKind.Archive);
                 Assert(portableAsset.Name == "CryoTray-Update-0.0.104-win-x64.zip");
+
+                const string dualJson = """
+                {
+                  "assets": [
+                    { "name": "CryoTray-Lite-Setup-0.0.104.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Lite-Setup-0.0.104.exe" },
+                    { "name": "CryoTray-Setup-0.0.104.exe", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Setup-0.0.104.exe" },
+                    { "name": "CryoTray-Lite-0.0.104-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Lite-0.0.104-win-x64.zip" },
+                    { "name": "CryoTray-Update-0.0.104-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-Update-0.0.104-win-x64.zip" },
+                    { "name": "CryoTray-0.0.104-win-x64.zip", "browser_download_url": "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.104/CryoTray-0.0.104-win-x64.zip" }
+                  ]
+                }
+                """;
+                using var dualDoc = JsonDocument.Parse(dualJson);
+                Assert(UpdateService.SelectAsset(dualDoc.RootElement, installed: true, isSelfContained: false)?.Name == "CryoTray-Lite-Setup-0.0.104.exe");
+                Assert(UpdateService.SelectAsset(dualDoc.RootElement, installed: true, isSelfContained: true)?.Name == "CryoTray-Setup-0.0.104.exe");
+                Assert(UpdateService.SelectAsset(dualDoc.RootElement, installed: false, isSelfContained: false)?.Name == "CryoTray-Lite-0.0.104-win-x64.zip");
+                Assert(UpdateService.SelectAsset(dualDoc.RootElement, installed: false, isSelfContained: true)?.Name == "CryoTray-Update-0.0.104-win-x64.zip");
 
                 const string uninstallOnlyJson = """
                 {

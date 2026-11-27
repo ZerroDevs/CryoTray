@@ -19,7 +19,6 @@ using ShapePath = System.Windows.Shapes.Path;
 using CryoTray.Models;
 using CryoTray.Services;
 using Microsoft.Win32;
-using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Views
 {
@@ -55,6 +54,7 @@ namespace CryoTray.Views
         private bool _startupCheckboxTouched;
         private int _rollbackScanGeneration;
         private int _downloadCacheScanGeneration;
+        private int _runningAppsGeneration;
         private string? _cachedRollbackPath;
         private long _cachedRollbackSizeBytes;
 
@@ -65,12 +65,6 @@ namespace CryoTray.Views
             public required CheckBox GraphCheckBox { get; init; }
             public required ComboBox TimeframeCombo { get; init; }
             public required Grid GraphSubRow { get; init; }
-        }
-
-        private sealed class Win32WindowOwner : WinForms.IWin32Window
-        {
-            public IntPtr Handle { get; }
-            public Win32WindowOwner(IntPtr handle) => Handle = handle;
         }
 
         private static Brush WhitelistTextBrush => ThemeService.GetBrush("TextPrimaryBrush");
@@ -131,6 +125,8 @@ namespace CryoTray.Views
             _startupSyncGeneration++;
             _rollbackScanGeneration++;
             _downloadCacheScanGeneration++;
+            _runningAppsGeneration++;
+            MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromMilliseconds(500));
             Activated -= SettingsWindow_Activated;
             PreviewKeyDown -= SettingsWindow_PreviewKeyDown;
             HardwareMonitorService.Instance.TelemetryUpdated -= OnSettingsTelemetryUpdated;
@@ -161,6 +157,8 @@ namespace CryoTray.Views
 
         private void SettingsWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            MemoryTrimService.Instance.PauseForInteraction(TimeSpan.FromSeconds(1.5));
+            MemoryTrimService.Instance.ScheduleTrim(MemoryTrimService.LoadedDelay);
             LoadSettingsIntoUI(isInitialLoad: true);
             if (OpenAboutOnLoad)
             {
@@ -1680,7 +1678,7 @@ namespace CryoTray.Views
             }
         }
 
-        private void RefreshRunningApps()
+        private async void RefreshRunningApps()
         {
             if (CmbRunningApps == null || _isClosed)
             {
@@ -1689,6 +1687,41 @@ namespace CryoTray.Views
 
             string? selectedProcess = (CmbRunningApps.SelectedItem as RunningAppOption)
                 ?.ProcessName;
+            int generation = ++_runningAppsGeneration;
+
+            List<RunningAppOption> list;
+            try
+            {
+                list = await Task.Run(CollectRunningApps);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Running app enumeration error: {ex.Message}");
+                return;
+            }
+
+            if (_isClosed || generation != _runningAppsGeneration || CmbRunningApps == null)
+            {
+                return;
+            }
+
+            CmbRunningApps.ItemsSource = list;
+
+            if (selectedProcess != null)
+            {
+                CmbRunningApps.SelectedItem = list.FirstOrDefault(app =>
+                    string.Equals(app.ProcessName, selectedProcess,
+                        StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (CmbRunningApps.SelectedItem == null && list.Count > 0)
+            {
+                CmbRunningApps.SelectedIndex = 0;
+            }
+        }
+
+        private static List<RunningAppOption> CollectRunningApps()
+        {
             var apps = new Dictionary<string, RunningAppOption>(
                 StringComparer.OrdinalIgnoreCase);
 
@@ -1697,10 +1730,9 @@ namespace CryoTray.Views
             {
                 processes = Process.GetProcesses();
             }
-            catch (Exception ex)
+            catch
             {
-                Debug.WriteLine($"Running app enumeration error: {ex.Message}");
-                return;
+                return new List<RunningAppOption>();
             }
 
             try
@@ -1763,22 +1795,9 @@ namespace CryoTray.Views
                 }
             }
 
-            var list = apps.Values
+            return apps.Values
                 .OrderBy(app => app.ProcessName, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
-            CmbRunningApps.ItemsSource = list;
-
-            if (selectedProcess != null)
-            {
-                CmbRunningApps.SelectedItem = list.FirstOrDefault(app =>
-                    string.Equals(app.ProcessName, selectedProcess,
-                        StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (CmbRunningApps.SelectedItem == null && list.Count > 0)
-            {
-                CmbRunningApps.SelectedIndex = 0;
-            }
         }
 
         private sealed class RunningAppOption
@@ -1791,6 +1810,7 @@ namespace CryoTray.Views
         {
             if (PanelGeneral == null) return;
 
+            MemoryTrimService.Instance.PauseForInteraction();
             SettingsContentScroll?.ScrollToTop();
             PanelGeneral.Visibility = Visibility.Collapsed;
             PanelView.Visibility = Visibility.Collapsed;
@@ -2642,11 +2662,11 @@ namespace CryoTray.Views
             UpdateRamBadgeColorUi();
         }
 
-        private static void ApplyCpuSampleBadgeColor(Border? border, System.Drawing.Color color)
+        private static void ApplyCpuSampleBadgeColor(Border? border, Color color)
         {
             if (border != null)
             {
-                border.Background = CreateFrozenBrush(Color.FromRgb(color.R, color.G, color.B));
+                border.Background = CreateFrozenBrush(color);
             }
         }
 
@@ -2683,23 +2703,8 @@ namespace CryoTray.Views
             Action? afterApply = null)
         {
             Color wpfCurrent = App.ResolveFrameColor(currentHex, fallbackHex);
-            using var dialog = new WinForms.ColorDialog
+            if (ColorDialogHelper.PickColor(this, wpfCurrent) is Color picked)
             {
-                AllowFullOpen = true,
-                FullOpen = true,
-                AnyColor = true,
-                SolidColorOnly = true,
-                Color = System.Drawing.Color.FromArgb(wpfCurrent.R, wpfCurrent.G, wpfCurrent.B)
-            };
-
-            IntPtr hwnd = new WindowInteropHelper(this).Handle;
-            WinForms.DialogResult result = hwnd != IntPtr.Zero
-                ? dialog.ShowDialog(new Win32WindowOwner(hwnd))
-                : dialog.ShowDialog();
-
-            if (result == WinForms.DialogResult.OK)
-            {
-                Color picked = Color.FromRgb(dialog.Color.R, dialog.Color.G, dialog.Color.B);
                 apply(App.NormalizeHexColor(picked));
                 afterApply?.Invoke();
                 if (!_isBinding) SaveUiIntoSettings();

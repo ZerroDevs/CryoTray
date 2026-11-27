@@ -25,7 +25,6 @@ namespace CryoTray
         private TrayIconManager? _trayManager;
         private MainWindow? _mainWindow;
         private OverlayWindow? _overlayWindow;
-        private HwndSource? _hotkeySource;
         private DispatcherTimer? _powerPlanWatchTimer;
         private DispatcherTimer? _coolingPauseTimer;
         private DispatcherTimer? _updateCheckTimer;
@@ -547,8 +546,12 @@ namespace CryoTray
                 return;
             }
 
-            var lineStatus = System.Windows.Forms.SystemInformation.PowerStatus.PowerLineStatus;
-            if (lineStatus == System.Windows.Forms.PowerLineStatus.Offline)
+            if (!NativeMethods.GetSystemPowerStatus(out var powerStatus))
+            {
+                return;
+            }
+
+            if (powerStatus.ACLineStatus == 0)
             {
                 if (!PowerPlanService.Instance.IsCoolingModeActive)
                 {
@@ -556,7 +559,7 @@ namespace CryoTray
                     PowerPlanService.Instance.SetCoolingMode(true);
                 }
             }
-            else if (lineStatus == System.Windows.Forms.PowerLineStatus.Online && _coolingEnabledByBattery)
+            else if (powerStatus.ACLineStatus == 1 && _coolingEnabledByBattery)
             {
                 _coolingEnabledByBattery = false;
                 if (PowerPlanService.Instance.IsCoolingModeActive)
@@ -863,35 +866,15 @@ namespace CryoTray
 
             if (!settings.UseHotkey && !settings.UseRamHotkey)
             {
-                GlobalHotkeyService.Instance.Unregister();
-                GlobalHotkeyService.Instance.UnregisterRamHotkey();
-                if (_hotkeySource != null)
-                {
-                    _hotkeySource.RemoveHook(HwndHook);
-                    _hotkeySource.Dispose();
-                    _hotkeySource = null;
-                }
+                GlobalHotkeyService.Instance.DisposeMessageWindow();
                 return;
             }
 
-            if (_hotkeySource == null)
-            {
-                var parameters = new HwndSourceParameters("CryoTrayHotkey")
-                {
-                    Width = 0,
-                    Height = 0,
-                    WindowStyle = 0,
-                    ExtendedWindowStyle = 0,
-                    ParentWindow = new IntPtr(-3)
-                };
-
-                _hotkeySource = new HwndSource(parameters);
-                _hotkeySource.AddHook(HwndHook);
-            }
+            IntPtr sinkHwnd = GlobalHotkeyService.Instance.EnsureMessageWindow(OnGlobalHotkey);
 
             if (settings.UseHotkey)
             {
-                GlobalHotkeyService.Instance.Register(_hotkeySource.Handle, settings.HotkeyModifiers, settings.HotkeyKey);
+                GlobalHotkeyService.Instance.Register(sinkHwnd, settings.HotkeyModifiers, settings.HotkeyKey);
             }
             else
             {
@@ -900,7 +883,7 @@ namespace CryoTray
 
             if (settings.UseRamHotkey)
             {
-                GlobalHotkeyService.Instance.RegisterRamHotkey(_hotkeySource.Handle, settings.RamHotkeyModifiers, settings.RamHotkeyKey);
+                GlobalHotkeyService.Instance.RegisterRamHotkey(sinkHwnd, settings.RamHotkeyModifiers, settings.RamHotkeyKey);
             }
             else
             {
@@ -908,23 +891,24 @@ namespace CryoTray
             }
         }
 
-        private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        private void OnGlobalHotkey(int hotkeyId)
         {
-            if (msg == NativeMethods.WM_HOTKEY)
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                int hotkeyId = wParam.ToInt32();
+                if (_isExiting)
+                {
+                    return;
+                }
+
                 if (hotkeyId == GlobalHotkeyService.CoolingHotkeyId)
                 {
                     PowerPlanService.Instance.ToggleCoolingMode();
-                    handled = true;
                 }
                 else if (hotkeyId == GlobalHotkeyService.RamOptimizeHotkeyId)
                 {
                     _ = MemoryOptimizerService.Instance.OptimizeAsync(MemoryOptimizationTrigger.Hotkey);
-                    handled = true;
                 }
-            }
-            return IntPtr.Zero;
+            }));
         }
 
         private void OnTelemetryUpdated(HardwareSnapshot snapshot)
@@ -1032,7 +1016,7 @@ namespace CryoTray
                     LocalizationService.Get("Alert_FanTitle"),
                     LocalizationService.Format("Alert_FanStopped", fanName, alert.LastRpm),
                     () => ShowDashboard()?.OpenSystemInfoDialog(alert.FanKey),
-                    System.Windows.Forms.ToolTipIcon.Warning);
+                    TrayNotificationIcon.Warning);
             }));
         }
 
@@ -1054,7 +1038,7 @@ namespace CryoTray
                         alert.HealthPercent,
                         LocalizationService.Health(alert.StatusText)),
                     () => ShowDashboard(),
-                    System.Windows.Forms.ToolTipIcon.Warning);
+                    TrayNotificationIcon.Warning);
             }));
         }
 
@@ -1090,7 +1074,7 @@ namespace CryoTray
                         drift.PreviousName,
                         drift.NewName),
                     () => ShowDashboard(),
-                    System.Windows.Forms.ToolTipIcon.Info);
+                    TrayNotificationIcon.Info);
             }));
         }
 
@@ -1108,7 +1092,7 @@ namespace CryoTray
                     LocalizationService.Get("Alert_ExternalPlanMissingTitle"),
                     LocalizationService.Format("Alert_ExternalPlanMissingBody", planName),
                     () => ShowDashboard(),
-                    System.Windows.Forms.ToolTipIcon.Warning);
+                    TrayNotificationIcon.Warning);
             }));
         }
 
@@ -1144,7 +1128,7 @@ namespace CryoTray
                     LocalizationService.Get("Alert_Title"),
                     message,
                     () => ShowDashboard(),
-                    System.Windows.Forms.ToolTipIcon.Warning);
+                    TrayNotificationIcon.Warning);
             }));
         }
 
@@ -1154,11 +1138,11 @@ namespace CryoTray
                 LocalizationService.Get("Alert_TestTitle"),
                 LocalizationService.Get("Alert_TestBody"),
                 null,
-                System.Windows.Forms.ToolTipIcon.Info);
+                TrayNotificationIcon.Info);
         }
 
         public void ShowTrayNotification(string title, string message, Action? onClick = null,
-            System.Windows.Forms.ToolTipIcon icon = System.Windows.Forms.ToolTipIcon.Info)
+            TrayNotificationIcon icon = TrayNotificationIcon.Info)
         {
             if (SettingsService.Instance.Current.DisableAllNotifications)
             {
@@ -1353,7 +1337,7 @@ namespace CryoTray
                         LocalizationService.Get("Update_NotificationTitle"),
                         LocalizationService.Format("Update_NotificationBody", available.Version),
                         () => ShowDashboard()?.OpenSettingsDialog(true, available, false),
-                        System.Windows.Forms.ToolTipIcon.Info);
+                        TrayNotificationIcon.Info);
                 }
 
                 if (notified)
@@ -1442,12 +1426,7 @@ namespace CryoTray
                 _storageHealthAlertService = null;
             }
 
-            if (_hotkeySource != null)
-            {
-                _hotkeySource.RemoveHook(HwndHook);
-                _hotkeySource.Dispose();
-                _hotkeySource = null;
-            }
+            GlobalHotkeyService.Instance.DisposeMessageWindow();
 
             var overlay = _overlayWindow;
             _overlayWindow = null;
@@ -1712,15 +1691,7 @@ namespace CryoTray
             AutopilotService.Instance.StateChanged -= OnAutopilotStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted -= OnMemoryOptimizationCompleted;
 
-            if (_hotkeySource != null)
-            {
-                _hotkeySource.RemoveHook(HwndHook);
-                _hotkeySource.Dispose();
-                _hotkeySource = null;
-            }
-
-            GlobalHotkeyService.Instance.Unregister();
-            GlobalHotkeyService.Instance.UnregisterRamHotkey();
+            GlobalHotkeyService.Instance.DisposeMessageWindow();
             _trayManager?.Dispose();
             MemoryOptimizerService.Instance.Dispose();
             TelemetryCsvService.Instance.Dispose();

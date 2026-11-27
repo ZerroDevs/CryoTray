@@ -1251,12 +1251,15 @@
                                                 </GeometryGroup>
                                             </Path.Data>
                                         </Path>
+                                    </Grid>
+                                </Border>
 
-                                        <Canvas x:Name="FanRotor"
-                                                Width="60" Height="60"
-                                                HorizontalAlignment="Center"
-                                                VerticalAlignment="Center"
-                                                RenderTransformOrigin="0.5,0.5">
+                                <!-- Sibling of FanTile so FanGlowEffect blur is not re-computed every rotation frame under SoftwareOnly. -->
+                                <Canvas x:Name="FanRotor"
+                                        Width="60" Height="60"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        RenderTransformOrigin="0.5,0.5">
                                             <Canvas.RenderTransform>
                                                 <RotateTransform x:Name="FanRotation" Angle="0"/>
                                             </Canvas.RenderTransform>
@@ -1347,9 +1350,7 @@
                                                      Canvas.Left="28.5" Canvas.Top="2.8"
                                                      Fill="#FFFFFF"
                                                      Opacity="0.8"/>
-                                        </Canvas>
-                                    </Grid>
-                                </Border>
+                                </Canvas>
                             </Grid>
                         </Viewbox>
 

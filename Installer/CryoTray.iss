@@ -1,16 +1,30 @@
 ; CryoTray installer script (Inno Setup 6)
 ; Build from the repository root with build-installer.ps1, or directly:
-;   ISCC.exe /DAppVersion=0.0.109 Installer\CryoTray.iss
+;   ISCC.exe /DAppVersion=0.0.110 Installer\CryoTray.iss
 
 #ifndef AppVersion
-#define AppVersion "0.0.109"
+#define AppVersion "0.0.110"
+#endif
+
+#ifndef Variant
+#define Variant "Full"
+#endif
+
+#if Variant == "Lite"
+#define PublishDir "..\publish\win-x64-lite"
+#define SetupBaseName "CryoTray-Lite-Setup-" + AppVersion
+#define SetupAppName "CryoTray Lite"
+#else
+#define PublishDir "..\publish\win-x64"
+#define SetupBaseName "CryoTray-Setup-" + AppVersion
+#define SetupAppName "CryoTray"
 #endif
 
 [Setup]
 AppId={{8F3B9A12-4D6E-4C2B-9A1F-7E5D3C1B8A90}
-AppName=CryoTray
+AppName={#SetupAppName}
 AppVersion={#AppVersion}
-AppVerName=CryoTray {#AppVersion}
+AppVerName={#SetupAppName} {#AppVersion}
 AppPublisher=ZeroNuxi - ZerroDevs
 AppPublisherURL=https://github.com/ZerroDevs/CryoTray
 AppSupportURL=https://github.com/ZerroDevs/CryoTray/issues
@@ -28,7 +42,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 PrivilegesRequired=admin
 OutputDir=Output
-OutputBaseFilename=CryoTray-Setup-{#AppVersion}
+OutputBaseFilename={#SetupBaseName}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -41,7 +55,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Keep the full publish output for local debugging. The installer excludes framework language satellites
 ; CryoTray does not use and debugger-only runtime files. Remove a language folder from this list when it becomes supported.
 ; Do not add createallsubdirs: it recreates the excluded satellite folders as empty directories.
-Source: "..\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs; Excludes: "*.pdb,PawnIO_setup.exe,LICENSE,NOTICE,VERSION,\cs\*,\de\*,\es\*,\fr\*,\it\*,\ja\*,\ko\*,\pl\*,\pt-BR\*,\ru\*,\tr\*,\zh-Hans\*,\zh-Hant\*,\mscordaccore.dll,\mscordaccore_amd64_amd64_*.dll,\mscordbi.dll,\Microsoft.DiaSymReader.Native.amd64.dll"
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs; Excludes: "*.pdb,PawnIO_setup.exe,LICENSE,NOTICE,VERSION,\cs\*,\de\*,\es\*,\fr\*,\it\*,\ja\*,\ko\*,\pl\*,\pt-BR\*,\ru\*,\tr\*,\zh-Hans\*,\zh-Hant\*,\mscordaccore.dll,\mscordaccore_amd64_amd64_*.dll,\mscordbi.dll,\Microsoft.DiaSymReader.Native.amd64.dll,\libMonoPosixHelper.dll,\MonoPosixHelper.dll"
 
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
@@ -54,6 +68,10 @@ Name: "{app}"; Permissions: admins-full system-full users-readexec
 [InstallDelete]
 ; Remove empty language folders left by earlier installers. dirifempty leaves non-empty folders alone.
 Type: files; Name: "{app}\PawnIO_setup.exe"
+#if Variant == "Lite"
+; Clean stale self-contained .NET runtime DLLs when upgrading from an older Full install.
+Type: files; Name: "{app}\*.dll"
+#endif
 Type: dirifempty; Name: "{app}\cs"
 Type: dirifempty; Name: "{app}\de"
 Type: dirifempty; Name: "{app}\es"
@@ -74,6 +92,7 @@ Name: "{autodesktop}\CryoTray"; Filename: "{app}\CryoTray.exe"; Tasks: desktopic
 
 [Run]
 Filename: "{tmp}\PawnIO_setup.exe"; Parameters: "-install -silent"; StatusMsg: "Installing PawnIO hardware sensor driver..."; Flags: runhidden waituntilterminated; Check: not PawnIOInstalled
+Filename: "{sys}\compact.exe"; Parameters: "/c /s:""{app}"" /i /q"; StatusMsg: "Compressing CryoTray application folder..."; Flags: runhidden waituntilterminated
 Filename: "{sys}\icacls.exe"; Parameters: """{app}"" /setowner *S-1-5-32-544 /T /C /Q"; StatusMsg: "Protecting the CryoTray application folder..."; Flags: runhidden waituntilterminated
 Filename: "{app}\CryoTray.exe"; Description: "{cm:LaunchProgram,CryoTray}"; Flags: shellexec nowait postinstall skipifsilent
 
@@ -81,8 +100,137 @@ Filename: "{app}\CryoTray.exe"; Description: "{cm:LaunchProgram,CryoTray}"; Flag
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""CryoTray"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
 
 [Code]
+#if Variant == "Lite"
+const
+  DotNet10DesktopUrl = 'https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x64.exe';
+  DotNet10SetupFile = 'windowsdesktop-runtime-10-win-x64.exe';
+
 var
   PreviousAppDir: String;
+  DownloadPage: TDownloadWizardPage;
+  RuntimeDownloaded: Boolean;
+
+function HasDotNet10Prefix(const Value: String): Boolean;
+begin
+  Result := (Length(Value) >= 3) and (Copy(Value, 1, 3) = '10.');
+end;
+
+function IsDotNetDesktop10Installed: Boolean;
+var
+  Names: TArrayOfString;
+  I: Integer;
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if RegGetValueNames(HKLM64, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App', Names) then
+  begin
+    for I := 0 to GetArrayLength(Names) - 1 do
+    begin
+      if HasDotNet10Prefix(Names[I]) then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+  if FindFirst(ExpandConstant('{commonpf64}\dotnet\shared\Microsoft.WindowsDesktop.App\10.*'), FindRec) then
+  begin
+    FindClose(FindRec);
+    Result := True;
+  end;
+end;
+
+procedure InitializeWizard;
+begin
+  DownloadPage := CreateDownloadPage(
+    'Installing .NET 10 Desktop Runtime',
+    'CryoTray Lite requires Microsoft .NET 10 Desktop Runtime (x64).',
+    nil);
+  DownloadPage.ShowBaseNameInsteadOfUrl := True;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  ErrorMsg: String;
+begin
+  Result := True;
+  if (CurPageID = wpReady) and (not IsDotNetDesktop10Installed) and (not RuntimeDownloaded) then
+  begin
+    DownloadPage.Clear;
+    DownloadPage.Add(DotNet10DesktopUrl, DotNet10SetupFile, '');
+    DownloadPage.Show;
+    try
+      try
+        DownloadPage.Download;
+        RuntimeDownloaded := True;
+      except
+        if DownloadPage.AbortedByUser then
+          Log('Runtime download aborted by user.')
+        else begin
+          ErrorMsg := Format('Could not download .NET 10 Desktop Runtime (%s). Connect to the internet or use the CryoTray Full Offline Setup.', [GetExceptionMessage]);
+          SuppressibleMsgBox(ErrorMsg, mbCriticalError, MB_OK, IDOK);
+        end;
+        Result := False;
+      end;
+    finally
+      DownloadPage.Hide;
+    end;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  TempInstaller: String;
+  ResultCode: Integer;
+  Switches: String;
+begin
+  Result := '';
+  if IsDotNetDesktop10Installed then
+    Exit;
+
+  TempInstaller := ExpandConstant('{tmp}\') + DotNet10SetupFile;
+  if not RuntimeDownloaded then
+  begin
+    try
+      DownloadTemporaryFile(DotNet10DesktopUrl, DotNet10SetupFile, '', nil);
+      RuntimeDownloaded := True;
+    except
+      Result := Format('CryoTray Lite requires .NET 10 Desktop Runtime (x64), and downloading it failed: %s. Connect to the internet or install CryoTray-Setup (Full Offline).', [GetExceptionMessage]);
+      Exit;
+    end;
+  end;
+
+  if not FileExists(TempInstaller) then
+  begin
+    Result := 'The downloaded .NET 10 Desktop Runtime installer could not be found.';
+    Exit;
+  end;
+
+  if WizardSilent then
+    Switches := '/install /quiet /norestart'
+  else
+    Switches := '/install /passive /norestart';
+
+  if not ShellExec('', TempInstaller, Switches, '', SW_SHOW, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Result := Format('Failed to launch .NET 10 Desktop Runtime installer (code %d).', [ResultCode]);
+    Exit;
+  end;
+
+  if (ResultCode <> 0) and (ResultCode <> 3010) and (ResultCode <> 1641) then
+  begin
+    Result := Format('.NET 10 Desktop Runtime installation failed (exit code %d).', [ResultCode]);
+    Exit;
+  end;
+
+  if (ResultCode = 3010) or (ResultCode = 1641) then
+    NeedsRestart := True;
+end;
+#else
+var
+  PreviousAppDir: String;
+#endif
 
 function GetFileAttributesW(lpFileName: String): Cardinal;
   external 'GetFileAttributesW@kernel32.dll stdcall';

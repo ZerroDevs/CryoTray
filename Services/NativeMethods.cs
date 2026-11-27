@@ -322,5 +322,289 @@ namespace CryoTray.Services
         public static readonly Guid GUID_PROCESSOR_FREQUENCY_MAX = new("75b0ae3f-bce0-45a7-8c89-c9611c25e100");
 
         public const uint ACCESS_SCHEME = 16;
+
+        // Hidden window / message-only sink & Win32 tray icons
+        public static readonly IntPtr HWND_MESSAGE = new(-3);
+        public const int WM_DESTROY = 0x0002;
+        public const int WM_NULL = 0x0000;
+        public const int WM_LBUTTONUP = 0x0202;
+        public const int WM_LBUTTONDBLCLK = 0x0203;
+        public const int WM_RBUTTONUP = 0x0205;
+        public const int WM_CONTEXTMENU = 0x007B;
+        public const int WM_USER = 0x0400;
+        public const int NIN_BALLOONUSERCLICK = 0x0405;
+
+        public const int NIM_ADD = 0x00000000;
+        public const int NIM_MODIFY = 0x00000001;
+        public const int NIM_DELETE = 0x00000002;
+        public const int NIM_SETVERSION = 0x00000004;
+        public const int NOTIFYICON_VERSION_4 = 4;
+
+        public const uint NIF_MESSAGE = 0x00000001;
+        public const uint NIF_ICON = 0x00000002;
+        public const uint NIF_TIP = 0x00000004;
+        public const uint NIF_STATE = 0x00000008;
+        public const uint NIF_INFO = 0x00000010;
+        public const uint NIF_SHOWTIP = 0x00000080;
+
+        public const uint NIS_HIDDEN = 0x00000001;
+        public const uint NIIF_NONE = 0x00000000;
+        public const uint NIIF_INFO = 0x00000001;
+        public const uint NIIF_WARNING = 0x00000002;
+
+        public const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+
+        public delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+        public delegate bool MonitorEnumDelegate(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct WNDCLASSEXW
+        {
+            public uint cbSize;
+            public uint style;
+            public WndProcDelegate lpfnWndProc;
+            public int cbClsExtra;
+            public int cbWndExtra;
+            public IntPtr hInstance;
+            public IntPtr hIcon;
+            public IntPtr hCursor;
+            public IntPtr hbrBackground;
+            [MarshalAs(UnmanagedType.LPWStr)] public string? lpszMenuName;
+            [MarshalAs(UnmanagedType.LPWStr)] public string lpszClassName;
+            public IntPtr hIconSm;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct NOTIFYICONDATAW
+        {
+            public uint cbSize;
+            public IntPtr hWnd;
+            public uint uID;
+            public uint uFlags;
+            public uint uCallbackMessage;
+            public IntPtr hIcon;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string szTip;
+            public uint dwState;
+            public uint dwStateMask;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string szInfo;
+            public uint uTimeoutOrVersion;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+            public string szInfoTitle;
+            public uint dwInfoFlags;
+            public Guid guidItem;
+            public IntPtr hBalloonIcon;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct MONITORINFO
+        {
+            public uint cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct ICONINFO
+        {
+            [MarshalAs(UnmanagedType.Bool)] public bool fIcon;
+            public int xHotspot;
+            public int yHotspot;
+            public IntPtr hbmMask;
+            public IntPtr hbmColor;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BITMAPINFOHEADER
+        {
+            public uint biSize;
+            public int biWidth;
+            public int biHeight;
+            public ushort biPlanes;
+            public ushort biBitCount;
+            public uint biCompression;
+            public uint biSizeImage;
+            public int biXPelsPerMeter;
+            public int biYPelsPerMeter;
+            public uint biClrUsed;
+            public uint biClrImportant;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct CHOOSECOLORW
+        {
+            public uint lStructSize;
+            public IntPtr hwndOwner;
+            public IntPtr hInstance;
+            public uint rgbResult;
+            public IntPtr lpCustColors;
+            public uint Flags;
+            public IntPtr lCustData;
+            public IntPtr lpfnHook;
+            public IntPtr lpTemplateName;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr GetModuleHandleW([MarshalAs(UnmanagedType.LPWStr)] string? lpModuleName);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern ushort RegisterClassExW([In] ref WNDCLASSEXW lpwcx);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool UnregisterClassW([MarshalAs(UnmanagedType.LPWStr)] string lpClassName, IntPtr hInstance);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr CreateWindowExW(
+            uint dwExStyle,
+            [MarshalAs(UnmanagedType.LPWStr)] string lpClassName,
+            [MarshalAs(UnmanagedType.LPWStr)] string? lpWindowName,
+            uint dwStyle,
+            int x, int y, int nWidth, int nHeight,
+            IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DestroyWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr DefWindowProcW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern uint RegisterWindowMessageW([MarshalAs(UnmanagedType.LPWStr)] string lpString);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool Shell_NotifyIconW(int dwMessage, ref NOTIFYICONDATAW lpData);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetCursorPos(out POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+        [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumDelegate lpfnEnum, IntPtr dwData);
+
+        [DllImport("shcore.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr CreateDIBSection(
+            IntPtr hdc,
+            [In] ref BITMAPINFOHEADER pbmi,
+            uint usage,
+            out IntPtr ppvBits,
+            IntPtr hSection,
+            uint offset);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DeleteDC(IntPtr hdc);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
+
+        [DllImport("gdi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr CreateFontW(
+            int cHeight,
+            int cWidth,
+            int cEscapement,
+            int cOrientation,
+            int cWeight,
+            uint bItalic,
+            uint bUnderline,
+            uint bStrikeOut,
+            uint iCharSet,
+            uint iOutPrecision,
+            uint iClipPrecision,
+            uint iQuality,
+            uint iPitchAndFamily,
+            [MarshalAs(UnmanagedType.LPWStr)] string pszFaceName);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern int SetBkMode(IntPtr hdc, int mode);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern uint SetTextColor(IntPtr hdc, uint color);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GdiFlush();
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern int DrawTextW(
+            IntPtr hdc,
+            [MarshalAs(UnmanagedType.LPWStr)] string lpchText,
+            int cchText,
+            ref RECT lprc,
+            uint format);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint nPlanes, uint nBitCount, IntPtr lpBits);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DeleteObject(IntPtr ho);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr CreateIconIndirect([In] ref ICONINFO piconinfo);
+
+        [DllImport("comdlg32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ChooseColorW(ref CHOOSECOLORW lpcc);
     }
 }

@@ -12,9 +12,12 @@ function isReleaseRecord(release) {
     release &&
     typeof release.tag === "string" &&
     release.setup &&
+    release.liteSetup &&
     release.zip &&
     typeof release.setup.name === "string" &&
     typeof release.setup.url === "string" &&
+    typeof release.liteSetup.name === "string" &&
+    typeof release.liteSetup.url === "string" &&
     typeof release.zip.name === "string" &&
     typeof release.zip.url === "string"
   );
@@ -108,10 +111,20 @@ function renderRelease() {
 
   const setup = $("#download-setup");
   setup.href = release.setup.url;
+  const liteSetup = $("#download-lite-setup");
+  if (liteSetup && release.liteSetup) {
+    liteSetup.href = release.liteSetup.url;
+  }
   const zip = $("#download-zip");
   zip.href = release.zip.url;
 
   setText($("#setup-filename"), release.setup.name);
+  if (release.liteSetup) {
+    setText($("#lite-setup-filename"), release.liteSetup.name);
+    setText($("#lite-setup-size"), typeof release.liteSetup.size === "number" ? formatSize(release.liteSetup.size) : t("release.latestLabel"));
+    const liteSha = $("#lite-setup-sha-link");
+    if (liteSha) liteSha.href = release.liteSetup.shaUrl;
+  }
   setText($("#zip-filename"), release.zip.name);
   setText($("#setup-size"), typeof release.setup.size === "number" ? formatSize(release.setup.size) : t("release.latestLabel"));
   setText($("#zip-size"), typeof release.zip.size === "number" ? formatSize(release.zip.size) : t("release.latestLabel"));
@@ -125,12 +138,19 @@ function renderRelease() {
 
 function releaseFromApi(data) {
   const assets = Array.isArray(data.assets) ? data.assets : [];
-  const setup = assets.find((asset) => /setup.*\.exe$/i.test(asset.name) && !/\.sha256$/i.test(asset.name));
-  const zip = assets.find((asset) => /\.zip$/i.test(asset.name) && !/update/i.test(asset.name) && !/\.sha256$/i.test(asset.name));
+  const isBinary = (asset) => !/\.sha256$/i.test(asset.name);
+  const setup = assets.find((asset) => /setup.*\.exe$/i.test(asset.name) && !/-lite-/i.test(asset.name) && isBinary(asset));
+  const liteSetup = assets.find((asset) => /-lite-setup.*\.exe$/i.test(asset.name) && isBinary(asset));
+  const zip = assets.find((asset) => /\.zip$/i.test(asset.name) && !/-lite-/i.test(asset.name) && !/update/i.test(asset.name) && isBinary(asset));
   if (!setup || !zip) throw new Error("Release assets missing");
 
+  const tag = data.tag_name || SEED_RELEASE.tag;
+  const cleanTag = String(tag).trim().replace(/^v/i, "");
+  const base = "https://github.com/ZerroDevs/CryoTray/releases/download/" + tag;
+  const fallbackLiteName = "CryoTray-Lite-Setup-" + cleanTag + ".exe";
+
   return {
-    tag: data.tag_name || SEED_RELEASE.tag,
+    tag,
     publishedAt: data.published_at || null,
     htmlUrl: data.html_url || SEED_RELEASE.htmlUrl,
     setup: {
@@ -138,6 +158,17 @@ function releaseFromApi(data) {
       size: setup.size,
       url: setup.browser_download_url,
       shaUrl: setup.browser_download_url + ".sha256"
+    },
+    liteSetup: liteSetup ? {
+      name: liteSetup.name,
+      size: liteSetup.size,
+      url: liteSetup.browser_download_url,
+      shaUrl: liteSetup.browser_download_url + ".sha256"
+    } : {
+      name: fallbackLiteName,
+      size: null,
+      url: base + "/" + fallbackLiteName,
+      shaUrl: base + "/" + fallbackLiteName + ".sha256"
     },
     zip: {
       name: zip.name,
@@ -163,6 +194,12 @@ function releaseFromVersion(version, previous) {
       size: null,
       url: base + "/CryoTray-Setup-" + clean + ".exe",
       shaUrl: base + "/CryoTray-Setup-" + clean + ".exe.sha256"
+    },
+    liteSetup: {
+      name: "CryoTray-Lite-Setup-" + clean + ".exe",
+      size: null,
+      url: base + "/CryoTray-Lite-Setup-" + clean + ".exe",
+      shaUrl: base + "/CryoTray-Lite-Setup-" + clean + ".exe.sha256"
     },
     zip: {
       name: "CryoTray-" + clean + "-win-x64.zip",

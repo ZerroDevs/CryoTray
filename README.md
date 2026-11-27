@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 / 11">
-  <img src="https://img.shields.io/badge/.NET-10.0%20WPF%20%2B%20WinForms-purple" alt=".NET 10.0 WPF + WinForms">
+  <img src="https://img.shields.io/badge/.NET-10.0%20WPF-purple" alt=".NET 10.0 WPF">
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="Apache-2.0">
 </p>
 
@@ -45,7 +45,7 @@ CryoTray does not control fans or voltages. Cooling Mode changes Windows process
 | Item | Details |
 | --- | --- |
 | Platform | Windows 10 and Windows 11, x64 |
-| Runtime | .NET 10 LTS with WPF and Windows Forms |
+| Runtime | .NET 10 LTS with WPF |
 | Privileges | Administrator, required by the application manifest for hardware sensor access and system-level power controls |
 | Sensor source | LibreHardwareMonitorLib 0.9.6, with WMI used only for system inventory |
 | Sensor driver | PawnIO 2.x for low-level CPU and motherboard access |
@@ -412,7 +412,10 @@ The About tab shows the installed version, update status and release notes, last
 
 ### Prebuilt release
 
-1. Open [GitHub Releases](https://github.com/ZerroDevs/CryoTray/releases) and download either `CryoTray-Setup-<version>.exe` (recommended installer with bundled PawnIO setup and clean power-plan uninstall cleanup) or the portable `CryoTray-<version>-win-x64.zip`.
+1. Open [GitHub Releases](https://github.com/ZerroDevs/CryoTray/releases) and choose a package:
+   - `CryoTray-Setup-<version>.exe`: **Offline Full installer** (self-contained .NET 10, bundled PawnIO setup, clean power-plan uninstall cleanup, and silent post-install NTFS folder compression; recommended when you want zero extra downloads).
+   - `CryoTray-Lite-Setup-<version>.exe`: **Lite installer** (~7.5 MB; bundles `LibreHardwareMonitorLib` and PawnIO setup offline, and automatically installs the Microsoft .NET 10 Desktop Runtime only if missing).
+   - `CryoTray-<version>-win-x64.zip` (or `CryoTray-Lite-<version>-win-x64.zip`): **Portable zip archive**.
 2. Download the matching `.sha256` file.
 3. Verify the file before installing or extracting:
 
@@ -427,11 +430,11 @@ The About tab shows the installed version, update status and release notes, last
    icacls "C:\Program Files\CryoTrayPortable" /setowner *S-1-5-32-544 /T /C /Q
    ```
 
-   It includes `PawnIO_setup.exe`; run it if PawnIO 2.x is not already installed, then run `CryoTray.exe` (approving UAC). The installer always uses the default Program Files location, sets the protected owner itself, and runs silent PawnIO setup automatically when missing.
+   It includes `PawnIO_setup.exe`; run it if PawnIO 2.x is not already installed, then run `CryoTray.exe` (approving UAC). Both installers always use the default Program Files location, set the protected owner themselves, run silent PawnIO setup automatically when missing, and keep in-app updates matched to your installed edition (`Full` vs `Lite`).
 
 The installer does not reuse a custom folder; it always installs to the protected Program Files location. If a previous Inno installation is registered in the uninstall key and its folder contains both `CryoTray.exe` and `unins000.exe`, it removes that old folder after the new install succeeds, and only when the old path is not the new folder, an ancestor or child of it, or an exact Windows or System folder. Portable copies and unregistered custom copies are not detected, so remove those manually.
 
-The release package is self-contained for win-x64, so a separate .NET runtime installation is not required.
+The Full package (`CryoTray-Setup` / Full zip) is self-contained for win-x64 so no separate .NET runtime installation is required; the Lite package (`CryoTray-Lite-Setup` / Lite zip) uses the .NET 10 Desktop Runtime (`Microsoft.WindowsDesktop.App 10.0`), which the Lite installer fetches silently if needed.
 
 PawnIO is required for CPU temperature and other low-level sensors. Without it, CryoTray still starts, but unsupported sensors may show no data or an unavailable value.
 
@@ -498,7 +501,7 @@ dotnet publish CryoTray.csproj `
   -o publish\win-x64
 ```
 
-Copy the whole `publish\win-x64` folder, or run `.\build-installer.ps1` to generate both `Installer\Output\CryoTray-Setup-<version>.exe` and `release\CryoTray-<version>-win-x64.zip`. The portable zip includes `PawnIO_setup.exe` at its root. Stop any running CryoTray instance first so the Release output is not locked.
+Copy the whole `publish\win-x64` folder, or run `.\build-installer.ps1` (`-Variant All|Full|Lite`) to generate both `Installer\Output\CryoTray-Setup-<version>.exe` / `CryoTray-Lite-Setup-<version>.exe` and portable archives (`release\CryoTray-*.zip`). Each zip includes `PawnIO_setup.exe` at its root. Stop any running CryoTray instance first so the Release output is not locked.
 
 ### Versioning and releases
 
@@ -568,7 +571,7 @@ https://api.github.com/repos/ZerroDevs/CryoTray/releases/latest
 
 Automatic checks run immediately when the app opens, every 5 minutes while the dashboard is visible, every 30 minutes in the tray, and after resume or a network reconnect. When a newer release is found, the dashboard shows a translucent strip with the version, **Update**, **About**, **Later**, and **Skip**. Later hides it for 24 hours; Skip keeps that version hidden until a newer release appears. Update opens Settings > About and starts the verified install; About opens the tab without installing. About shows the GitHub release notes and the last check result.
 
-A downloaded update is verified against the release's SHA-256 checksum. Authenticode is checked when present but is not required. Downloads retry transient failures and resume with HTTP Range and a `.part` file in a stable locked work directory; a 512 MiB cap and free-space check prevent runaway downloads. Installed copies run `CryoTray-Setup-<version>.exe` silently and wait for it before restarting. Portable copies use the `CryoTray-Update-<version>-win-x64.zip` archive, whose manifest carries the version, every file SHA-256, and a cumulative stale-file delete list. The updater and rollback files live in `%ProgramData%\CryoTray` with an Administrators owner, a protected Administrators/SYSTEM ACL, recursive reparse rejection, and untrusted-content clearing; the elevated helper validates the manifest, rejects reparse destinations, restores the verified rollback copy if a write fails, and only then records the one-time applied marker. Downloaded update files are retained for seven days by default and can be cleared immediately from About. The app itself must run from an administrator-protected folder; startup rejects user-writable locations and secures the application folder before continuing. The rollback copy has a SHA-256 file manifest that is verified before restore. After an actual update, the new version shows a green **CryoTray was successfully updated from vX to vY** strip with an X; it auto-hides after 20 seconds and is never shown for a fresh install. If About was left on a persisted **Available** result, it offers **Check again** until the release info is fetched again.
+A downloaded update is verified against the release's SHA-256 checksum. Authenticode is checked when present but is not required. Downloads retry transient failures and resume with HTTP Range and a `.part` file in a stable locked work directory; a 512 MiB cap and free-space check prevent runaway downloads. Installed copies run `CryoTray-Setup-<version>.exe` (or `CryoTray-Lite-Setup-<version>.exe` for Lite installs) silently and wait for it before restarting. Portable copies use the `CryoTray-Update-<version>-win-x64.zip` archive, whose manifest carries the version, every file SHA-256, and a cumulative stale-file delete list. The updater and rollback files live in `%ProgramData%\CryoTray` with an Administrators owner, a protected Administrators/SYSTEM ACL, recursive reparse rejection, and untrusted-content clearing; the elevated helper validates the manifest, rejects reparse destinations, restores the verified rollback copy if a write fails, and only then records the one-time applied marker. Downloaded update files are retained for seven days by default and can be cleared immediately from About. The app itself must run from an administrator-protected folder; startup rejects user-writable locations and secures the application folder before continuing. The rollback copy has a SHA-256 file manifest that is verified before restore. After an actual update, the new version shows a green **CryoTray was successfully updated from vX to vY** strip with an X; it auto-hides after 20 seconds and is never shown for a fresh install. If About was left on a persisted **Available** result, it offers **Check again** until the release info is fetched again.
 
 No setting, sensor log, machine name, or usage data is sent to the update service. Only the standard HTTP request needed to fetch the latest release is made.
 

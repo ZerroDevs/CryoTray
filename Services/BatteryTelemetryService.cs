@@ -1,5 +1,4 @@
 using System;
-using System.Windows.Forms;
 
 namespace CryoTray.Services
 {
@@ -21,19 +20,7 @@ namespace CryoTray.Services
                     rawStatus.BatteryLifePercent);
             }
 
-            var status = SystemInformation.PowerStatus;
-            bool noBattery = (status.BatteryChargeStatus & BatteryChargeStatus.NoSystemBattery) != 0;
-            bool unknown = status.BatteryChargeStatus == BatteryChargeStatus.Unknown;
-            float life = status.BatteryLifePercent;
-            bool hasBattery = !noBattery && !unknown && life >= 0f && life <= 1f;
-            int percent = hasBattery
-                ? (int)Math.Round(Math.Clamp(life, 0f, 1f) * 100f)
-                : 0;
-            bool charging = hasBattery &&
-                            (status.BatteryChargeStatus & BatteryChargeStatus.Charging) != 0;
-            bool onAc = status.PowerLineStatus == PowerLineStatus.Online;
-
-            return new BatteryTelemetry(hasBattery, percent, charging, onAc);
+            return new BatteryTelemetry(false, 0, false, true);
         }
 
         internal static BatteryTelemetry ParsePowerStatus(

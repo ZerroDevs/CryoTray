@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Text;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -11,6 +8,8 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CryoTray.Models;
 using CryoTray.Services;
 using CryoTray.Services.GpuPower;
@@ -960,25 +959,15 @@ namespace CryoTray.Tests
                 GC.WaitForPendingFinalizers();
                 uint gdiBefore = NativeMethods.GetGuiResources(hProcess, 0);
 
+                var badgeBmp = TrayIconManager.RenderSolidBadgeBitmap(Color.FromRgb(124, 179, 66));
                 for (int i = 0; i < 1000; i++)
                 {
-                    using (var bmp = new Bitmap(32, 32))
+                    IntPtr hIcon = TrayIconManager.CreateHIconFromBitmap(badgeBmp);
+                    if (hIcon == IntPtr.Zero)
                     {
-                        using (var g = Graphics.FromImage(bmp))
-                        {
-                            g.Clear(Color.FromArgb(124, 179, 66));
-                        }
-                        IntPtr hIcon = bmp.GetHicon();
-                        try
-                        {
-                            using var icon = Icon.FromHandle(hIcon);
-                            using var copy = (Icon)icon.Clone();
-                        }
-                        finally
-                        {
-                            NativeMethods.DestroyIcon(hIcon);
-                        }
+                        throw new Exception("CreateHIconFromBitmap returned zero handle.");
                     }
+                    NativeMethods.DestroyIcon(hIcon);
                 }
 
                 GC.Collect();
@@ -2329,14 +2318,14 @@ namespace CryoTray.Tests
 
                 HardwareSnapshot Snapshot(int rpm, double cpuLoad, int? gpuRpm = null,
                     double gpuLoad = 0, double gpuTemp = 40) => new()
-                {
-                    CpuLoad = cpuLoad,
-                    GpuLoad = gpuLoad,
-                    CpuTemp = cpuLoad >= 25 ? 70 : 50,
-                    GpuTemp = gpuTemp,
-                    GpuFanRpm = gpuRpm,
-                    Fans = new List<FanTelemetry> { new() { Name = "Chassis Fan", Rpm = rpm } }
-                };
+                    {
+                        CpuLoad = cpuLoad,
+                        GpuLoad = gpuLoad,
+                        CpuTemp = cpuLoad >= 25 ? 70 : 50,
+                        GpuTemp = gpuTemp,
+                        GpuFanRpm = gpuRpm,
+                        Fans = new List<FanTelemetry> { new() { Name = "Chassis Fan", Rpm = rpm } }
+                    };
 
                 // A header that never spins must never arm.
                 service.Observe(Snapshot(0, 80), start);
@@ -2609,9 +2598,9 @@ namespace CryoTray.Tests
             }
 
             if (!SensorDropoutWatch.HasGpuReadings(new HardwareSnapshot
-                {
-                    Gpus = new List<GpuTelemetry> { new() { Temperature = 55 } }
-                }))
+            {
+                Gpus = new List<GpuTelemetry> { new() { Temperature = 55 } }
+            }))
             {
                 failures.Add("a GPU temperature was treated as missing");
             }
@@ -3363,15 +3352,11 @@ namespace CryoTray.Tests
 
         private static bool TestTrayContextMenuDarkRendering()
         {
-            Console.Write("[TEST] Tray ContextMenu Dark Owner-Drawn Rendering... ");
-            Bitmap? mainBmp = null;
-            Bitmap? subBmp = null;
-            Bitmap? arMain = null;
-            Bitmap? arSub = null;
+            Console.Write("[TEST] Tray ContextMenu Dark WPF Rendering... ");
             try
             {
                 using var tray = new TrayIconManager();
-                (mainBmp, subBmp) = tray.RenderContextMenusForTest(selectFirstItem: true, overlayChecked: true);
+                var (mainBmp, subBmp) = tray.RenderContextMenusForTest(selectFirstItem: true, overlayChecked: true);
 
                 AssertDarkGutterAndHover(mainBmp, rtl: false, "MainMenu-LTR");
                 AssertDarkGutterAndHover(subBmp, rtl: false, "SubMenu-LTR");
@@ -3384,7 +3369,7 @@ namespace CryoTray.Tests
                 }
 
                 tray.ApplyLanguage();
-                (arMain, arSub) = tray.RenderContextMenusForTest(selectFirstItem: true, overlayChecked: true);
+                var (arMain, arSub) = tray.RenderContextMenusForTest(selectFirstItem: true, overlayChecked: true);
                 AssertDarkGutterAndHover(arMain, rtl: true, "MainMenu-RTL");
                 AssertDarkGutterAndHover(arSub, rtl: true, "SubMenu-RTL");
                 AssertSteelBlueCheckboxSide(arMain, rtl: true, "MainMenu-RTL");
@@ -3399,10 +3384,6 @@ namespace CryoTray.Tests
             }
             finally
             {
-                mainBmp?.Dispose();
-                subBmp?.Dispose();
-                arMain?.Dispose();
-                arSub?.Dispose();
                 try
                 {
                     LocalizationService.Instance.Apply("English");
@@ -3413,15 +3394,24 @@ namespace CryoTray.Tests
             }
         }
 
-        private static void AssertSteelBlueCheckboxSide(Bitmap bmp, bool rtl, string label)
+        private static Color GetPixel(BitmapSource bmp, int x, int y)
         {
-            int xStart = rtl ? 8 : Math.Max(1, bmp.Width - 32);
-            int xEnd = rtl ? Math.Min(bmp.Width - 2, 32) : bmp.Width - 8;
+            int px = Math.Clamp(x, 0, Math.Max(0, bmp.PixelWidth - 1));
+            int py = Math.Clamp(y, 0, Math.Max(0, bmp.PixelHeight - 1));
+            var buf = new byte[4];
+            bmp.CopyPixels(new Int32Rect(px, py, 1, 1), buf, 4, 0);
+            return Color.FromArgb(buf[3], buf[2], buf[1], buf[0]);
+        }
+
+        private static void AssertSteelBlueCheckboxSide(BitmapSource bmp, bool rtl, string label)
+        {
+            int xStart = rtl ? 8 : Math.Max(1, bmp.PixelWidth - 32);
+            int xEnd = rtl ? Math.Min(bmp.PixelWidth - 2, 32) : bmp.PixelWidth - 8;
             for (int x = xStart; x < xEnd; x++)
             {
-                for (int y = 4; y < bmp.Height - 4; y++)
+                for (int y = 4; y < bmp.PixelHeight - 4; y++)
                 {
-                    Color c = bmp.GetPixel(x, y);
+                    Color c = GetPixel(bmp, x, y);
                     if (c.B > 200 && c.G > 140 && c.R < 80)
                     {
                         return;
@@ -3432,15 +3422,15 @@ namespace CryoTray.Tests
             throw new Exception($"{label} checked Click-Through Overlay checkbox lacked Steel Blue (#29B6F6) border pixels on {(rtl ? "left" : "right")} trailing edge.");
         }
 
-        private static void AssertDarkGutterAndHover(Bitmap bmp, bool rtl, string label)
+        private static void AssertDarkGutterAndHover(BitmapSource bmp, bool rtl, string label)
         {
-            int xStart = rtl ? Math.Max(1, bmp.Width - 11) : 2;
-            int xEnd = rtl ? bmp.Width - 3 : Math.Min(bmp.Width - 2, 10);
+            int xStart = rtl ? Math.Max(1, bmp.PixelWidth - 11) : 2;
+            int xEnd = rtl ? bmp.PixelWidth - 3 : Math.Min(bmp.PixelWidth - 2, 10);
             for (int x = xStart; x <= xEnd; x++)
             {
-                for (int y = 2; y <= bmp.Height - 3; y++)
+                for (int y = 2; y <= bmp.PixelHeight - 3; y++)
                 {
-                    Color c = bmp.GetPixel(x, y);
+                    Color c = GetPixel(bmp, x, y);
                     if (c.R > 75 || c.G > 75 || c.B > 75)
                     {
                         throw new Exception($"{label} bright/white/blue pixel at ({x},{y}): {c}");
@@ -3448,8 +3438,8 @@ namespace CryoTray.Tests
                 }
             }
 
-            int hoverProbeX = rtl ? bmp.Width - 9 : 8;
-            Color hover = bmp.GetPixel(hoverProbeX, 10);
+            int hoverProbeX = rtl ? bmp.PixelWidth - 9 : 8;
+            Color hover = GetPixel(bmp, hoverProbeX, 10);
             if (hover.R != 45 || hover.G != 45 || hover.B != 45)
             {
                 throw new Exception($"{label} hovered pill at ({hoverProbeX},10) was {hover}, expected #2D2D2D (45,45,45).");
@@ -3532,12 +3522,12 @@ namespace CryoTray.Tests
                 IntPtr hProcess = Process.GetCurrentProcess().Handle;
                 using var tray = new TrayIconManager();
 
-                using (var cpuBlack = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: false, whiteDigits: false))
-                using (var cpuWhite = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: true, whiteDigits: true))
-                using (var gpuWhite = tray.RenderSingleBadgeForTest(48, isCpu: false, coolingModeActive: false, whiteDigits: true))
-                using (var ramBlack = tray.RenderRamBadgeForTest(58, whiteDigits: false, colorHex: AppSettings.DefaultRamTrayBadgeColor))
-                using (var ramWhite = tray.RenderRamBadgeForTest(58, whiteDigits: true, colorHex: AppSettings.DefaultRamTrayBadgeColor))
-                using (var mergedMixed = tray.RenderMergedBadgeForTest(53, 48, coolingModeActive: false, cpuWhiteDigits: true, gpuWhiteDigits: false))
+                var cpuBlack = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: false, whiteDigits: false);
+                var cpuWhite = tray.RenderSingleBadgeForTest(53, isCpu: true, coolingModeActive: true, whiteDigits: true);
+                var gpuWhite = tray.RenderSingleBadgeForTest(48, isCpu: false, coolingModeActive: false, whiteDigits: true);
+                var ramBlack = tray.RenderRamBadgeForTest(58, whiteDigits: false, colorHex: AppSettings.DefaultRamTrayBadgeColor);
+                var ramWhite = tray.RenderRamBadgeForTest(58, whiteDigits: true, colorHex: AppSettings.DefaultRamTrayBadgeColor);
+                var mergedMixed = tray.RenderMergedBadgeForTest(53, 48, coolingModeActive: false, cpuWhiteDigits: true, gpuWhiteDigits: false);
                 {
                     AssertHasDarkAndBg(cpuBlack, minBgR: 220, expectDarkInk: true, label: "CpuBlackOff");
                     AssertHasWhiteAndBg(cpuWhite, minBgB: 150, label: "CpuWhiteOn");
@@ -3545,8 +3535,8 @@ namespace CryoTray.Tests
                     AssertHasDarkAndBg(ramBlack, minBgR: 70, expectDarkInk: true, label: "RamBlack");
                     AssertHasWhiteAndBg(ramWhite, minBgB: 70, label: "RamWhite");
 
-                    Color topCorner = mergedMixed.GetPixel(16, 2);
-                    Color botCorner = mergedMixed.GetPixel(16, 29);
+                    Color topCorner = GetPixel(mergedMixed, 16, 2);
+                    Color botCorner = GetPixel(mergedMixed, 16, 29);
                     if (topCorner.R < 170 || botCorner.G < 150)
                     {
                         throw new Exception($"Merged split background mismatch: top={topCorner}, bot={botCorner}");
@@ -3576,7 +3566,7 @@ namespace CryoTray.Tests
                 uint gdiBefore = NativeMethods.GetGuiResources(hProcess, 0);
                 for (int i = 0; i < 200; i++)
                 {
-                    using var b = i % 3 == 0
+                    _ = i % 3 == 0
                         ? tray.RenderRamBadgeForTest(40 + (i % 50), whiteDigits: i % 2 == 1,
                             colorHex: AppSettings.DefaultRamTrayBadgeColor)
                         : tray.RenderSingleBadgeForTest(50 + (i % 10), isCpu: (i % 2 == 0),
@@ -3600,21 +3590,21 @@ namespace CryoTray.Tests
             }
         }
 
-        private static void AssertHasDarkAndBg(Bitmap bmp, int minBgR, bool expectDarkInk, string label)
+        private static void AssertHasDarkAndBg(BitmapSource bmp, int minBgR, bool expectDarkInk, string label)
         {
             bool foundDark = false;
             bool foundWhite = false;
-            Color bg = bmp.GetPixel(1, 1);
+            Color bg = GetPixel(bmp, 1, 1);
             if (bg.R < minBgR)
             {
                 throw new Exception($"{label} background corner too dark: {bg}");
             }
 
-            for (int x = 4; x < bmp.Width - 4; x++)
+            for (int x = 4; x < bmp.PixelWidth - 4; x++)
             {
-                for (int y = 4; y < bmp.Height - 4; y++)
+                for (int y = 4; y < bmp.PixelHeight - 4; y++)
                 {
-                    Color c = bmp.GetPixel(x, y);
+                    Color c = GetPixel(bmp, x, y);
                     if (c.R < 65 && c.G < 65 && c.B < 65) foundDark = true;
                     if (c.R > 235 && c.G > 235 && c.B > 235) foundWhite = true;
                 }
@@ -3630,19 +3620,19 @@ namespace CryoTray.Tests
             }
         }
 
-        private static void AssertHasWhiteAndBg(Bitmap bmp, int minBgB = 0, int minBgG = 0, string label = "")
+        private static void AssertHasWhiteAndBg(BitmapSource bmp, int minBgB = 0, int minBgG = 0, string label = "")
         {
-            Color bg = bmp.GetPixel(1, 1);
+            Color bg = GetPixel(bmp, 1, 1);
             if (bg.B < minBgB || bg.G < minBgG)
             {
                 throw new Exception($"{label} background corner mismatch: {bg}");
             }
 
-            for (int x = 4; x < bmp.Width - 4; x++)
+            for (int x = 4; x < bmp.PixelWidth - 4; x++)
             {
-                for (int y = 4; y < bmp.Height - 4; y++)
+                for (int y = 4; y < bmp.PixelHeight - 4; y++)
                 {
-                    Color c = bmp.GetPixel(x, y);
+                    Color c = GetPixel(bmp, x, y);
                     if (c.R > 235 && c.G > 235 && c.B > 235)
                     {
                         return;
@@ -3991,12 +3981,8 @@ namespace CryoTray.Tests
                                 }
 
                                 var (toolsBmp, ramBmp) = mw.RenderWpfContextMenusForTest();
-                                using (toolsBmp)
-                                using (ramBmp)
-                                {
-                                    AssertDarkWpfContextMenuBitmap(toolsBmp, $"{lang}-ToolsContextMenu");
-                                    AssertDarkWpfContextMenuBitmap(ramBmp, $"{lang}-RamScopeMenu");
-                                }
+                                AssertDarkWpfContextMenuBitmap(toolsBmp, $"{lang}-ToolsContextMenu");
+                                AssertDarkWpfContextMenuBitmap(ramBmp, $"{lang}-RamScopeMenu");
                             }
                             finally
                             {
@@ -4037,35 +4023,35 @@ namespace CryoTray.Tests
             }
         }
 
-        private static void AssertDarkWpfContextMenuBitmap(Bitmap bmp, string label)
+        private static void AssertDarkWpfContextMenuBitmap(BitmapSource bmp, string label)
         {
-            if (bmp.Width < 120 || bmp.Height < 60)
+            if (bmp.PixelWidth < 120 || bmp.PixelHeight < 60)
             {
-                throw new Exception($"{label} unexpected dimensions: {bmp.Width}x{bmp.Height}");
+                throw new Exception($"{label} unexpected dimensions: {bmp.PixelWidth}x{bmp.PixelHeight}");
             }
 
-            Color interior = bmp.GetPixel(6, 6);
+            Color interior = GetPixel(bmp, 6, 6);
             if (interior.R < 20 || interior.R > 42 || interior.G < 20 || interior.G > 42 || interior.B < 20 || interior.B > 42)
             {
                 throw new Exception($"{label} expected dark #1E1E1E surface near (6,6), got {interior}");
             }
 
-            int leftMaxX = Math.Min(10, bmp.Width - 1);
-            int rightMinX = Math.Max(0, bmp.Width - 11);
-            for (int y = 3; y < bmp.Height - 3; y++)
+            int leftMaxX = Math.Min(10, bmp.PixelWidth - 1);
+            int rightMinX = Math.Max(0, bmp.PixelWidth - 11);
+            for (int y = 3; y < bmp.PixelHeight - 3; y++)
             {
                 for (int x = 3; x <= leftMaxX; x++)
                 {
-                    Color c = bmp.GetPixel(x, y);
+                    Color c = GetPixel(bmp, x, y);
                     if (c.R > 180 && c.G > 180 && c.B > 180)
                     {
                         throw new Exception($"{label} detected light/white pixel in left edge at ({x},{y}): {c}");
                     }
                 }
 
-                for (int x = rightMinX; x <= bmp.Width - 4; x++)
+                for (int x = rightMinX; x <= bmp.PixelWidth - 4; x++)
                 {
-                    Color c = bmp.GetPixel(x, y);
+                    Color c = GetPixel(bmp, x, y);
                     if (c.R > 180 && c.G > 180 && c.B > 180)
                     {
                         throw new Exception($"{label} detected light/white pixel in right edge at ({x},{y}): {c}");
@@ -5359,7 +5345,7 @@ namespace CryoTray.Tests
                     throw new Exception("External plan missing format strings did not interpolate the plan name.");
                 }
 
-                static double ContrastRatioDrawing(System.Drawing.Color bg, byte fgR, byte fgG, byte fgB)
+                static double ContrastRatioDrawing(Color bg, byte fgR, byte fgG, byte fgB)
                 {
                     static double Luminance(byte r, byte g, byte b)
                     {
@@ -5460,7 +5446,7 @@ namespace CryoTray.Tests
                 }
 
                 var ecoTrack = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(PowerProfiles.EcoProfile.Palette.ToggleTrack);
-                if (ContrastRatioDrawing(System.Drawing.Color.FromArgb(ecoTrack.R, ecoTrack.G, ecoTrack.B), 0xFF, 0xFF, 0xFF) < 4.5 ||
+                if (ContrastRatioDrawing(Color.FromRgb(ecoTrack.R, ecoTrack.G, ecoTrack.B), 0xFF, 0xFF, 0xFF) < 4.5 ||
                     !Views.MainWindow.ShouldUseProfileCoolingToggleColors(PowerProfiles.EcoProfile, isHighContrast: false) ||
                     Views.MainWindow.ShouldUseProfileCoolingToggleColors(PowerProfiles.EcoProfile, isHighContrast: true) ||
                     Views.MainWindow.ShouldUseProfileCoolingToggleColors(PowerProfiles.CoolingProfile, isHighContrast: false) ||
@@ -6576,6 +6562,39 @@ namespace CryoTray.Tests
                 }
                 MemoryTrimService.Instance.ResetForTest();
 
+                // 3b. PauseForInteraction defers pending trims without dropping them permanently.
+                using (var delayedEvent = new ManualResetEventSlim(false))
+                {
+                    int delayedExecutions = 0;
+                    MemoryTrimService.Instance.TrimExecutorForTest = () =>
+                    {
+                        Interlocked.Increment(ref delayedExecutions);
+                        delayedEvent.Set();
+                    };
+
+                    MemoryTrimService.Instance.PauseForInteraction(TimeSpan.FromMilliseconds(220));
+                    MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromMilliseconds(60));
+                    Thread.Sleep(110);
+                    if (delayedExecutions != 0)
+                    {
+                        throw new Exception("MemoryTrimService fired while interaction cooldown was still active.");
+                    }
+                    if (!delayedEvent.Wait(TimeSpan.FromSeconds(3)) || delayedExecutions != 1)
+                    {
+                        throw new Exception($"MemoryTrimService did not fire deferred trim cleanly (count={delayedExecutions}).");
+                    }
+
+                    // 3c. skipIfRecentlyTrimmed suppresses rapid bounce trims within MinDeactivatedInterval.
+                    int beforeBounce = MemoryTrimService.Instance.ScheduledCountForTest;
+                    MemoryTrimService.Instance.ScheduleTrim(TimeSpan.FromMilliseconds(60), skipIfRecentlyTrimmed: true);
+                    if (MemoryTrimService.Instance.ScheduledCountForTest != beforeBounce ||
+                        MemoryTrimService.Instance.HasPendingTrim)
+                    {
+                        throw new Exception("MemoryTrimService did not skip duplicate recent trim.");
+                    }
+                }
+                MemoryTrimService.Instance.ResetForTest();
+
                 // 4. Instant SystemInfo immediate snapshot, network helper, GPU cache split, and async fill.
                 SystemInfoQueryService.Instance.InvalidateCacheForTest();
                 GpuDiagnosticsService.InvalidateCacheForTest();
@@ -6690,10 +6709,20 @@ namespace CryoTray.Tests
                         {
                             settingsWin.Close();
                         }
+
+                        // 6. ChartVisualHost reuses a single host element across repeated chart redraws.
+                        var testCanvas = new System.Windows.Controls.Canvas { Width = 320, Height = 120 };
+                        var host1 = Views.MainWindow.GetOrCreateChartHost(testCanvas);
+                        var host2 = Views.MainWindow.GetOrCreateChartHost(testCanvas);
+                        if (!ReferenceEquals(host1, host2) || testCanvas.Children.Count != 1)
+                        {
+                            throw new Exception($"ChartVisualHost was not reused cleanly (Children={testCanvas.Children.Count}).");
+                        }
                     }
                     catch (Exception ex)
                     {
-                        staEx = ex;
+                        var inner = ex.InnerException ?? ex;
+                        staEx = new Exception($"{inner.Message}\n{inner.StackTrace}");
                     }
                     finally
                     {

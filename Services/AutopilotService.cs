@@ -6,7 +6,6 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using CryoTray.Models;
-using WinForms = System.Windows.Forms;
 
 namespace CryoTray.Services
 {
@@ -656,7 +655,11 @@ namespace CryoTray.Services
                 return false;
             }
 
-            var bounds = WinForms.Screen.FromHandle(fgWindow).Bounds;
+            if (!WindowPlacementHelper.TryGetMonitorBoundsFromWindow(fgWindow, out var bounds))
+            {
+                return false;
+            }
+
             return rect.Left <= bounds.Left + 2 &&
                    rect.Top <= bounds.Top + 2 &&
                    rect.Right >= bounds.Right - 2 &&

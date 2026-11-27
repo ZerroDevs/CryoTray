@@ -428,7 +428,7 @@ namespace CryoTray.Services
                             LocalizationService.Get("Ram_NotifyTitle"),
                             LocalizationService.Format("Ram_NotifyBody", freedText, pctText),
                             null,
-                            System.Windows.Forms.ToolTipIcon.Info);
+                            CryoTray.Tray.TrayNotificationIcon.Info);
                     }
                 }));
             }

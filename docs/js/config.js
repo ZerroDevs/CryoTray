@@ -1,7 +1,7 @@
 /* Shared demo data and endpoints. */
 const RELEASE_API = "https://api.github.com/repos/ZerroDevs/CryoTray/releases/latest";
 const RELEASE_VERSION_URL = "https://raw.githubusercontent.com/ZerroDevs/CryoTray/main/VERSION";
-const RELEASE_CACHE_KEY = "cryotray-docs-release-v2";
+const RELEASE_CACHE_KEY = "cryotray-docs-release-v3";
 const RELEASE_BLOCK_KEY = "cryotray-docs-release-blocked";
 const RELEASE_API_FRESH_MS = 5 * 60 * 1000;
 const RELEASE_POLL_MS = 2 * 60 * 1000;
@@ -272,20 +272,26 @@ const STRESS_PROFILES = [
 
 
 const SEED_RELEASE = {
-  tag: "v0.0.109",
-  publishedAt: "2026-11-26T22:00:36Z",
-  htmlUrl: "https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.109",
+  tag: "v0.0.110",
+  publishedAt: "2026-11-27T04:45:00Z",
+  htmlUrl: "https://github.com/ZerroDevs/CryoTray/releases/tag/v0.0.110",
   setup: {
-    name: "CryoTray-Setup-0.0.109.exe",
-    size: 55184025,
-    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.109/CryoTray-Setup-0.0.109.exe",
-    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.109/CryoTray-Setup-0.0.109.exe.sha256"
+    name: "CryoTray-Setup-0.0.110.exe",
+    size: 48538836,
+    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.110/CryoTray-Setup-0.0.110.exe",
+    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.110/CryoTray-Setup-0.0.110.exe.sha256"
+  },
+  liteSetup: {
+    name: "CryoTray-Lite-Setup-0.0.110.exe",
+    size: 7480904,
+    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.110/CryoTray-Lite-Setup-0.0.110.exe",
+    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.110/CryoTray-Lite-Setup-0.0.110.exe.sha256"
   },
   zip: {
-    name: "CryoTray-0.0.109-win-x64.zip",
-    size: 82611972,
-    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.109/CryoTray-0.0.109-win-x64.zip",
-    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.109/CryoTray-0.0.109-win-x64.zip.sha256"
+    name: "CryoTray-0.0.110-win-x64.zip",
+    size: 65901060,
+    url: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.110/CryoTray-0.0.110-win-x64.zip",
+    shaUrl: "https://github.com/ZerroDevs/CryoTray/releases/download/v0.0.110/CryoTray-0.0.110-win-x64.zip.sha256"
   }
 };
 
