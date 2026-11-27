@@ -1,0 +1,499 @@
+/* CryoUtils page styles, extending shared Cryo-Family tokens without altering CryoTray styles. */
+
+.cu-window {
+  --frame: var(--on);
+  width: min(100%, 444px);
+  margin-inline: auto;
+  border: 1px solid var(--frame);
+  background: var(--surface);
+  box-shadow: 0 30px 74px rgba(0, 0, 0, 0.56);
+}
+
+.cu-hero-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 14px;
+  background: linear-gradient(135deg, #1e4f7a 0%, #18649c 100%);
+  border-block-end: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cu-hero-banner-copy {
+  min-width: 0;
+}
+
+.cu-hero-banner-copy strong {
+  display: block;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.cu-hero-banner-copy span {
+  display: block;
+  margin-block-start: 3px;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.cu-hero-banner-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: none;
+}
+
+.cu-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #0d1b28;
+  font-size: 10.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cu-mini-btn.is-ghost {
+  background: rgba(13, 27, 40, 0.35);
+  color: #ffffff;
+}
+
+.cu-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px;
+  border-block-end: 1px solid var(--divider);
+  background: var(--surface-panel);
+  overflow-x: auto;
+}
+
+.cu-tab {
+  padding: 8px 8px 7px;
+  border-block-end: 2px solid transparent;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cu-tab.is-active {
+  border-block-end-color: var(--on);
+  color: var(--text);
+}
+
+.cu-window.is-lite .cu-tab[data-cu-tab="tools"] {
+  display: none;
+}
+
+.cu-window-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.cu-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-panel);
+}
+
+.cu-mode-title {
+  color: var(--text-title);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.cu-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-control);
+  border-radius: 2px;
+  padding: 4px 10px;
+  min-height: 32px;
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.cu-window.is-lite .cu-mode-toggle {
+  border-color: var(--on);
+  background: var(--on-soft);
+  color: var(--on-text);
+}
+
+.cu-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.cu-quick-tile {
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  min-width: 0;
+}
+
+.cu-quick-tile strong {
+  display: block;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cu-quick-tile span {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cu-quick-tile.is-capture span { color: var(--cpu); }
+.cu-quick-tile.is-media span { color: var(--gpu); }
+.cu-quick-tile.is-color span { color: var(--battery); }
+.cu-quick-tile.is-utility span { color: var(--ram); }
+
+.cu-module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.cu-module-card {
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  min-width: 0;
+}
+
+.cu-module-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.cu-module-name {
+  color: var(--text-title);
+  font-size: 10.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cu-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.cu-dot.is-capture { background: var(--cpu); }
+.cu-dot.is-color { background: var(--battery); }
+.cu-dot.is-media { background: var(--gpu); }
+.cu-dot.is-utility { background: var(--ram); }
+
+.cu-module-card p {
+  margin-block-start: 4px;
+  color: var(--text-muted);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.cu-window.is-lite [data-cu-optional="true"] {
+  display: none;
+}
+
+.cu-status-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--divider);
+}
+
+.cu-status-cell dt {
+  color: var(--text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.cu-status-cell dd {
+  margin-block-start: 2px;
+  color: var(--text-title);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.cu-window.is-lite #cu-tray-readout {
+  color: var(--on-text);
+}
+
+/* Interactive Capture UX section */
+.cu-ux-section {
+  background: var(--surface);
+}
+
+.cu-sandbox {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 14px;
+}
+
+.cu-sandbox-card {
+  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cu-ux-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cu-ux-tab {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cu-ux-tab:hover {
+  border-color: var(--border-control);
+  color: var(--text);
+}
+
+.cu-ux-tab.is-active {
+  border-color: var(--on);
+  background: var(--on-soft);
+  color: var(--on-text);
+}
+
+.cu-ux-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 270px);
+  gap: 18px;
+  align-items: center;
+}
+
+.cu-ux-copy h3 {
+  font-size: 18px;
+}
+
+.cu-ux-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-block-end: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--on);
+  background: var(--on-soft);
+  color: var(--on-text);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.cu-ux-copy p {
+  margin-block-start: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.cu-frame-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-block-start: 14px;
+  padding: 6px 11px;
+  border: 1px solid var(--border-control);
+  border-radius: 2px;
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cu-frame-switch.is-active {
+  border-color: var(--on);
+  background: var(--on-soft);
+  color: var(--on-text);
+}
+
+.cu-shot-stage {
+  border: 1px solid var(--border-strong);
+  background: var(--inset);
+  padding: 14px;
+  transition: padding 180ms ease, background-color 180ms ease;
+}
+
+.cu-shot-stage.is-framed {
+  padding: 18px;
+  background: linear-gradient(135deg, #182235 0%, #0d131f 100%);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.cu-shot-card {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: var(--surface);
+  transition: border-radius 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+.cu-shot-stage.is-framed .cu-shot-card {
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.52);
+}
+
+.cu-shot-card.is-ghost {
+  opacity: 0.68;
+  border-style: dashed;
+  border-color: var(--on-text);
+}
+
+.cu-shot-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--on-text);
+  margin-block-end: 6px;
+}
+
+.cu-shot-caption {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.cu-footprint-card {
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.cu-footprint-card p {
+  margin-block-start: 6px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.cu-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cu-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cu-bar-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.cu-bar-head strong {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.cu-bar-track {
+  height: 5px;
+  background: var(--inset);
+  overflow: hidden;
+}
+
+.cu-bar-fill {
+  height: 100%;
+  background: var(--on);
+}
+
+.cu-bar-fill.is-lite {
+  background: var(--success);
+}
+
+.cu-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cu-tag {
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.cu-smartscreen-note {
+  margin-block-start: 16px;
+  padding-block-start: 14px;
+  border-block-start: 1px solid var(--divider);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .cu-sandbox,
+  .cu-ux-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .cu-quick-grid,
+  .cu-module-grid,
+  .cu-status-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -44,6 +44,10 @@
     margin-inline-start: auto;
   }
 
+  .app-switch {
+    order: 2;
+  }
+
   .hero-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 48px;

@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CryoUtils | Local capture, OCR, and Windows tray utilities</title>
+  <meta id="meta-description" name="description" content="CryoUtils is a lightweight .NET 10 WPF Windows tray utility for multi-monitor screenshot annotation, instant active-window snap, Windows OCR, colour picking, compression, QR tools, GIF/MP4 recording, and window pinning.">
+  <meta name="theme-color" content="#0d0d0d">
+  <link rel="icon" type="image/png" href="assets/cryoutils-icon.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/cryoutils.css">
+  <script type="module" src="js/cryoutils.js"></script>
+</head>
+<body id="top">
+  <a class="skip-link" href="#main" data-i18n="a11y.skip">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#top" aria-label="CryoUtils home">
+        <img src="assets/cryoutils-icon.png" width="32" height="32" alt="" aria-hidden="true">
+        <span class="brand-name">CryoUtils</span>
+        <span class="brand-sub" data-i18n="cu.brand.sub">Local capture &amp; utilities</span>
+      </a>
+
+      <nav class="app-switch" aria-label="Cryo suite applications" data-i18n-aria="a11y.suiteNav">
+        <a class="app-tab" href="index.html">
+          <img src="assets/cryotray-icon.png" width="16" height="16" alt="" aria-hidden="true">
+          <span>CryoTray</span>
+        </a>
+        <a class="app-tab is-active" href="cryoutils.html" aria-current="page">
+          <img src="assets/cryoutils-icon.png" width="16" height="16" alt="" aria-hidden="true">
+          <span>CryoUtils</span>
+        </a>
+      </nav>
+
+      <nav class="site-nav" aria-label="Primary" data-i18n-aria="a11y.primaryNav">
+        <a href="#demo" data-i18n="cu.nav.demo">Live preview</a>
+        <a href="#capture-tools" data-i18n="cu.nav.tools">Capture UX</a>
+        <a href="#features" data-i18n="cu.nav.features">Features</a>
+        <a href="#download" data-i18n="cu.nav.download">Download</a>
+        <a class="nav-github" href="https://github.com/ZerroDevs/CryoUtils" target="_blank" rel="noopener" data-i18n="nav.github">GitHub</a>
+      </nav>
+
+      <div class="lang-switch" role="group" aria-label="Language" data-i18n-aria="a11y.language">
+        <button type="button" class="lang-btn is-active" data-lang="en" aria-pressed="true">EN</button>
+        <span class="lang-divider" aria-hidden="true">|</span>
+        <button type="button" class="lang-btn" data-lang="ar" lang="ar" aria-pressed="false">عربي</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="demo">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <h1 data-i18n="cu.hero.title">Local capture, OCR, and tray utilities.</h1>
+          <p class="lede" data-i18n="cu.hero.body">Screenshot markup, Windows OCR, colour picking, lossless WebP and PDF compression, GIF/MP4 recording, and window pinning in one slim .NET 10 Windows app.</p>
+          <p class="laptop-note">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v5c0 4.5-3 8.2-7 9-4-.8-7-4.5-7-9V7l7-4zM9 12l2 2 4-4"/></svg>
+            <span><strong data-i18n="cu.hero.localTitle">Standard user (asInvoker)</strong> <span data-i18n="cu.hero.localBody">No administrator prompt, no account, and zero telemetry.</span></span>
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#download" data-i18n="cu.hero.download">Download CryoUtils</a>
+            <button type="button" class="btn btn-secondary" id="cu-hero-lite-btn" data-i18n="cu.hero.toggleLite">Preview Screenshot-Only Mode</button>
+          </div>
+          <dl class="hero-facts">
+            <div>
+              <dt data-i18n="cu.hero.factPlatform">Platform</dt>
+              <dd>Windows 10/11 x64</dd>
+            </div>
+            <div>
+              <dt data-i18n="cu.hero.factEngine">Lite Setup</dt>
+              <dd dir="ltr">2.70 MB (.NET 10)</dd>
+            </div>
+            <div>
+              <dt data-i18n="cu.hero.factLicense">License</dt>
+              <dd>Apache-2.0</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="hero-stage">
+          <div class="stage-label">
+            <span data-i18n="cu.preview.label">Interactive overview</span>
+            <span class="stage-note" id="cu-preview-note" data-i18n="cu.preview.noteFull">Full mode · 6 local modules</span>
+          </div>
+
+          <div class="cu-window" id="cu-preview">
+            <div class="app-titlebar">
+              <span class="app-title"><span>CryoUtils</span> <span class="app-title-host" dir="ltr" id="cu-preview-ver">v0.0.101</span></span>
+              <a class="app-window-icons" href="#download" aria-label="Download CryoUtils" data-i18n-aria="cu.hero.download">
+                <span class="window-icon"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="10" rx="1"/><path d="M8 17h4"/></svg></span>
+                <span class="window-icon window-icon-close"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg></span>
+              </a>
+            </div>
+
+            <div class="cu-tabstrip" aria-hidden="true">
+              <span class="cu-tab is-active" data-i18n="cu.preview.tabs.overview">Overview</span>
+              <span class="cu-tab" data-i18n="cu.preview.tabs.capture">Screen Capture</span>
+              <span class="cu-tab" data-cu-tab="tools" data-i18n="cu.preview.tabs.tools">Tools</span>
+              <span class="cu-tab" data-i18n="cu.preview.tabs.hotkeys">Hotkeys</span>
+              <span class="cu-tab" data-i18n="cu.preview.tabs.settings">Settings</span>
+            </div>
+
+            <div class="cu-hero-banner">
+              <div class="cu-hero-banner-copy">
+                <strong id="cu-banner-title" data-i18n="cu.preview.bannerFullTitle">Six local tools, one hotkey away.</strong>
+                <span id="cu-banner-body" data-i18n="cu.preview.bannerFullBody">Every tool runs on this PC. Turning a module off unregisters its hook and frees its listeners.</span>
+              </div>
+              <div class="cu-hero-banner-actions">
+                <span class="cu-mini-btn" data-i18n="cu.preview.btnSnap">Take screenshot</span>
+                <span class="cu-mini-btn is-ghost" data-cu-optional="true" data-i18n="cu.preview.btnRecord">Record GIF</span>
+              </div>
+            </div>
+
+            <div class="cu-window-body">
+              <div class="cu-mode-row">
+                <span class="cu-mode-title" data-i18n="cu.preview.modeLabel">Screenshot-Only (Lite)</span>
+                <button type="button" class="cu-mode-toggle" id="cu-lite-switch" role="switch" aria-checked="false">
+                  <span id="cu-lite-state" data-i18n="cu.preview.modeOff">OFF</span>
+                </button>
+              </div>
+
+              <div class="cu-quick-grid">
+                <div class="cu-quick-tile is-capture">
+                  <strong data-i18n="cu.preview.tileSnap">Take screenshot</strong>
+                  <span dir="ltr" data-i18n="cu.preview.tileSnapSub">F10 · Ctrl+Alt+S snap</span>
+                </div>
+                <div class="cu-quick-tile is-media" data-cu-optional="true">
+                  <strong data-i18n="cu.preview.tileRecord">Record screen</strong>
+                  <span dir="ltr" data-i18n="cu.preview.tileRecordSub">GIF / MP4</span>
+                </div>
+                <div class="cu-quick-tile is-color" data-cu-optional="true">
+                  <strong data-i18n="cu.preview.tileColor">Colour picker</strong>
+                  <span dir="ltr" data-i18n="cu.preview.tileColorSub">HEX · RGB · WCAG</span>
+                </div>
+                <div class="cu-quick-tile is-utility">
+                  <strong data-i18n="cu.preview.tileQr">QR Code Suite</strong>
+                  <span data-i18n="cu.preview.tileQrSub">Scan &amp; Generate</span>
+                </div>
+              </div>
+
+              <div class="cu-module-grid">
+                <div class="cu-module-card">
+                  <div class="cu-module-head"><span class="cu-module-name" data-i18n="cu.preview.modCapture">Screen capture and annotation</span><i class="cu-dot is-capture"></i></div>
+                  <p data-i18n="cu.preview.modCaptureDesc">Frozen multi-monitor overlay, 1-0 tools, OCR &amp; Copy, Pretty Frame.</p>
+                </div>
+                <div class="cu-module-card" data-cu-optional="true">
+                  <div class="cu-module-head"><span class="cu-module-name" data-i18n="cu.preview.modColor">Precision colour picker</span><i class="cu-dot is-color"></i></div>
+                  <p data-i18n="cu.preview.modColorDesc">15x15 magnifier, HEX/RGB/HSL row copy, contrast lock.</p>
+                </div>
+                <div class="cu-module-card" data-cu-optional="true">
+                  <div class="cu-module-head"><span class="cu-module-name" data-i18n="cu.preview.modPin">Always on top &amp; Ghost pins</span><i class="cu-dot is-color"></i></div>
+                  <p data-i18n="cu.preview.modPinDesc">Pin windows or shots; G switches WS_EX_TRANSPARENT ghost mode.</p>
+                </div>
+                <div class="cu-module-card" data-cu-optional="true">
+                  <div class="cu-module-head"><span class="cu-module-name" data-i18n="cu.preview.modCompress">Image &amp; GIF compressor</span><i class="cu-dot is-media"></i></div>
+                  <p data-i18n="cu.preview.modCompressDesc">Native WIC, managed VP8L WebP, and zlib PDF tools.</p>
+                </div>
+                <div class="cu-module-card" data-cu-optional="true">
+                  <div class="cu-module-head"><span class="cu-module-name" data-i18n="cu.preview.modClip">Plain paste &amp; clipboard</span><i class="cu-dot is-utility"></i></div>
+                  <p data-i18n="cu.preview.modClipDesc">Memory-only history, optional DPAPI encryption, text transforms.</p>
+                </div>
+                <div class="cu-module-card">
+                  <div class="cu-module-head"><span class="cu-module-name" data-i18n="cu.preview.modQr">QR code suite</span><i class="cu-dot is-utility"></i></div>
+                  <p data-i18n="cu.preview.modQrDesc">Offline ZXing screen scanner and instant PNG generator.</p>
+                </div>
+              </div>
+
+              <dl class="cu-status-strip">
+                <div class="cu-status-cell">
+                  <dt data-i18n="cu.preview.trayTitle">Left-click tray behavior</dt>
+                  <dd id="cu-tray-readout" data-i18n="cu.preview.trayFull">Opens Dashboard (or Capture when configured)</dd>
+                </div>
+                <div class="cu-status-cell">
+                  <dt data-i18n="cu.preview.overviewState">Overview state</dt>
+                  <dd id="cu-state-readout" data-i18n="cu.preview.stateFull">6 module cards</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+          <p class="preview-footnote" data-i18n="cu.preview.footnote">Interactive browser preview demonstrating how Screenshot-Only Mode collapses unused tiles and routes tray clicks directly to capture.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section cu-ux-section" id="capture-tools">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2 data-i18n="cu.ux.title">Fast capture workflows without the extra clicks.</h2>
+            <p class="section-copy" data-i18n="cu.ux.body">Switch across v0.0.101 actions: instant 0 ms active-window capture, drag-and-drop into Discord or browsers, one-click OCR clipboard copy, rounded gradient frames, and click-through ghost pins.</p>
+          </div>
+          <p class="simulation-note" data-i18n="cu.ux.note">Interactive browser mockup showing capture workflows.</p>
+        </div>
+
+        <div class="cu-sandbox">
+          <div class="cu-sandbox-card">
+            <div class="cu-ux-tabs" role="tablist">
+              <button type="button" class="cu-ux-tab is-active" data-cu-ux="snap" data-i18n="cu.ux.tabSnap">Window Snap (0 ms)</button>
+              <button type="button" class="cu-ux-tab" data-cu-ux="ocr" data-i18n="cu.ux.tabOcr">OCR &amp; Copy (Shift+O)</button>
+              <button type="button" class="cu-ux-tab" data-cu-ux="drag" data-i18n="cu.ux.tabDrag">Drag-Out PNG</button>
+              <button type="button" class="cu-ux-tab" data-cu-ux="ghost" data-i18n="cu.ux.tabGhost">Ghost Pin (G)</button>
+            </div>
+
+            <div class="cu-ux-detail">
+              <div class="cu-ux-copy">
+                <span class="cu-ux-badge" dir="ltr" id="cu-ux-badge">0 ms · Ctrl+Alt+S</span>
+                <h3 id="cu-ux-heading">Instant Active-Window Snap</h3>
+                <p id="cu-ux-desc">Press Ctrl+Alt+S (or use the tray item) to grab the focused window via DWM extended bounds straight into your clipboard and auto-save folder with zero overlay freeze frame.</p>
+                <button type="button" class="cu-frame-switch" id="cu-frame-btn" aria-pressed="false" data-i18n="cu.ux.frameToggle">Pretty rounded frame (F)</button>
+              </div>
+
+              <div class="cu-shot-stage" id="cu-shot-stage">
+                <div class="cu-shot-card" id="cu-shot-card">
+                  <div class="cu-shot-bar">
+                    <span>CryoUtils</span>
+                    <span id="cu-shot-tag" dir="ltr">PNG</span>
+                  </div>
+                  <p class="cu-shot-caption" id="cu-shot-caption">Focused window -&gt; Clipboard + PNG</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="cu-footprint-card">
+            <div>
+              <h3 data-i18n="cu.ux.liteCardTitle">Pure .NET 10 footprint — 2.70 MB Lite Setup</h3>
+              <p data-i18n="cu.ux.liteCardBody">Removed WinForms, SkiaSharp, and Microsoft.Windows.SDK.NET via Win32 Shell_NotifyIconW menus, pure managed WebP/PDF encoders, direct WinRT COM interop, and 256x256 icon assets.</p>
+            </div>
+
+            <div class="cu-bars">
+              <div class="cu-bar-item">
+                <div class="cu-bar-head"><span data-i18n="cu.ux.editionZip">Lite Zip</span><strong dir="ltr">0.91 MB</strong></div>
+                <div class="cu-bar-track"><div class="cu-bar-fill is-lite" style="width: 3%;"></div></div>
+              </div>
+              <div class="cu-bar-item">
+                <div class="cu-bar-head"><span data-i18n="cu.ux.editionLite">Lite Installer</span><strong dir="ltr">2.70 MB</strong></div>
+                <div class="cu-bar-track"><div class="cu-bar-fill is-lite" style="width: 8%;"></div></div>
+              </div>
+              <div class="cu-bar-item">
+                <div class="cu-bar-head"><span data-i18n="cu.ux.editionFull">Full Offline</span><strong dir="ltr">43.2 MB</strong></div>
+                <div class="cu-bar-track"><div class="cu-bar-fill" style="width: 100%;"></div></div>
+              </div>
+            </div>
+
+            <div class="cu-tag-row">
+              <span class="cu-tag" dir="ltr">Zero WinForms</span>
+              <span class="cu-tag" dir="ltr">Zero SkiaSharp</span>
+              <span class="cu-tag" dir="ltr">Zero SDK.NET</span>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="section features-section" id="features">
+      <div class="container">
+        <div class="section-head features-head">
+          <div>
+            <h2 data-i18n="cu.features.title">Clean local tools built for speed and privacy.</h2>
+            <p class="section-copy" data-i18n="cu.features.body">Capture, record, convert, inspect, and automate files locally without shipping heavy frameworks or background daemons.</p>
+          </div>
+          <p class="simulation-note" data-i18n="cu.features.note">Every feature runs offline unless you explicitly approve a Catbox upload.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card feature-wide">
+            <div class="feature-copy">
+              <h3 data-i18n="cu.features.c1Title">Frozen multi-monitor markup and scrolling stitch</h3>
+              <p data-i18n="cu.features.c1Body">Opens a per-monitor physical-pixel overlay with tools 1-0, live wheel sizing, inline text editing, irreversible pixel blur and redaction, plus vertical scrolling capture up to 16,000 px.</p>
+            </div>
+            <div class="feature-visual" aria-hidden="true">
+              <div class="cu-tag-row">
+                <span class="cu-tag" data-i18n="cu.features.c1Tag1">1-0 shortcuts</span>
+                <span class="cu-tag" data-i18n="cu.features.c1Tag2">Scroll 16k px</span>
+                <span class="cu-tag" data-i18n="cu.features.c1Tag3">Irreversible blur</span>
+              </div>
+              <div class="visual-rule"></div>
+              <p class="visual-caption" dir="ltr">CaptureOverlayWindow · PerMonitorV2 physical pixel crop + AnnotationRenderer</p>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-visual" aria-hidden="true">
+              <div class="visual-top"><span data-i18n="cu.preview.modeLabel">Screenshot-Only (Lite)</span><span class="cu-ux-badge" data-i18n="cu.features.c2Badge">Lite mode ready</span></div>
+              <p class="visual-caption" data-i18n="cu.features.c2Metric">Tools detached · Hooks unregistered</p>
+            </div>
+            <div class="feature-copy">
+              <h3 data-i18n="cu.features.c2Title">Screenshot-Only Mode (Lite) &amp; compact overview</h3>
+              <p data-i18n="cu.features.c2Body">Detaches heavyweight tools tabs, clears background thumbnail caches, routes tray left and double-clicks straight to capture, and collapses unused tiles into a tight Capture + QR view.</p>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-visual" aria-hidden="true">
+              <div class="diag-check"><span class="diag-glyph">✓</span><span data-i18n="cu.features.c3Row1">HTTPS .sha256 check</span></div>
+              <div class="diag-check"><span class="diag-glyph">✓</span><span data-i18n="cu.features.c3Row2">Edition lock (Lite / Full)</span></div>
+              <div class="diag-check"><span class="diag-glyph">✓</span><span data-i18n="cu.features.c3Row3">Mutex single instance</span></div>
+            </div>
+            <div class="feature-copy">
+              <h3 data-i18n="cu.features.c3Title">Verified updates (SHA-256) &amp; single-instance tray</h3>
+              <p data-i18n="cu.features.c3Body">UpdaterService fetches and verifies each release's HTTPS .sha256 file before closing to install, matching Lite vs Offline editions automatically. Single-instance locking prevents duplicate tray icons while keeping --capture and Explorer actions instant.</p>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-visual" aria-hidden="true">
+              <div class="visual-top"><span data-i18n="cu.preview.tileRecord">Record screen</span><span class="cu-ux-badge" dir="ltr" data-i18n="cu.features.c4Badge">H.264 / AAC · 60 FPS</span></div>
+              <p class="visual-caption" dir="ltr">WgcCaptureEngine · WasapiCaptureService · ReplaySegmentRing (Ctrl+Shift+R)</p>
+            </div>
+            <div class="feature-copy">
+              <h3 data-i18n="cu.features.c4Title">Native Media Foundation MP4 &amp; Instant Replay</h3>
+              <p data-i18n="cu.features.c4Body">Record region GIFs or 60 FPS WGC/D3D11 H.264/AAC MP4s with WASAPI system audio and mic mixing, webcam bubbles, cursor pulses, trim editor, and disk-backed replay ring (Ctrl+Shift+R).</p>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-visual" aria-hidden="true">
+              <div class="visual-top"><span data-i18n="cu.preview.modColor">Precision colour picker</span><span class="cu-ux-badge" dir="ltr" data-i18n="cu.features.c5Badge">WCAG AA / AAA</span></div>
+              <p class="visual-caption" dir="ltr">Windows.Media.Ocr (EN / AR) · Shift+O Copy · HEX / RGB / HSL</p>
+            </div>
+            <div class="feature-copy">
+              <h3 data-i18n="cu.features.c5Title">Offline Windows OCR, code tinting &amp; colour picker</h3>
+              <p data-i18n="cu.features.c5Body">Inspect screen pixels at 15x15 zoom, check WCAG AA/AAA ratios, detect hex/RGB/HSL swatches, and syntax-tint extracted code locally.</p>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-visual" aria-hidden="true">
+              <div class="visual-top"><span data-i18n="cu.preview.modCompress">Image &amp; GIF compressor</span><span class="cu-ux-badge" data-i18n="cu.features.c6Badge">Zero SkiaSharp</span></div>
+              <p class="visual-caption" dir="ltr">Windows WIC · SimpleWebpEncoder · SimplePdfWriter · ZXing.Net</p>
+            </div>
+            <div class="feature-copy">
+              <h3 data-i18n="cu.features.c6Title">Pure-WIC compressor, WebP/PDF &amp; Explorer menu</h3>
+              <p data-i18n="cu.features.c6Body">Batch-compress PNG/JPG/WebP/GIF, build zlib FlateDecode PDFs, render PDF pages via Windows.Data.Pdf, scan/create ZXing QR codes, and run actions straight from Windows Explorer right-click menus.</p>
+            </div>
+          </article>
+
+          <article class="feature-card feature-wide feature-wide-last">
+            <div class="feature-copy">
+              <h3 data-i18n="cu.features.c7Title">Cryo Workbench, Explorer integration &amp; full Arabic RTL</h3>
+              <p data-i18n="cu.features.c7Body">Browse your capture library by source app, run Copy/Save automation recipes, manage encrypted DPAPI clipboard snippets, and switch live between Dark/Light themes and mirrored English/Arabic layouts.</p>
+            </div>
+            <div class="feature-visual language-visual" aria-hidden="true">
+              <div class="pause-options">
+                <span class="is-selected" data-i18n="cu.features.c7Opt1">Workbench</span>
+                <span data-i18n="cu.features.c7Opt2">Recipes</span>
+                <span data-i18n="cu.features.c7Opt3">EN / RTL</span>
+              </div>
+              <div class="visual-rule"></div>
+              <p class="visual-caption" dir="ltr">capture-library.json · workflows.json · clipboard.bin (DPAPI) · 941 EN/AR keys</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section download-section" id="download">
+      <div class="container">
+        <div class="download-panel">
+          <div class="download-intro">
+            <h2 data-i18n="cu.dl.title">Download CryoUtils</h2>
+            <p class="section-copy" data-i18n="cu.dl.body">Choose the self-contained Full Offline installer, the 2.70 MB Lite installer, or a portable archive verified by SHA-256.</p>
+
+            <div class="release-meta">
+              <span class="release-version" id="cu-release-version" dir="ltr">v0.0.101</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <time id="cu-release-date" datetime="2026-11-27T14:00:00Z">Nov 27, 2026</time>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span>Windows 10/11 x64</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span>Apache-2.0</span>
+              <span class="meta-separator" aria-hidden="true">·</span>
+              <span data-i18n="release.openSource">Open Source</span>
+            </div>
+
+            <p class="release-status" id="cu-release-status" role="status" aria-live="polite" data-i18n="cu.dl.statusLoading">Checking the latest release on GitHub.</p>
+            <noscript>
+              <p class="release-status is-fallback" data-i18n="cu.dl.noscript">JavaScript is off. Links point to CryoUtils v0.0.101.</p>
+            </noscript>
+
+            <a class="text-link releases-link" href="https://github.com/ZerroDevs/CryoUtils/releases" target="_blank" rel="noopener" data-i18n="release.allReleases">All releases on GitHub</a>
+
+            <div class="cu-smartscreen-note">
+              <strong data-i18n="cu.dl.smartTitle">SHA-256 updates &amp; Windows SmartScreen</strong>
+              <p data-i18n="cu.dl.smartBody">In-app updates verify the release's HTTPS .sha256 file before running setup. Because open-source builds may be unsigned, Windows SmartScreen can show an "Unknown publisher" warning on first run; verify the hash above before continuing.</p>
+            </div>
+          </div>
+
+          <div class="download-actions">
+            <a class="download-option is-primary" id="cu-download-setup" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-Setup-0.0.101.exe" target="_blank" rel="noopener">
+              <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 4h8v8H3zM13 4h8v8h-8zM3 14h8v6H3zM13 14h8v6h-8z"/></svg></span>
+              <span class="download-copy">
+                <strong data-i18n="cu.dl.setupFull">Full Installer (Offline)</strong>
+                <span class="download-meta"><bdi id="cu-setup-size" dir="ltr">43.2 MB</bdi> <span aria-hidden="true">·</span> <span>.exe</span> <span aria-hidden="true">·</span> <span data-i18n="cu.dl.setupFullNote">Self-contained · zero runtime download</span></span>
+                <code class="file-name" id="cu-setup-filename" dir="ltr">CryoUtils-Setup-0.0.101.exe</code>
+              </span>
+              <span class="download-action" data-i18n="release.download">Download</span>
+            </a>
+
+            <a class="download-option" id="cu-download-lite" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-Setup-Lite-0.0.101.exe" target="_blank" rel="noopener">
+              <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 10-12h-7z"/></svg></span>
+              <span class="download-copy">
+                <strong data-i18n="cu.dl.setupLite">Lite Installer (Smallest)</strong>
+                <span class="download-meta"><bdi id="cu-lite-size" dir="ltr">2.70 MB</bdi> <span aria-hidden="true">·</span> <span>.exe</span> <span aria-hidden="true">·</span> <span data-i18n="cu.dl.setupLiteNote">Auto-installs .NET 10 if missing</span></span>
+                <code class="file-name" id="cu-lite-filename" dir="ltr">CryoUtils-Setup-Lite-0.0.101.exe</code>
+              </span>
+              <span class="download-action" data-i18n="release.download">Download</span>
+            </a>
+
+            <a class="download-option" id="cu-download-zip" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-0.0.101-win-x64.zip" target="_blank" rel="noopener">
+              <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM9 3v4h2V3M9 7v4h2V7M9 11v4h2v-4M9 15v4h2v-4M8 21h8"/></svg></span>
+              <span class="download-copy">
+                <strong data-i18n="cu.dl.zipFull">Portable Archive (Full)</strong>
+                <span class="download-meta"><bdi id="cu-zip-size" dir="ltr">57.7 MB</bdi> <span aria-hidden="true">·</span> <span>.zip</span> <span aria-hidden="true">·</span> <span data-i18n="cu.dl.zipFullNote">Extract &amp; run CryoUtils.exe</span></span>
+                <code class="file-name" id="cu-zip-filename" dir="ltr">CryoUtils-0.0.101-win-x64.zip</code>
+              </span>
+              <span class="download-action" data-i18n="release.download">Download</span>
+            </a>
+
+            <a class="download-option" id="cu-download-lite-zip" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-Lite-0.0.101-win-x64.zip" target="_blank" rel="noopener">
+              <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM9 3v4h2V3M9 7v4h2V7M9 11v4h2v-4M8 21h8"/></svg></span>
+              <span class="download-copy">
+                <strong data-i18n="cu.dl.zipLite">Portable Archive (Lite)</strong>
+                <span class="download-meta"><bdi id="cu-lite-zip-size" dir="ltr">0.91 MB</bdi> <span aria-hidden="true">·</span> <span>.zip</span> <span aria-hidden="true">·</span> <span data-i18n="cu.dl.zipLiteNote">Requires .NET 10 Desktop x64</span></span>
+                <code class="file-name" id="cu-lite-zip-filename" dir="ltr">CryoUtils-Lite-0.0.101-win-x64.zip</code>
+              </span>
+              <span class="download-action" data-i18n="release.download">Download</span>
+            </a>
+
+            <details class="checksum">
+              <summary data-i18n="release.verifySummary">Verify the SHA-256 checksum</summary>
+              <div class="checksum-body">
+                <p data-i18n="release.verifyBody">Download the matching .sha256 file, then run this in PowerShell and compare both hash values.</p>
+                <pre><code id="cu-checksum-command" dir="ltr">Get-FileHash .\CryoUtils-Setup-0.0.101.exe -Algorithm SHA256</code></pre>
+                <div class="checksum-actions">
+                  <button class="btn btn-quiet" id="cu-copy-checksum" type="button" data-i18n="release.copy">Copy command</button>
+                  <a class="text-link" id="cu-setup-sha" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-Setup-0.0.101.exe.sha256" target="_blank" rel="noopener" data-i18n="release.installerHash">Offline hash file</a>
+                  <a class="text-link" id="cu-lite-sha" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-Setup-Lite-0.0.101.exe.sha256" target="_blank" rel="noopener" data-i18n="cu.dl.hashLite">Lite installer hash</a>
+                  <a class="text-link" id="cu-zip-sha" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-0.0.101-win-x64.zip.sha256" target="_blank" rel="noopener" data-i18n="cu.dl.hashZipFull">Full zip hash</a>
+                  <a class="text-link" id="cu-lite-zip-sha" href="https://github.com/ZerroDevs/CryoUtils/releases/download/v0.0.101/CryoUtils-Lite-0.0.101-win-x64.zip.sha256" target="_blank" rel="noopener" data-i18n="cu.dl.hashZipLite">Lite zip hash</a>
+                </div>
+                <p class="copy-status" id="cu-copy-status" role="status" aria-live="polite"></p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/cryoutils-icon.png" width="24" height="24" alt="" aria-hidden="true">
+        <div>
+          <span class="footer-name">CryoUtils</span>
+          <span class="footer-credit" data-i18n="footer.credit">Built by ZeroNuxi - ZerroDevs</span>
+        </div>
+      </div>
+      <p class="footer-meta">Windows 10/11 x64 <span aria-hidden="true">·</span> Apache-2.0</p>
+      <nav class="footer-links" aria-label="Project links" data-i18n-aria="a11y.footerNav">
+        <a href="index.html" data-i18n="footer.cryotray">CryoTray</a>
+        <a href="https://github.com/ZerroDevs/CryoUtils" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/ZerroDevs/CryoUtils/blob/main/LICENSE" target="_blank" rel="noopener" data-i18n="footer.license">Apache-2.0 License</a>
+        <a href="https://github.com/ZerroDevs/CryoUtils/blob/main/SECURITY.md" target="_blank" rel="noopener">SECURITY.md</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
