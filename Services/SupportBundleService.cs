@@ -123,7 +123,11 @@ namespace CryoTray.Services
                 settings.GpuDeltaAlertsEnabled,
                 settings.DisableAllNotifications,
                 settings.DownloadTimerEnabled,
-                settings.AutoRamOptimizeEnabled
+                settings.AutoRamOptimizeEnabled,
+                settings.CryoBootDefaultDelaySeconds,
+                settings.CryoBootWaitForSystemIdle,
+                settings.CryoBootMaxIdleWaitSeconds,
+                CryoBootEntryCount = settings.CryoBootEntries?.Count ?? 0
             };
 
             return JsonSerializer.Serialize(safe, JsonOptions);

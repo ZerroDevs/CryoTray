@@ -1,5 +1,18 @@
 # CONTEXT
 
+## CLI Control & Single-Instance Named-Pipe IPC (2026-11-28)
+
+- `CliCommandService` leaves `/autostart`, `/test`, `/test-unit`, `/test-updates`, `/dump`, and `/uninstall-cleanup` untouched (`IsCliInvocation == false`). Valid CLI invocations bypass `ActivateEventName` on `!createdNew` so macros never pop open `MainWindow`.
+- `CryoTray-Cli-Pipe-99210` uses `NamedPipeServerStreamAcl.Create` (`PipeTransmissionMode.Byte` newline-framed JSON, `maxNumberOfServerInstances: 4`, async IOCP wait = `0%` idle CPU) scoped exclusively to `WindowsIdentity.GetCurrent().User`, `BuiltinAdministratorsSid`, and `LocalSystemSid`.
+- Cold-starting with a CLI flag sets `cliColdStart` (`LaunchInBackground`-equivalent tray-only start + `4s` power-plan timer) and runs `ExecuteColdStartCliAsync` after initialization finishes. Exit codes: `0` success, `2` invalid CLI args/unknown profile, `3` execution or pipe connect failure.
+
+## CryoBoot Startup & Delayed Boot Manager (2026-11-28)
+
+- `StartupManagerService` never deletes `HKCU`/`HKLM` `Run` values or `.lnk` shortcuts; disabling or delaying writes Windows Task Manager's 12-byte `StartupApproved` state (`0x02` enabled / `0x03` disabled + FILETIME) or toggles non-Microsoft Logon `Schedule.Service` tasks (keeping CryoTray's own `StartupTaskService` task `IsReadOnly = true`), and `/uninstall-cleanup` calls `RestoreAllDelayedEntriesForUninstall()`.
+- `UnelevatedProcessLauncher` extracts `explorer.exe`'s desktop user token (`GetShellWindow` -> `DuplicateTokenEx` -> `CreateProcessWithTokenW` + `CreateEnvironmentBlock`) so delayed user apps do not inherit `CryoTray.exe` Administrator privileges unless a Scheduled Task has `HighestAvailable`.
+- `StartupDelayService` runs its 1s queue timer and transient PDH disk write counter only when `CryoBootEntries` is non-empty AND (`isAutostart` OR `Environment.TickCount64 <= 300_000`) AND `%APPDATA%\CryoTray\cryoboot-state.json` `CompletedBootUtc` differs by `>120s`, disposing timer and PDH resources immediately once all queued items complete (`0%` steady-state idle).
+- `StartupManagerWindow` binds row mode/delay/idle options `TwoWay` on `StartupEntryRowViewModel` (avoiding virtualized `ListBox` container recycling false mutations), decodes frozen `18px`/`SHGFI_SMALLICON` icons lazily via `DispatcherPriority.Background` with immediate `DestroyIcon`, and clears caches on close.
+
 ## v0.0.109 release published (2026-11-26)
 
 - Release commit `9afe9a8` published tag `v0.0.109` via Release workflow run `45901573329` (`2026-11-26T22:00:36Z`): `CryoTray-Setup-0.0.109.exe` (`55,184,025` bytes), `CryoTray-0.0.109-win-x64.zip` (`82,611,972` bytes), `CryoTray-Update-0.0.109-win-x64.zip` (`82,636,117` bytes), and `.sha256` files.

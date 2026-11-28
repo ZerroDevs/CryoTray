@@ -6,6 +6,17 @@ Reuse these before adding a duplicate helper. Update this file when adding share
 
 - Remaining candidates without contracts: chart peak/threshold insights, quiet hours, battery health/runtime, native tray hosting, and tray layout self-check.
 
+## CLI control & single-instance IPC contracts (2026-11-28)
+
+- `CliCommandService.Instance` (`StartServer`, `StopServer`, `Dispose`) + pure/client helpers (`TryParseArgs`, `ResolveProfileForCli`, `GetUsageText`, `SendToRunningInstance`, `WriteCliConsoleOutput`, `CreateCurrentUserPipeSecurity`): sole CLI argument parser, profile alias resolver, and named-pipe IPC router (`CryoTray-Cli-Pipe-99210`); routes `/cooling`, `/profile`, `/ram-optimize`, `/overlay`, `/status`, `/help` into `App.ExecuteCliCommandAsync` without opening the dashboard.
+
+## CryoBoot startup & delayed boot contracts (2026-11-28)
+
+- `StartupManagerService.Instance` (`DiscoverAllAsync`, `TrySetEntryMode`, `UpdateDelayedOptions`, `MoveDelayedPriority`, `RestoreAllDelayedEntriesForUninstall`, `LaunchItemNow`) + pure helpers `BuildEntryId`, `DecodeApprovedEnabled`, `EncodeApprovedBytes`, `SplitCommandLine`, `TryParseLogonTaskXml`, `ClampDelaySeconds`: sole Windows startup discovery/mutation manager (`StartupApproved` binary flags, `.lnk` `IShellLinkW`, and `Schedule.Service` COM).
+- `UnelevatedProcessLauncher.Instance` (`TryLaunch`, `ResolveWorkingDirectory`, `ResolveSpawnCommand`): single `IStartupProcessLauncher` de-elevating user startup launches via `explorer.exe`'s desktop token (`CreateProcessWithTokenW`).
+- `StartupDelayService.Instance` (`StartIfDue`, `LaunchQueuedItemNow`, `LaunchAllNow`, `CancelPendingQueue`, `RemovePendingEntry`, `GetRuntimeStatesSnapshot`, `DeleteBootSessionMarker`, `Dispose`) + pure helpers `ComputeCurrentBootUtc`, `ShouldRunBootQueue`, `EvaluateLaunchReadiness`, `IsExecutableAlreadyRunning`: single boot-delay queue engine with 2-sample CPU/Disk idle gate, max-wait cap, and immediate timer/PDH disposal.
+- `MainWindow.ShowStartupManagerDialog()` + 4-arg `FormatActiveUtilityDisplay(KeepAwakeStatus?, DownloadTimerStatus?, TimeSpan?, CryoBootQueueStatus? = null)` & `ResolveActiveUtilityStopTooltip("cryoboot")`: modeless window docking + `ActiveUtilityBar` integration.
+
 ## GPU load display contracts (2026-11-26)
 
 - `AppSettings.ShowGpuLoad` (default true): the only switch for the dashboard GPU load percentage. `MainWindow.ApplyTelemetryVisibility` controls `TxtGpuLoad` visibility, and `UpdateTelemetryUI` writes the value from `HardwareSnapshot.GpuLoad`; `double.NaN` renders `--%`. Do not add a second GPU sensor poll.

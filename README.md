@@ -485,7 +485,20 @@ New-Item -ItemType Directory -Force "$env:ProgramData\CryoTray" | Out-Null
 New-Item -ItemType File -Force "$env:ProgramData\CryoTray\dev-mode" | Out-Null
 ```
 
-The marker lives in the administrator-protected CryoTray data folder, so a standard user cannot create it. It relaxes only the startup location guard; update installation still refuses a user-writable app folder. Delete `%ProgramData%\CryoTray\dev-mode` to restore the guard. Without the marker, run a Release build only from an administrator-protected location (the installer, or a copied `publish\win-x64` folder). The `/test`, `/test-updates`, `/dump`, and `/uninstall-cleanup` command-line modes still run directly from any build output.
+The marker lives in the administrator-protected CryoTray data folder, so a standard user cannot create it. It relaxes only the startup location guard; update installation still refuses a user-writable app folder. Delete `%ProgramData%\CryoTray\dev-mode` to restore the guard. Without the marker, run a Release build only from an administrator-protected location (the installer, or a copied `publish\win-x64` folder). The `/test`, `/test-updates`, `/dump`, `/uninstall-cleanup`, and CLI control command-line modes still run directly from any build output.
+
+### CLI control and automation
+
+Control the active CryoTray instance silently from PowerShell scripts, Windows shortcuts, or Stream Deck macros without opening the dashboard window (using a user-SID restricted named pipe when an instance is already running, or cold-starting in background tray mode when closed):
+
+```powershell
+CryoTray.exe /cooling on          # on | off | toggle
+CryoTray.exe /profile gaming-high # cooling, eco, legacy, balanced, work, gaming-low|medium|high|ultimate, ext:<guid>
+CryoTray.exe /ram-optimize        # run RAM cleanup using configured CryoTray scopes
+CryoTray.exe /overlay toggle      # on | off | toggle
+CryoTray.exe /status              # cooling, profile key, CPU/GPU temp, RAM summary
+CryoTray.exe /help                # print CLI options (exit 0 = OK, 2 = invalid args, 3 = failed)
+```
 
 ### Local publish
 

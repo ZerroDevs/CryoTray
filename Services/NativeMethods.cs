@@ -606,5 +606,179 @@ namespace CryoTray.Services
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ChooseColorW(ref CHOOSECOLORW lpcc);
+
+        // Process / Token / Shell Interop (CryoBoot unelevated execution & shortcut resolution)
+        public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        public const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+        public const uint TOKEN_DUPLICATE = 0x0002;
+        public const uint TOKEN_QUERY = 0x0008;
+        public const uint TOKEN_ADJUST_DEFAULT = 0x0080;
+        public const uint TOKEN_ADJUST_SESSIONID = 0x0100;
+        public const int SecurityImpersonation = 2;
+        public const int TokenPrimary = 1;
+        public const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+        public const uint SHGFI_ICON = 0x000000100;
+        public const uint SHGFI_SMALLICON = 0x000000001;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct STARTUPINFOW
+        {
+            public uint cb;
+            public string? lpReserved;
+            public string? lpDesktop;
+            public string? lpTitle;
+            public uint dwX;
+            public uint dwY;
+            public uint dwXSize;
+            public uint dwYSize;
+            public uint dwXCountChars;
+            public uint dwYCountChars;
+            public uint dwFillAttribute;
+            public uint dwFlags;
+            public ushort wShowWindow;
+            public ushort cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput;
+            public IntPtr hStdOutput;
+            public IntPtr hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public uint dwProcessId;
+            public uint dwThreadId;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct SHFILEINFOW
+        {
+            public IntPtr hIcon;
+            public int iIcon;
+            public uint dwAttributes;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szDisplayName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
+            public string szTypeName;
+        }
+
+        [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr GetShellWindow();
+
+        public const uint ATTACH_PARENT_PROCESS = uint.MaxValue;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool AttachConsole(uint dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr OpenProcess(
+            uint dwDesiredAccess,
+            [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle,
+            uint dwProcessId);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool OpenProcessToken(
+            IntPtr ProcessHandle,
+            uint DesiredAccess,
+            out IntPtr TokenHandle);
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DuplicateTokenEx(
+            IntPtr hExistingToken,
+            uint dwDesiredAccess,
+            IntPtr lpTokenAttributes,
+            int ImpersonationLevel,
+            int TokenType,
+            out IntPtr phNewToken);
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CreateProcessWithTokenW(
+            IntPtr hToken,
+            uint dwLogonFlags,
+            [MarshalAs(UnmanagedType.LPWStr)] string? lpApplicationName,
+            [MarshalAs(UnmanagedType.LPWStr)] string? lpCommandLine,
+            uint dwCreationFlags,
+            IntPtr lpEnvironment,
+            [MarshalAs(UnmanagedType.LPWStr)] string? lpCurrentDirectory,
+            [In] ref STARTUPINFOW lpStartupInfo,
+            out PROCESS_INFORMATION lpProcessInformation);
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CreateEnvironmentBlock(
+            out IntPtr lpEnvironment,
+            IntPtr hToken,
+            [MarshalAs(UnmanagedType.Bool)] bool bInherit);
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DestroyEnvironmentBlock(IntPtr lpEnvironment);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        public static extern IntPtr SHGetFileInfoW(
+            [MarshalAs(UnmanagedType.LPWStr)] string pszPath,
+            uint dwFileAttributes,
+            ref SHFILEINFOW psfi,
+            uint cbFileInfo,
+            uint uFlags);
+
+        [ComImport]
+        [Guid("00021401-0000-0000-C000-000000000046")]
+        public class ShellLink
+        {
+        }
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("000214F9-0000-0000-C000-000000000046")]
+        public interface IShellLinkW
+        {
+            void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszFile, int cch, IntPtr pfd, uint fFlags);
+            void GetIDList(out IntPtr ppidl);
+            void SetIDList(IntPtr pidl);
+            void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszName, int cch);
+            void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+            void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszDir, int cch);
+            void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);
+            void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszArgs, int cch);
+            void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);
+            void GetHotkey(out ushort pwHotkey);
+            void SetHotkey(ushort wHotkey);
+            void GetShowCmd(out int piShowCmd);
+            void SetShowCmd(int iShowCmd);
+            void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pszIconPath, int cch, out int piIcon);
+            void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);
+            void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, uint dwReserved);
+            void Resolve(IntPtr hwnd, uint fFlags);
+            void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
+        }
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("0000010b-0000-0000-C000-000000000046")]
+        public interface IPersistFile
+        {
+            void GetClassID(out Guid pClassID);
+            [PreserveSig] int IsDirty();
+            void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, uint dwMode);
+            void Save([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, [MarshalAs(UnmanagedType.Bool)] bool fRemember);
+            void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);
+            void GetCurFile([MarshalAs(UnmanagedType.LPWStr)] out string ppszFileName);
+        }
     }
 }

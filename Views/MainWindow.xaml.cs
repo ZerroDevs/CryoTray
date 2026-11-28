@@ -491,6 +491,7 @@ namespace CryoTray.Views
             HardwareMonitorService.Instance.TelemetryUpdated += OnTelemetryUpdated;
             KeepAwakeService.Instance.StatusChanged += OnUtilityTimerChanged;
             DownloadTimerService.Instance.StatusChanged += OnDownloadTimerChanged;
+            StartupDelayService.Instance.StatusChanged += OnCryoBootStatusChanged;
             if (System.Windows.Application.Current is App utilityApp)
             {
                 utilityApp.CoolingPauseChanged += OnUtilityTimerChanged;
@@ -562,6 +563,7 @@ namespace CryoTray.Views
             HardwareMonitorService.Instance.TelemetryUpdated -= OnTelemetryUpdated;
             KeepAwakeService.Instance.StatusChanged -= OnUtilityTimerChanged;
             DownloadTimerService.Instance.StatusChanged -= OnDownloadTimerChanged;
+            StartupDelayService.Instance.StatusChanged -= OnCryoBootStatusChanged;
             if (System.Windows.Application.Current is App pauseApp)
             {
                 pauseApp.CoolingPauseChanged -= OnUtilityTimerChanged;
@@ -849,6 +851,7 @@ namespace CryoTray.Views
         private StressTestWindow? _stressTestWindow;
         private HealthCheckWindow? _healthCheckWindow;
         private SessionReportWindow? _sessionReportWindow;
+        private StartupManagerWindow? _startupManagerWindow;
         private bool _isChildDialogOpen;
 
         private void Window_Deactivated(object? sender, EventArgs e)
@@ -1672,6 +1675,11 @@ namespace CryoTray.Views
             OnUtilityTimerChanged();
         }
 
+        private void OnCryoBootStatusChanged(CryoBootQueueStatus _)
+        {
+            OnUtilityTimerChanged();
+        }
+
         private void RefreshActiveUtilityBar(bool updateHeight)
         {
             if (ActiveUtilityBar == null || TxtActiveUtilityStatus == null)
@@ -1681,6 +1689,7 @@ namespace CryoTray.Views
 
             bool keepActive = KeepAwakeService.Instance.IsActive;
             bool downloadActive = DownloadTimerService.Instance.IsArmed;
+            bool cryoBootActive = StartupDelayService.Instance.IsQueueActive;
             DateTime? pausedUntil = (System.Windows.Application.Current as App)?.CoolingPausedUntilUtc;
             TimeSpan? pauseRemaining = pausedUntil.HasValue && pausedUntil.Value > DateTime.UtcNow
                 ? pausedUntil.Value - DateTime.UtcNow
@@ -1710,7 +1719,7 @@ namespace CryoTray.Views
                 }
             }
 
-            if (!keepActive && !downloadActive && !pauseRemaining.HasValue)
+            if (!keepActive && !downloadActive && !cryoBootActive && !pauseRemaining.HasValue)
             {
                 CollapseUtilityBar();
                 return;
@@ -1718,7 +1727,8 @@ namespace CryoTray.Views
 
             KeepAwakeStatus? keepStatus = keepActive ? KeepAwakeService.Instance.GetStatus() : null;
             DownloadTimerStatus? downloadStatus = downloadActive ? DownloadTimerService.Instance.CurrentStatus : null;
-            var (text, primaryKind, anyActive) = FormatActiveUtilityDisplay(keepStatus, downloadStatus, pauseRemaining);
+            CryoBootQueueStatus? cryoBootStatus = cryoBootActive ? StartupDelayService.Instance.CurrentStatus : null;
+            var (text, primaryKind, anyActive) = FormatActiveUtilityDisplay(keepStatus, downloadStatus, pauseRemaining, cryoBootStatus);
             if (!anyActive)
             {
                 CollapseUtilityBar();
@@ -1756,15 +1766,34 @@ namespace CryoTray.Views
         internal static (string Text, string PrimaryKind, bool AnyActive) FormatActiveUtilityDisplay(
             KeepAwakeStatus? keepStatus,
             DownloadTimerStatus? downloadStatus,
-            TimeSpan? pauseRemaining)
+            TimeSpan? pauseRemaining,
+            CryoBootQueueStatus? cryoBootStatus = null)
         {
-            var segments = new List<string>(3);
+            var segments = new List<string>(4);
             string primaryKind = "";
 
             if (downloadStatus != null && downloadStatus.Phase != DownloadTimerPhase.Disarmed)
             {
                 primaryKind = "download";
                 segments.Add(FormatDownloadTimerSummary(downloadStatus));
+            }
+
+            if (cryoBootStatus != null && cryoBootStatus.IsActive)
+            {
+                if (primaryKind.Length == 0)
+                {
+                    primaryKind = "cryoboot";
+                }
+
+                segments.Add(cryoBootStatus.WaitingForIdle
+                    ? LocalizationService.Format(
+                        "Main_ActiveTimer_CryoBootIdleWait",
+                        cryoBootStatus.RemainingCount,
+                        cryoBootStatus.NextEntryName)
+                    : LocalizationService.Format(
+                        "Main_ActiveTimer_CryoBoot",
+                        cryoBootStatus.RemainingCount,
+                        Math.Max(0, cryoBootStatus.SecondsUntilNext)));
             }
 
             if (keepStatus != null && keepStatus.IsActive)
@@ -1800,6 +1829,7 @@ namespace CryoTray.Views
         internal static string ResolveActiveUtilityStopTooltip(string primaryKind) => primaryKind switch
         {
             "download" => LocalizationService.Get("Main_ActiveTimer_StopDownload"),
+            "cryoboot" => LocalizationService.Get("Main_ActiveTimer_StopCryoBoot"),
             "keepawake" => LocalizationService.Get("Tray_KeepAwakeStop"),
             "pause" => LocalizationService.Get("Tray_ResumeCoolingNow"),
             _ => LocalizationService.Get("Main_ActiveTimer_StopAutomation")
@@ -1842,6 +1872,9 @@ namespace CryoTray.Views
             {
                 case "download":
                     DownloadTimerService.Instance.CancelAndDisarm();
+                    break;
+                case "cryoboot":
+                    StartupDelayService.Instance.CancelPendingQueue();
                     break;
                 case "keepawake":
                     KeepAwakeService.Instance.Stop();
@@ -3578,6 +3611,11 @@ namespace CryoTray.Views
             ShowSessionReportDialog();
         }
 
+        private void MenuToolsStartupManager_Click(object sender, RoutedEventArgs e)
+        {
+            ShowStartupManagerDialog();
+        }
+
         private void MenuToolsCopySnapshot_Click(object sender, RoutedEventArgs e)
         {
             CopyDashboardSnapshot();
@@ -4227,6 +4265,27 @@ namespace CryoTray.Views
             win.Activate();
         }
 
+        public void ShowStartupManagerDialog()
+        {
+            if (_startupManagerWindow != null)
+            {
+                if (!_startupManagerWindow.IsVisible)
+                {
+                    _startupManagerWindow.Show();
+                }
+                _startupManagerWindow.Activate();
+                return;
+            }
+
+            var win = new StartupManagerWindow { Owner = this };
+            DockSideBySide(win);
+            _startupManagerWindow = win;
+            win.Closed += (_, _) => UntrackChildWindow(win);
+            UpdateChildDialogState();
+            win.Show();
+            win.Activate();
+        }
+
         private void UntrackChildWindow(Window window)
         {
             if (ReferenceEquals(window, _settingsWindow)) _settingsWindow = null;
@@ -4235,6 +4294,7 @@ namespace CryoTray.Views
             if (ReferenceEquals(window, _stressTestWindow)) _stressTestWindow = null;
             if (ReferenceEquals(window, _healthCheckWindow)) _healthCheckWindow = null;
             if (ReferenceEquals(window, _sessionReportWindow)) _sessionReportWindow = null;
+            if (ReferenceEquals(window, _startupManagerWindow)) _startupManagerWindow = null;
 
             UpdateChildDialogState();
             UpdateTitleIconStates();
@@ -4251,7 +4311,8 @@ namespace CryoTray.Views
                 _storageCleanupWindow != null ||
                 _stressTestWindow != null ||
                 _healthCheckWindow != null ||
-                _sessionReportWindow != null;
+                _sessionReportWindow != null ||
+                _startupManagerWindow != null;
         }
 
         private void UpdateTitleIconStates()
@@ -4557,6 +4618,11 @@ namespace CryoTray.Views
             UpdateChildDialogState();
             window.Show();
             window.Activate();
+        }
+
+        private void MenuRamStartupManager_Click(object sender, RoutedEventArgs e)
+        {
+            ShowStartupManagerDialog();
         }
 
         private void MenuRamScope_Click(object sender, RoutedEventArgs e)

@@ -962,6 +962,14 @@
                     <CheckBox x:Name="ChkShowComputerName" Content="{DynamicResource Settings_ShowComputerName}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkLaunchStartup" Content="{DynamicResource Settings_LaunchStartup}" Checked="ChkLaunchStartup_Changed" Unchecked="ChkLaunchStartup_Changed"/>
                     <CheckBox x:Name="ChkLaunchBackground" Content="{DynamicResource Settings_LaunchBackground}" Checked="SettingChanged" Unchecked="SettingChanged"/>
+                    <Button x:Name="BtnOpenStartupManager"
+                            Content="{DynamicResource Settings_OpenStartupManager}"
+                            Click="BtnOpenStartupManager_Click"
+                            Style="{StaticResource SettingsFooterButton}"
+                            HorizontalAlignment="Left"
+                            Margin="28,-2,0,8"
+                            Padding="10,5"
+                            AutomationProperties.Name="{DynamicResource Settings_OpenStartupManager}"/>
                     <CheckBox x:Name="ChkEnableCoolingOnLaunch" Content="{DynamicResource Settings_EnableCoolingOnLaunch}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkEnableCoolingOnBattery" Content="{DynamicResource Settings_EnableCoolingOnBattery}" Checked="SettingChanged" Unchecked="SettingChanged"/>
                     <CheckBox x:Name="ChkDisableCoolingOnExit" Content="{DynamicResource Settings_DisableCoolingOnExit}" Checked="SettingChanged" Unchecked="SettingChanged"/>

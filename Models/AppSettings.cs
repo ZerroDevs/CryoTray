@@ -190,6 +190,12 @@ namespace CryoTray.Models
         public bool DownloadTimerDiskGuard { get; set; } = true;
         public bool DownloadTimerWaitForStart { get; set; } = true;
 
+        // CryoBoot startup & boot delay manager (zero-overhead until Delayed entries exist)
+        public int CryoBootDefaultDelaySeconds { get; set; } = 45;
+        public bool CryoBootWaitForSystemIdle { get; set; } = true;
+        public int CryoBootMaxIdleWaitSeconds { get; set; } = 60;
+        public List<StartupDelaySetting> CryoBootEntries { get; set; } = new();
+
         // Updates
         public bool AutomaticUpdateChecks { get; set; } = true;
         public bool SaveRollbackOnUpdate { get; set; } = true;

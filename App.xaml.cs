@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.NetworkInformation;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -96,7 +97,20 @@ namespace CryoTray
             if (e.Args.Length > 0 && e.Args[0].Equals("/uninstall-cleanup", StringComparison.OrdinalIgnoreCase))
             {
                 PowerPlanService.Instance.CleanupForUninstall();
+                StartupManagerService.Instance.RestoreAllDelayedEntriesForUninstall();
                 Environment.Exit(0);
+                return;
+            }
+
+            CliParseResult cliParse = CliCommandService.TryParseArgs(e.Args);
+            if (cliParse.IsCliInvocation &&
+                (!cliParse.IsValid || cliParse.Request?.Kind == CliCommandKind.Help))
+            {
+                string output = cliParse.IsValid
+                    ? CliCommandService.GetUsageText()
+                    : cliParse.ErrorMessage;
+                CliCommandService.WriteCliConsoleOutput(output, isError: !cliParse.IsValid);
+                Environment.Exit(cliParse.IsValid ? 0 : 2);
                 return;
             }
 
@@ -108,6 +122,14 @@ namespace CryoTray
             _singleInstanceMutex = new Mutex(true, appGuid, out bool createdNew);
             if (!createdNew)
             {
+                if (cliParse.IsCliInvocation && cliParse.Request != null)
+                {
+                    CliCommandResponse response = CliCommandService.SendToRunningInstance(cliParse.Request);
+                    CliCommandService.WriteCliConsoleOutput(response.Message, isError: response.ExitCode != 0);
+                    Environment.Exit(response.ExitCode);
+                    return;
+                }
+
                 if (!isAutostart)
                 {
                     TrySignalExistingInstance(ActivateEventName);
@@ -118,6 +140,7 @@ namespace CryoTray
 
             _isPrimaryInstance = true;
             RegisterActivationWaitHandle();
+            CliCommandService.Instance.StartServer(ExecuteCliCommandAsync);
 
             base.OnStartup(e);
 
@@ -292,6 +315,8 @@ namespace CryoTray
             TimerResolutionService.Instance.Start();
             StandbyPurgeService.Instance.Start();
             KeepAwakeService.Instance.Start();
+            StartupDelayService.Instance.QueueCompleted += OnCryoBootQueueCompleted;
+            StartupDelayService.Instance.StartIfDue(isAutostart);
 
             if (settings.EnableCoolingOnLaunch)
             {
@@ -301,16 +326,17 @@ namespace CryoTray
 
             RegisterHotkeyIfEnabled();
 
+            bool cliColdStart = cliParse.IsCliInvocation && cliParse.Request != null;
             _powerPlanWatchTimer = new DispatcherTimer
             {
-                Interval = settings.LaunchInBackground
+                Interval = (settings.LaunchInBackground || cliColdStart)
                     ? TimeSpan.FromSeconds(4)
                     : TimeSpan.FromSeconds(2)
             };
             _powerPlanWatchTimer.Tick += (s, args) => PowerPlanService.Instance.SyncCoolingStateFromSystem();
             _powerPlanWatchTimer.Start();
 
-            if (!settings.LaunchInBackground)
+            if (!settings.LaunchInBackground && !cliColdStart)
             {
                 ShowDashboard();
             }
@@ -318,6 +344,149 @@ namespace CryoTray
             MemoryTrimService.Instance.ScheduleTrim(MemoryTrimService.StartupDelay);
 
             ScheduleAutomaticUpdateCheck(checkNow: true);
+
+            if (cliColdStart)
+            {
+                _ = ExecuteColdStartCliAsync(cliParse.Request!);
+            }
+        }
+
+        private async Task ExecuteColdStartCliAsync(CliCommandRequest request)
+        {
+            try
+            {
+                CliCommandResponse response = await ExecuteCliCommandAsync(request).ConfigureAwait(false);
+                CliCommandService.WriteCliConsoleOutput(response.Message, isError: response.ExitCode != 0);
+            }
+            catch
+            {
+            }
+        }
+
+        private async Task<CliCommandResponse> ExecuteCliCommandAsync(CliCommandRequest request)
+        {
+            if (_isExiting)
+            {
+                return new CliCommandResponse(3, "ERROR: CryoTray is shutting down.");
+            }
+
+            switch (request.Kind)
+            {
+                case CliCommandKind.CoolingOn:
+                case CliCommandKind.CoolingOff:
+                case CliCommandKind.CoolingToggle:
+                    {
+                        return await Dispatcher.InvokeAsync(() =>
+                        {
+                            if (request.Kind == CliCommandKind.CoolingToggle)
+                            {
+                                PowerPlanService.Instance.ToggleCoolingMode();
+                            }
+                            else
+                            {
+                                PowerPlanService.Instance.SetCoolingMode(request.Kind == CliCommandKind.CoolingOn);
+                            }
+
+                            var active = PowerPlanService.Instance.ActiveProfile;
+                            string state = PowerPlanService.Instance.IsCoolingModeActive ? "ON" : "OFF";
+                            string name = active?.SchemeName ?? state;
+                            return new CliCommandResponse(0, $"OK: Cooling {state} ({name})");
+                        });
+                    }
+
+                case CliCommandKind.Profile:
+                    {
+                        return await Dispatcher.InvokeAsync(() =>
+                        {
+                            PowerProfileDefinition? resolved = CliCommandService.ResolveProfileForCli(
+                                request.Argument,
+                                SettingsService.Instance.Current);
+                            if (resolved == null)
+                            {
+                                return new CliCommandResponse(2, $"ERROR: Unknown profile '{request.Argument}'.");
+                            }
+
+                            bool switched = PowerPlanService.Instance.SwitchToProfile(resolved);
+                            return switched
+                                ? new CliCommandResponse(0, $"OK: Profile -> {resolved.Key} ({resolved.SchemeName})")
+                                : new CliCommandResponse(3, $"ERROR: Failed to switch to profile '{resolved.SchemeName}'.");
+                        });
+                    }
+
+                case CliCommandKind.RamOptimize:
+                    {
+                        MemoryOptimizationResult? result = await MemoryOptimizerService.Instance
+                            .OptimizeAsync(MemoryOptimizationTrigger.Hotkey)
+                            .ConfigureAwait(false);
+
+                        if (result == null)
+                        {
+                            return new CliCommandResponse(3, "ERROR: RAM optimization is already running.");
+                        }
+                        if (result.NoScopeSelected)
+                        {
+                            return new CliCommandResponse(3, "ERROR: No RAM cleanup scopes are enabled.");
+                        }
+                        if (result.RequiresElevation)
+                        {
+                            return new CliCommandResponse(3, "ERROR: Administrator privileges required for kernel RAM optimization.");
+                        }
+                        if (!result.Succeeded)
+                        {
+                            return new CliCommandResponse(3, $"ERROR: RAM optimization failed (NTSTATUS 0x{result.LastNtStatus:X8}).");
+                        }
+
+                        long freedBytes = (long)Math.Min(long.MaxValue, result.FreedBytes);
+                        return new CliCommandResponse(0, $"OK: RAM optimized (freed {StorageCleanupService.FormatBytes(freedBytes)})");
+                    }
+
+                case CliCommandKind.OverlayOn:
+                case CliCommandKind.OverlayOff:
+                case CliCommandKind.OverlayToggle:
+                    {
+                        return await Dispatcher.InvokeAsync(() =>
+                        {
+                            if (request.Kind == CliCommandKind.OverlayToggle)
+                            {
+                                ToggleOverlay();
+                            }
+                            else if (request.Kind == CliCommandKind.OverlayOn)
+                            {
+                                EnableOverlay();
+                            }
+                            else
+                            {
+                                DisableOverlay();
+                            }
+
+                            bool isOn = _overlayWindow != null && _overlayWindow.IsVisible;
+                            return new CliCommandResponse(0, $"OK: Overlay {(isOn ? "ON" : "OFF")}");
+                        });
+                    }
+
+                case CliCommandKind.Status:
+                    {
+                        return await Dispatcher.InvokeAsync(() =>
+                        {
+                            var active = PowerPlanService.Instance.ActiveProfile;
+                            var snap = HardwareMonitorService.Instance.CurrentSnapshot;
+                            string cooling = PowerPlanService.Instance.IsCoolingModeActive ? "on" : "off";
+                            string key = active?.Key ?? "none";
+                            string cpu = double.IsFinite(snap.CpuTemp) ? $"{snap.CpuTemp:F1}C" : "na";
+                            string gpu = double.IsFinite(snap.GpuTemp) ? $"{snap.GpuTemp:F1}C" : "na";
+                            string ram = double.IsFinite(snap.RamUsedGb) && double.IsFinite(snap.RamTotalGb)
+                                ? $"{snap.RamUsedGb:F1}/{snap.RamTotalGb:F1}GB"
+                                : "na";
+                            return new CliCommandResponse(0, $"OK: cooling={cooling} profile={key} cpu={cpu} gpu={gpu} ram={ram}");
+                        });
+                    }
+
+                case CliCommandKind.Help:
+                    return new CliCommandResponse(0, CliCommandService.GetUsageText());
+
+                default:
+                    return new CliCommandResponse(2, "ERROR: Unsupported CLI command.");
+            }
         }
 
         public bool TryConsumeStartupHealthCheck(out bool postUpdate, out bool firstRun)
@@ -724,6 +893,14 @@ namespace CryoTray
         private void OpenStressTestFromTray()
         {
             ShowDashboard()?.OpenStressTestDialog();
+        }
+
+        private void OnCryoBootQueueCompleted()
+        {
+            if (!_isExiting)
+            {
+                MemoryTrimService.Instance.ScheduleTrim(MemoryTrimService.DefaultDelay);
+            }
         }
 
         private void ToggleDownloadTimerFromTray()
@@ -1396,6 +1573,7 @@ namespace CryoTray
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             PowerPlanService.Instance.CoolingModeChanged -= OnPowerPlanCoolingChanged;
             UnregisterActivationWaitHandle();
+            CliCommandService.Instance.Dispose();
             AutopilotService.Instance.ExternalPauseHoldCheck = null;
             AutopilotService.Instance.StateChanged -= OnAutopilotStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted -= OnMemoryOptimizationCompleted;
@@ -1406,6 +1584,8 @@ namespace CryoTray
             DownloadTimerService.Instance.StatusChanged -= OnDownloadTimerStatusChanged;
             DownloadTimerService.Instance.WarningEnded -= OnDownloadTimerWarningEnded;
             DownloadTimerService.Instance.Dispose();
+            StartupDelayService.Instance.QueueCompleted -= OnCryoBootQueueCompleted;
+            StartupDelayService.Instance.Dispose();
             GpuPowerControlService.Instance.Dispose();
             CloseDownloadTimerWarning();
             if (_temperatureAlertService != null)
@@ -1687,6 +1867,7 @@ namespace CryoTray
             ThemeService.ThemeChanged -= OnThemeChanged;
             ThemeService.Shutdown();
             UnregisterActivationWaitHandle();
+            CliCommandService.Instance.Dispose();
             AutopilotService.Instance.ExternalPauseHoldCheck = null;
             AutopilotService.Instance.StateChanged -= OnAutopilotStateChanged;
             MemoryOptimizerService.Instance.OptimizationCompleted -= OnMemoryOptimizationCompleted;

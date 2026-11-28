@@ -95,6 +95,8 @@ namespace CryoTray.Tests
             allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
             allPassed &= TestIdleTimersMemoryTrimAndFastSystemInfo();
+            allPassed &= TestCryoBootStartupManagerAndDelayEngine();
+            allPassed &= TestCliControlParserAndIpcPipe();
             allPassed &= FollowUpVerificationTests.RunNonElevatedChecks();
 
             Console.WriteLine("==================================================");
@@ -173,6 +175,8 @@ namespace CryoTray.Tests
             allPassed &= TestGpuPowerAndDownloadTimerSafety();
             allPassed &= TestSystemInfoAndHardwareSensorHelpers();
             allPassed &= TestIdleTimersMemoryTrimAndFastSystemInfo();
+            allPassed &= TestCryoBootStartupManagerAndDelayEngine();
+            allPassed &= TestCliControlParserAndIpcPipe();
             allPassed &= FollowUpVerificationTests.RunNonElevatedChecks();
             allPassed &= UpdateVerificationTests.RunNonElevatedChecks();
 
@@ -1278,6 +1282,7 @@ namespace CryoTray.Tests
                     var kad = new Views.KeepAwakeDurationWindow();
                     var hcw = new Views.HealthCheckWindow(false, false);
                     var srw = new Views.SessionReportWindow();
+                    var smw = new Views.StartupManagerWindow();
                     mw.Close();
                     sw.Close();
                     siw.Close();
@@ -1287,6 +1292,7 @@ namespace CryoTray.Tests
                     kad.Close();
                     hcw.Close();
                     srw.Close();
+                    smw.Close();
                     _ = ow;
                 }
                 catch (Exception ex)
@@ -1309,7 +1315,7 @@ namespace CryoTray.Tests
                 return false;
             }
 
-            Console.WriteLine("PASSED (All 10 Windows instantiated cleanly)");
+            Console.WriteLine("PASSED (All 11 Windows instantiated cleanly)");
             return true;
         }
 
@@ -3952,7 +3958,7 @@ namespace CryoTray.Tests
                                     }
                                 }
 
-                                if (itemCount != 7 || sepCount != 1 || ramMenu.Items.Count != 5)
+                                if (itemCount != 8 || sepCount != 1 || ramMenu.Items.Count != 6)
                                 {
                                     throw new Exception($"Unexpected menu structure: toolsItems={itemCount}, toolsSep={sepCount}, ramItems={ramMenu.Items.Count}");
                                 }
@@ -3975,9 +3981,13 @@ namespace CryoTray.Tests
                                     ramMenu.Items[4] is not System.Windows.Controls.MenuItem cleanupItem ||
                                     cleanupItem.IsCheckable ||
                                     !ReferenceEquals(cleanupItem.Style, ramRowStyle) ||
-                                    cleanupItem.Header is not System.Windows.Controls.Grid)
+                                    cleanupItem.Header is not System.Windows.Controls.Grid ||
+                                    ramMenu.Items[5] is not System.Windows.Controls.MenuItem startupItem ||
+                                    startupItem.IsCheckable ||
+                                    !ReferenceEquals(startupItem.Style, ramRowStyle) ||
+                                    startupItem.Header is not System.Windows.Controls.Grid)
                                 {
-                                    throw new Exception("RAM scope menu rows, group header, or cleanup entry are missing or malformed.");
+                                    throw new Exception("RAM scope menu rows, group header, or utility entries are missing or malformed.");
                                 }
 
                                 var (toolsBmp, ramBmp) = mw.RenderWpfContextMenusForTest();
@@ -6755,6 +6765,447 @@ namespace CryoTray.Tests
                 MemoryTrimService.Instance.ResetForTest();
                 SystemInfoQueryService.Instance.InvalidateCacheForTest();
                 GpuDiagnosticsService.InvalidateCacheForTest();
+            }
+        }
+
+        private sealed class FakeStartupStore : IStartupPlatformStore
+        {
+            public List<StartupItemRecord> NativeItems { get; } = new();
+            public Dictionary<string, bool> ApprovedStates { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+            public IReadOnlyList<StartupItemRecord> DiscoverNativeEntries(CancellationToken cancellationToken)
+            {
+                return NativeItems.Select(n => new StartupItemRecord
+                {
+                    EntryId = n.EntryId,
+                    Name = n.Name,
+                    Publisher = n.Publisher,
+                    CommandLine = n.CommandLine,
+                    ExecutablePath = n.ExecutablePath,
+                    Arguments = n.Arguments,
+                    WorkingDirectory = n.WorkingDirectory,
+                    SourceKind = n.SourceKind,
+                    SourceName = n.SourceName,
+                    TaskPath = n.TaskPath,
+                    RequiresElevation = n.RequiresElevation,
+                    IsReadOnly = n.IsReadOnly,
+                    ReadOnlyReasonKey = n.ReadOnlyReasonKey,
+                    Mode = ApprovedStates.TryGetValue(n.EntryId, out bool enabled)
+                        ? (enabled ? StartupEntryMode.Enabled : StartupEntryMode.Disabled)
+                        : n.Mode,
+                    NativeWindowsMode = ApprovedStates.TryGetValue(n.EntryId, out bool natEnabled)
+                        ? (natEnabled ? StartupEntryMode.Enabled : StartupEntryMode.Disabled)
+                        : n.NativeWindowsMode
+                }).ToList();
+            }
+
+            public bool TrySetApprovedEnabled(
+                StartupSourceKind sourceKind,
+                string sourceName,
+                string taskPath,
+                bool enabled,
+                out string errorMessage)
+            {
+                errorMessage = "";
+                string id = StartupManagerService.BuildEntryId(
+                    sourceKind,
+                    sourceKind == StartupSourceKind.ScheduledTask ? taskPath : sourceName);
+                ApprovedStates[id] = enabled;
+                return true;
+            }
+        }
+
+        private sealed class FakeStartupLauncher : IStartupProcessLauncher
+        {
+            public List<(string Exe, string Args, bool Elevate)> Launched { get; } = new();
+
+            public bool TryLaunch(
+                string executablePath,
+                string arguments,
+                string workingDirectory,
+                bool preserveElevation,
+                out string errorMessage)
+            {
+                errorMessage = "";
+                Launched.Add((executablePath, arguments, preserveElevation));
+                return true;
+            }
+        }
+
+        private static bool TestCryoBootStartupManagerAndDelayEngine()
+        {
+            Console.Write("[TEST] CryoBoot Startup Manager, Delay Gate & STA UI... ");
+            AppSettings settings = SettingsService.Instance.Current;
+            int origDefaultDelay = settings.CryoBootDefaultDelaySeconds;
+            bool origWaitIdle = settings.CryoBootWaitForSystemIdle;
+            int origMaxWait = settings.CryoBootMaxIdleWaitSeconds;
+            List<StartupDelaySetting> origEntries = (settings.CryoBootEntries ?? new List<StartupDelaySetting>())
+                .Select(e => new StartupDelaySetting
+                {
+                    EntryId = e.EntryId,
+                    DisplayName = e.DisplayName,
+                    CommandLine = e.CommandLine,
+                    ExecutablePath = e.ExecutablePath,
+                    Arguments = e.Arguments,
+                    WorkingDirectory = e.WorkingDirectory,
+                    SourceKind = e.SourceKind,
+                    SourceName = e.SourceName,
+                    TaskPath = e.TaskPath,
+                    RequiresElevation = e.RequiresElevation,
+                    DelaySeconds = e.DelaySeconds,
+                    PriorityOrder = e.PriorityOrder,
+                    WaitForIdle = e.WaitForIdle,
+                    AutoRestoreOnUninstall = e.AutoRestoreOnUninstall
+                })
+                .ToList();
+
+            try
+            {
+                // 1. Windows StartupApproved binary codec
+                if (!StartupManagerService.DecodeApprovedEnabled(null) ||
+                    !StartupManagerService.DecodeApprovedEnabled(new byte[] { 0x02, 0x00, 0x00, 0x00 }) ||
+                    !StartupManagerService.DecodeApprovedEnabled(new byte[] { 0x06, 0x00, 0x00, 0x00 }) ||
+                    StartupManagerService.DecodeApprovedEnabled(new byte[] { 0x03, 0x00, 0x00, 0x00 }) ||
+                    StartupManagerService.DecodeApprovedEnabled(new byte[] { 0x01, 0x00, 0x00, 0x00 }))
+                {
+                    throw new Exception("DecodeApprovedEnabled failed for standard Windows approved bytes.");
+                }
+
+                byte[] disabledBytes = StartupManagerService.EncodeApprovedBytes(false, DateTime.UtcNow);
+                byte[] enabledBytes = StartupManagerService.EncodeApprovedBytes(true);
+                if (disabledBytes.Length != 12 || enabledBytes.Length != 12 ||
+                    StartupManagerService.DecodeApprovedEnabled(disabledBytes) ||
+                    !StartupManagerService.DecodeApprovedEnabled(enabledBytes))
+                {
+                    throw new Exception("EncodeApprovedBytes round-trip mismatch.");
+                }
+
+                // 2. Command line parsing
+                var (qExe, qArgs) = StartupManagerService.SplitCommandLine("\"C:\\Program Files\\My App\\app.exe\" --minimized --silent", _ => false);
+                if (!string.Equals(qExe, @"C:\Program Files\My App\app.exe", StringComparison.OrdinalIgnoreCase) ||
+                    qArgs != "--minimized --silent")
+                {
+                    throw new Exception($"Quoted command split failed: '{qExe}' '{qArgs}'.");
+                }
+
+                var (uExe, uArgs) = StartupManagerService.SplitCommandLine(@"C:\Tools\Sub Folder\demo.exe --tray", p => p.Equals(@"C:\Tools\Sub Folder\demo.exe", StringComparison.OrdinalIgnoreCase));
+                if (!string.Equals(uExe, @"C:\Tools\Sub Folder\demo.exe", StringComparison.OrdinalIgnoreCase) ||
+                    uArgs != "--tray")
+                {
+                    throw new Exception($"Unquoted command split failed: '{uExe}' '{uArgs}'.");
+                }
+
+                // 3. Task Scheduler XML LogonTrigger parser
+                const string logonXml = """
+                    <Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+                      <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
+                      <Principals><Principal><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+                      <Settings><Enabled>true</Enabled></Settings>
+                      <Actions><Exec><Command>C:\Apps\Helper.exe</Command><Arguments>/tray</Arguments></Exec></Actions>
+                    </Task>
+                    """;
+                if (!StartupManagerService.TryParseLogonTaskXml(logonXml, out bool hasLogon, out bool tEnabled, out string tCmd, out string tArgs, out _, out bool tHighest) ||
+                    !hasLogon || !tEnabled || tCmd != @"C:\Apps\Helper.exe" || tArgs != "/tray" || !tHighest)
+                {
+                    throw new Exception("TryParseLogonTaskXml failed on LogonTrigger task.");
+                }
+
+                const string bootXml = "<Task><Triggers><BootTrigger /></Triggers><Actions><Exec><Command>foo.exe</Command></Exec></Actions></Task>";
+                if (StartupManagerService.TryParseLogonTaskXml(bootXml, out _, out _, out _, out _, out _, out _))
+                {
+                    throw new Exception("TryParseLogonTaskXml should reject non-logon BootTrigger task.");
+                }
+
+                // 4. Delay + Stability Engine & Boot Session Guard
+                int calm = 0;
+                if (StartupDelayService.EvaluateLaunchReadiness(20, 45, true, 60, 10, 100, ref calm, out var st) ||
+                    st != StartupDelayItemState.Pending || calm != 0)
+                {
+                    throw new Exception("Delay gate launched before delaySeconds elapsed.");
+                }
+
+                calm = 0;
+                if (StartupDelayService.EvaluateLaunchReadiness(46, 45, true, 60, 80, 100, ref calm, out st) ||
+                    st != StartupDelayItemState.WaitingForIdle || calm != 0)
+                {
+                    throw new Exception("Stability gate ignored high CPU load.");
+                }
+
+                if (StartupDelayService.EvaluateLaunchReadiness(47, 45, true, 60, 12, 20_000_000, ref calm, out st) ||
+                    st != StartupDelayItemState.WaitingForIdle || calm != 0)
+                {
+                    throw new Exception("Stability gate ignored high disk write activity.");
+                }
+
+                if (StartupDelayService.EvaluateLaunchReadiness(48, 45, true, 60, 10, 1000, ref calm, out st) || calm != 1)
+                {
+                    throw new Exception("Stability gate should require 2 consecutive calm samples.");
+                }
+
+                if (!StartupDelayService.EvaluateLaunchReadiness(49, 45, true, 60, 10, 1000, ref calm, out st) ||
+                    st != StartupDelayItemState.Launching)
+                {
+                    throw new Exception("Stability gate did not launch after consecutive calm samples.");
+                }
+
+                calm = 0;
+                if (!StartupDelayService.EvaluateLaunchReadiness(105, 45, true, 60, 99, 99_000_000, ref calm, out st) ||
+                    st != StartupDelayItemState.Launching)
+                {
+                    throw new Exception("MaxIdleWait timeout safety cap did not force launch.");
+                }
+
+                DateTime bootUtc = new(2026, 11, 28, 12, 0, 0, DateTimeKind.Utc);
+                if (!StartupDelayService.ShouldRunBootQueue(true, true, 900_000, bootUtc, null) ||
+                    StartupDelayService.ShouldRunBootQueue(true, false, 900_000, bootUtc, null) ||
+                    StartupDelayService.ShouldRunBootQueue(true, true, 10_000, bootUtc, bootUtc.AddSeconds(30)))
+                {
+                    throw new Exception("ShouldRunBootQueue failed session/late-launch/autostart guard.");
+                }
+
+                // 5. Non-destructive Store + Delayed Persistence + Priority + Uninstall Restore
+                settings.CryoBootEntries = new List<StartupDelaySetting>();
+                var fakeStore = new FakeStartupStore();
+                fakeStore.NativeItems.Add(new StartupItemRecord
+                {
+                    EntryId = "Reg:HKCU:Run:Discord",
+                    Name = "Discord",
+                    CommandLine = @"C:\Users\Test\AppData\Local\Discord\Update.exe --processStart Discord.exe",
+                    ExecutablePath = @"C:\Users\Test\AppData\Local\Discord\Update.exe",
+                    Arguments = "--processStart Discord.exe",
+                    SourceKind = StartupSourceKind.RegistryCurrentUserRun,
+                    SourceName = "Discord",
+                    Mode = StartupEntryMode.Enabled,
+                    NativeWindowsMode = StartupEntryMode.Enabled
+                });
+                fakeStore.NativeItems.Add(new StartupItemRecord
+                {
+                    EntryId = "Reg:HKCU:Run:Steam",
+                    Name = "Steam",
+                    CommandLine = @"C:\Program Files (x86)\Steam\steam.exe -silent",
+                    ExecutablePath = @"C:\Program Files (x86)\Steam\steam.exe",
+                    Arguments = "-silent",
+                    SourceKind = StartupSourceKind.RegistryCurrentUserRun,
+                    SourceName = "Steam",
+                    Mode = StartupEntryMode.Enabled,
+                    NativeWindowsMode = StartupEntryMode.Enabled
+                });
+
+                var fakeLauncher = new FakeStartupLauncher();
+                var manager = new StartupManagerService(fakeStore, fakeLauncher);
+
+                var initialList = manager.DiscoverAllCore();
+                if (initialList.Count != 2)
+                {
+                    throw new Exception($"Expected 2 fake items, got {initialList.Count}.");
+                }
+
+                if (!manager.TrySetEntryMode(initialList[0], StartupEntryMode.Delayed, out string err1, delaySeconds: 45, waitForIdle: true))
+                {
+                    throw new Exception($"TrySetEntryMode Delayed failed for item 0: {err1}");
+                }
+                if (!manager.TrySetEntryMode(initialList[1], StartupEntryMode.Delayed, out string err2, delaySeconds: 60, waitForIdle: false))
+                {
+                    throw new Exception($"TrySetEntryMode Delayed failed for item 1: {err2}");
+                }
+
+                if (fakeStore.ApprovedStates["Reg:HKCU:Run:Discord"] ||
+                    fakeStore.ApprovedStates["Reg:HKCU:Run:Steam"] ||
+                    settings.CryoBootEntries.Count != 2)
+                {
+                    throw new Exception("Delayed items must disable Windows native Approved state while keeping 2 CryoBoot entries.");
+                }
+
+                if (!manager.MoveDelayedPriority("Reg:HKCU:Run:Steam", -1) ||
+                    settings.CryoBootEntries[0].EntryId != "Reg:HKCU:Run:Steam" ||
+                    settings.CryoBootEntries[0].PriorityOrder != 1)
+                {
+                    throw new Exception("MoveDelayedPriority failed to swap Steam to priority #1.");
+                }
+
+                var afterDelayed = manager.DiscoverAllCore();
+                if (afterDelayed[0].EntryId != "Reg:HKCU:Run:Steam" || afterDelayed[0].Mode != StartupEntryMode.Delayed)
+                {
+                    throw new Exception("DiscoverAllCore did not overlay Delayed state + priority order.");
+                }
+
+                manager.RestoreAllDelayedEntriesForUninstall();
+                if (settings.CryoBootEntries.Count != 0 ||
+                    !fakeStore.ApprovedStates["Reg:HKCU:Run:Discord"] ||
+                    !fakeStore.ApprovedStates["Reg:HKCU:Run:Steam"])
+                {
+                    throw new Exception("RestoreAllDelayedEntriesForUninstall did not restore Windows StartupApproved state.");
+                }
+
+                // 6. ActiveUtilityBar formatting & LaunchNow
+                var cryoStatus = new CryoBootQueueStatus(true, 3, 1, 2, "Discord", 32, false);
+                var (barText, barKind, barActive) = Views.MainWindow.FormatActiveUtilityDisplay(null, null, null, cryoStatus);
+                if (!barActive || barKind != "cryoboot" || !barText.Contains("Discord", StringComparison.OrdinalIgnoreCase) && !barText.Contains("32", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception($"Unexpected ActiveUtilityBar CryoBoot format: '{barText}' kind='{barKind}'.");
+                }
+
+                string stopTip = Views.MainWindow.ResolveActiveUtilityStopTooltip("cryoboot");
+                if (string.IsNullOrWhiteSpace(stopTip) || !stopTip.Contains("CryoBoot", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception($"Unexpected CryoBoot Stop tooltip: '{stopTip}'.");
+                }
+
+                // 7. STA StartupManagerWindow filter/search/close cleanup smoke check
+                Exception? staEx = null;
+                var staThread = new Thread(() =>
+                {
+                    try
+                    {
+                        var win = new Views.StartupManagerWindow();
+                        win.SetActiveFilterForTest("Delayed");
+                        win.SetSearchTextForTest("NothingMatchesCryoBootTest");
+                        win.Close();
+                        if (!win.IsClosedForTest || win.VisibleCountForTest != 0 || win.AllCountForTest != 0)
+                        {
+                            throw new Exception("StartupManagerWindow failed cleanup on close.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        staEx = ex;
+                    }
+                    finally
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    }
+                });
+                staThread.SetApartmentState(ApartmentState.STA);
+                staThread.Start();
+                staThread.Join();
+                if (staEx != null)
+                {
+                    throw staEx;
+                }
+
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                settings.CryoBootDefaultDelaySeconds = origDefaultDelay;
+                settings.CryoBootWaitForSystemIdle = origWaitIdle;
+                settings.CryoBootMaxIdleWaitSeconds = origMaxWait;
+                settings.CryoBootEntries = origEntries;
+                SettingsService.Instance.Save();
+            }
+        }
+
+        private static bool TestCliControlParserAndIpcPipe()
+        {
+            Console.Write("[TEST] CLI Control Parser, Profile Aliases & Named-Pipe IPC... ");
+            try
+            {
+                // 1. Existing startup/test flags must not route to CLI mode.
+                if (CliCommandService.TryParseArgs(new[] { "/autostart" }).IsCliInvocation ||
+                    CliCommandService.TryParseArgs(new[] { "/test-unit" }).IsCliInvocation ||
+                    CliCommandService.TryParseArgs(Array.Empty<string>()).IsCliInvocation)
+                {
+                    throw new Exception("Standard startup/diagnostic flags must not be classified as CLI commands.");
+                }
+
+                // 2. CLI command argument parsing.
+                CliParseResult coolingOn = CliCommandService.TryParseArgs(new[] { "/cooling", "on" });
+                CliParseResult coolingOff = CliCommandService.TryParseArgs(new[] { "--cooling", "OFF" });
+                CliParseResult coolingToggle = CliCommandService.TryParseArgs(new[] { "/cooling", "toggle" });
+                CliParseResult profileCmd = CliCommandService.TryParseArgs(new[] { "/profile", "gaming-high" });
+                CliParseResult ramCmd = CliCommandService.TryParseArgs(new[] { "/ram-optimize" });
+                CliParseResult overlayCmd = CliCommandService.TryParseArgs(new[] { "/overlay", "toggle" });
+                CliParseResult statusCmd = CliCommandService.TryParseArgs(new[] { "/status" });
+                CliParseResult helpCmd = CliCommandService.TryParseArgs(new[] { "/help" });
+
+                if (!coolingOn.IsValid || coolingOn.Request?.Kind != CliCommandKind.CoolingOn ||
+                    !coolingOff.IsValid || coolingOff.Request?.Kind != CliCommandKind.CoolingOff ||
+                    !coolingToggle.IsValid || coolingToggle.Request?.Kind != CliCommandKind.CoolingToggle ||
+                    !profileCmd.IsValid || profileCmd.Request?.Kind != CliCommandKind.Profile || profileCmd.Request.Argument != "gaming-high" ||
+                    !ramCmd.IsValid || ramCmd.Request?.Kind != CliCommandKind.RamOptimize ||
+                    !overlayCmd.IsValid || overlayCmd.Request?.Kind != CliCommandKind.OverlayToggle ||
+                    !statusCmd.IsValid || statusCmd.Request?.Kind != CliCommandKind.Status ||
+                    !helpCmd.IsValid || helpCmd.Request?.Kind != CliCommandKind.Help)
+                {
+                    throw new Exception("Valid CLI arguments failed to parse accurately.");
+                }
+
+                CliParseResult missingMode = CliCommandService.TryParseArgs(new[] { "/cooling" });
+                CliParseResult badMode = CliCommandService.TryParseArgs(new[] { "/cooling", "invalid" });
+                CliParseResult badProfile = CliCommandService.TryParseArgs(new[] { "/profile" });
+                CliParseResult unknownFlag = CliCommandService.TryParseArgs(new[] { "/bogus-flag" });
+                if (missingMode.IsValid || badMode.IsValid || badProfile.IsValid || unknownFlag.IsValid)
+                {
+                    throw new Exception("Malformed CLI arguments unexpectedly validated.");
+                }
+
+                // 3. Built-in & External Profile normalization.
+                Guid extGuid = new("11223344-5566-7788-99aa-bbccddeeff00");
+                var mockSettings = new AppSettings
+                {
+                    ExternalPowerProfiles = new List<ExternalPowerProfileSetting>
+                    {
+                        new() { Guid = extGuid.ToString("D"), Name = "My Silent Bench", IsCooling = true, AccentColor = "#2B88D8" }
+                    }
+                };
+
+                if (CliCommandService.ResolveProfileForCli("eco", mockSettings)?.Key != PowerProfiles.EcoKey ||
+                    CliCommandService.ResolveProfileForCli("gaming-high", mockSettings)?.Key != PowerProfiles.GamingHighKey ||
+                    CliCommandService.ResolveProfileForCli("GAMING_ULTIMATE", mockSettings)?.Key != PowerProfiles.GamingUltimateKey ||
+                    CliCommandService.ResolveProfileForCli("windows-balanced", mockSettings)?.Key != PowerProfiles.BalancedKey ||
+                    CliCommandService.ResolveProfileForCli(extGuid.ToString("D"), mockSettings)?.SchemeGuid != extGuid ||
+                    CliCommandService.ResolveProfileForCli("My Silent Bench", mockSettings)?.SchemeGuid != extGuid ||
+                    CliCommandService.ResolveProfileForCli("nonexistent-plan", mockSettings) != null)
+                {
+                    throw new Exception("ResolveProfileForCli failed on canonical, alias, or external plan lookup.");
+                }
+
+                // 4. Live Named-Pipe Server + Client Round-Trip with PipeSecurity ACL.
+                string pipeName = $"CryoTray-Cli-Test-{Guid.NewGuid():N}";
+                var ctor = typeof(CliCommandService).GetConstructor(
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                    null,
+                    Type.EmptyTypes,
+                    null) ?? throw new Exception("Private CliCommandService constructor not found.");
+                using var server = (CliCommandService)ctor.Invoke(null);
+                server.StartServer(req =>
+                {
+                    return req.Kind switch
+                    {
+                        CliCommandKind.CoolingOn => Task.FromResult(new CliCommandResponse(0, "OK: Cooling ON (CryoTray — Eco)")),
+                        CliCommandKind.Profile when req.Argument == "unknown" => Task.FromResult(new CliCommandResponse(2, "ERROR: Unknown profile 'unknown'.")),
+                        CliCommandKind.RamOptimize => Task.FromResult(new CliCommandResponse(0, "OK: RAM optimized (freed 512 MB)")),
+                        _ => Task.FromResult(new CliCommandResponse(0, "OK: handled"))
+                    };
+                }, pipeName);
+
+                Thread.Sleep(50);
+
+                CliCommandResponse r1 = CliCommandService.SendToRunningInstance(new CliCommandRequest(CliCommandKind.CoolingOn), pipeName);
+                CliCommandResponse r2 = CliCommandService.SendToRunningInstance(new CliCommandRequest(CliCommandKind.Profile, "unknown"), pipeName);
+                CliCommandResponse r3 = CliCommandService.SendToRunningInstance(new CliCommandRequest(CliCommandKind.RamOptimize), pipeName);
+
+                if (r1.ExitCode != 0 || !r1.Message.Contains("Cooling ON", StringComparison.Ordinal) ||
+                    r2.ExitCode != 2 || !r2.Message.Contains("Unknown profile", StringComparison.Ordinal) ||
+                    r3.ExitCode != 0 || !r3.Message.Contains("RAM optimized", StringComparison.Ordinal))
+                {
+                    throw new Exception($"IPC round-trip mismatch: r1=({r1.ExitCode},{r1.Message}) r2=({r2.ExitCode},{r2.Message}) r3=({r3.ExitCode},{r3.Message})");
+                }
+
+                server.StopServer();
+                Console.WriteLine("PASSED");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAILED: {ex.Message}");
+                return false;
             }
         }
     }

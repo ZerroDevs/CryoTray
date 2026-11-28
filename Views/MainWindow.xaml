@@ -598,6 +598,9 @@
                                 <MenuItem x:Name="MenuToolsSessionReport"
                                           Header="{DynamicResource Main_ToolsSessionReport}"
                                           Click="MenuToolsSessionReport_Click"/>
+                                <MenuItem x:Name="MenuToolsStartupManager"
+                                          Header="{DynamicResource Main_ToolsStartupManager}"
+                                          Click="MenuToolsStartupManager_Click"/>
                                 <MenuItem x:Name="MenuToolsCopySnapshot"
                                           Header="{DynamicResource Main_ToolsCopySnapshot}"
                                           InputGestureText="Ctrl+C"
@@ -1906,6 +1909,32 @@
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock Grid.Column="1"
                                                                Text="{DynamicResource Ram_StorageCleanup}"
+                                                               FontSize="12.5"
+                                                               FontWeight="SemiBold"
+                                                               Margin="0,0,12,0"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{DynamicResource Ram_StorageCleanupBadge}"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                               FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </MenuItem.Header>
+                                        </MenuItem>
+                                        <MenuItem x:Name="MenuRamStartupManager"
+                                                  Style="{StaticResource RamScopeMenuItemStyle}"
+                                                  Click="MenuRamStartupManager_Click"
+                                                  AutomationProperties.Name="{DynamicResource Main_ToolsStartupManager}">
+                                            <MenuItem.Header>
+                                                <Grid VerticalAlignment="Center">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="16"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{DynamicResource Main_ToolsStartupManager}"
                                                                FontSize="12.5"
                                                                FontWeight="SemiBold"
                                                                Margin="0,0,12,0"

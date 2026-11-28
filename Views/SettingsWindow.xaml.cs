@@ -784,6 +784,11 @@ namespace CryoTray.Views
             {
                 words.Add("sleep display screen timeout idle monitor turn off never plugged battery power");
             }
+            if (name.Contains("StartupManager", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("LaunchStartup", StringComparison.OrdinalIgnoreCase))
+            {
+                words.Add("startup boot delay cryoboot autorun disable enable manager");
+            }
 
             return string.Join(" ", words);
         }
@@ -4193,6 +4198,19 @@ namespace CryoTray.Views
             }
 
             SaveUiIntoSettings();
+        }
+
+        private void BtnOpenStartupManager_Click(object sender, RoutedEventArgs e)
+        {
+            if (Owner is MainWindow mw)
+            {
+                mw.ShowStartupManagerDialog();
+                return;
+            }
+
+            var win = new StartupManagerWindow();
+            win.Show();
+            win.Activate();
         }
 
         private void ChkUseHotkey_Changed(object sender, RoutedEventArgs e)
